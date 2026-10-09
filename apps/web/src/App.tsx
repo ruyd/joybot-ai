@@ -52,6 +52,7 @@ const tickets = () => import('./routes/portal/TicketPages');
 const MyTickets = page(tickets, 'MyTickets');
 const TicketView = page(tickets, 'TicketView');
 const Organization = page(tickets, 'Organization');
+const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
@@ -75,7 +76,8 @@ const PORTAL_NAV: NavItem[] = [
 ];
 
 const STAFF_NAV: NavItem[] = [
-  { to: '/staff', label: 'Assistant', end: true },
+  { to: '/staff', label: 'Home', end: true },
+  { to: '/staff/assistant', label: 'Assistant' },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['merge', 'customers'] },
@@ -128,7 +130,8 @@ export function App() {
               </SessionProvider>
             }
           >
-            <Route index element={<ChatPage audience="employee" />} />
+            <Route index element={<StaffHome />} />
+            <Route path="assistant" element={<ChatPage audience="employee" />} />
             <Route path="customers" element={<Customers />} />
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="payments" element={<Payments />} />

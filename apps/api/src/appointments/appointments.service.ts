@@ -73,7 +73,10 @@ const CUSTOMER_COLUMNS = `a.id, a.appointment_number, a.customer_id, a.service_i
   a.scheduled_start, a.scheduled_end,
   to_char(a.scheduled_start AT TIME ZONE l.time_zone, 'YYYY-MM-DD"T"HH24:MI') AS local_start,
   a.status, a.price_quoted, a.currency, a.notes_customer, a.created_at, a.updated_at`;
-const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, a.created_by`;
+// The customer subquery runs under RLS like the rest: a customer the employee cannot read comes back null.
+const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, a.created_by,
+  (SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = a.customer_id) AS customer_name,
+  (SELECT c.customer_number FROM core.customers c WHERE c.id = a.customer_id) AS customer_number`;
 const FROM = `core.appointments a
   JOIN core.services s ON s.id = a.service_id
   JOIN core.locations l ON l.id = a.location_id

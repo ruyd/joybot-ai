@@ -18,6 +18,39 @@ export function dateTime(iso: string | null | undefined, timeZone?: string): str
   }).format(new Date(iso));
 }
 
+/** Time of day in a given IANA zone with the zone shown, e.g. "9:30 AM EDT". */
+export function time(iso: string | null | undefined, timeZone?: string): string {
+  if (!iso) return '—';
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone, timeZoneName: 'short' }).format(new Date(iso));
+}
+
+/**
+ * The instant at which the wall clock in `timeZone` reads `day` ('YYYY-MM-DD') `clock` ('HH:MM'), as ISO.
+ * For booking at a location in another zone than the viewer's. A time skipped by a DST change moves forward.
+ */
+export function zonedToIso(day: string, clock: string, timeZone: string): string {
+  const [y, mo, d] = day.split('-').map(Number);
+  const [h, mi] = clock.split(':').map(Number);
+  const wall = Date.UTC(y, mo - 1, d, h, mi);
+  const offset = (at: number) => {
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' })
+        .formatToParts(new Date(at))
+        .map((x) => [x.type, Number(x.value)]),
+    );
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - at;
+  };
+  // Two passes settle the offset on either side of a DST change.
+  let at = wall - offset(wall);
+  at = wall - offset(at);
+  return new Date(at).toISOString();
+}
+
+/** Today's date ('YYYY-MM-DD') on the wall clock in `timeZone`. */
+export function todayIn(timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
 export function date(value: string | null | undefined): string {
   if (!value) return '—';
   // Calendar dates ('YYYY-MM-DD') must not shift with the viewer's time zone.

@@ -31,6 +31,22 @@ export class LocationsController {
     );
   }
 
+  /** Active staff at a location, for booking (the same check appointments use). */
+  @Get('locations/:id/staff')
+  @EmployeesOnly()
+  staff(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.db.as(p, async (db) =>
+      (
+        await db.query(
+          `SELECT s.id, s.first_name, s.last_name FROM core.v_staff_public s
+            WHERE EXISTS (SELECT 1 FROM core.user_locations ul WHERE ul.user_id = s.id AND ul.location_id = $1)
+            ORDER BY s.first_name, s.last_name`,
+          [id],
+        )
+      ).rows,
+    );
+  }
+
   @Post('admin/locations')
   @EmployeesOnly()
   @Can('create', 'locations')
