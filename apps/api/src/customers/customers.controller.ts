@@ -8,7 +8,7 @@ const E164 = /^\+[1-9][0-9]{6,14}$/;
 
 const BASE_COLUMNS = `id, customer_number, first_name, last_name, email, email_verified, phone, phone_verified,
   organization_id, org_role, preferred_location_id, time_zone, status, restricted, source,
-  whatsapp_opt_in_at, profile_completed_at, created_at, updated_at`;
+  whatsapp_opt_in_at, profile_completed_at, created_at, updated_at, cognito_sub IS NOT NULL AS has_login`;
 
 const editable = {
   first_name: z.string().trim().min(1).max(100),

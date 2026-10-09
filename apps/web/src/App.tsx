@@ -45,7 +45,9 @@ const MyAppointments = page(portal, 'MyAppointments');
 const MyPayments = page(portal, 'MyPayments');
 const Services = page(portal, 'Services');
 const Locations = page(portal, 'Locations');
-const Profile = page(portal, 'Profile');
+const profile = () => import('./routes/portal/ProfilePages');
+const Profile = page(profile, 'Profile');
+const InviteLanding = page(profile, 'InviteLanding');
 const tickets = () => import('./routes/portal/TicketPages');
 const MyTickets = page(tickets, 'MyTickets');
 const TicketView = page(tickets, 'TicketView');
@@ -84,6 +86,14 @@ export function App() {
         <Routes>
           <Route path="/" element={<Landing />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route
+            path="/portal/invite"
+            element={
+              <SessionProvider audience="customer">
+                <InviteLanding />
+              </SessionProvider>
+            }
+          />
           <Route
             path="/portal"
             element={

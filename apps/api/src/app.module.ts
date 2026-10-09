@@ -21,6 +21,10 @@ import { FreshdeskService } from './freshdesk/freshdesk.service';
 import { TicketsController } from './freshdesk/tickets.controller';
 import { HealthController } from './health/health.controller';
 import { MeController } from './me/me.controller';
+import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
+import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
+import { InvitesController } from './profile/invites.controller';
+import { ProfileController } from './profile/profile.controller';
 import { OrgController } from './org/org.controller';
 import { OrganizationsController } from './organizations/organizations.controller';
 import { PaymentsController } from './payments/payments.controller';
@@ -60,6 +64,8 @@ export class AppModule {
         StripeController,
         TicketsController,
         OrgController,
+        ProfileController,
+        InvitesController,
       ],
       providers: [
         PermissionsService,
@@ -70,6 +76,19 @@ export class AppModule {
         ChatToolsService,
         StripeSecrets,
         FreshdeskService,
+        MessagingService,
+        {
+          provide: MESSAGE_SENDER,
+          useFactory: () =>
+            (config.MESSAGING_MODE ?? (config.AUTH_MODE === 'dev' ? 'log' : 'live')) === 'log' ? new LogMessageSender() : new AwsMessageSender(config),
+        },
+        {
+          provide: CUSTOMER_LOGINS,
+          useFactory: () =>
+            config.AUTH_MODE === 'cognito' && config.CUSTOMERS_USER_POOL_ID
+              ? new CognitoCustomerLogins(config.CUSTOMERS_USER_POOL_ID)
+              : new LocalCustomerLogins(),
+        },
         ChatService,
         {
           provide: LLM_PROVIDER,

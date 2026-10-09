@@ -27,7 +27,11 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 
 | Freshdesk tickets: contacts matched by verified email/phone (phone format variants), ownership filter, private notes for staff only, rate-limit retries + circuit breaker, chat tools; portal and staff ticket pages; org admin area | [apps/api/src/freshdesk](apps/api/src/freshdesk), [TicketPages.tsx](apps/web/src/routes/portal/TicketPages.tsx) |
 
-Not yet: WhatsApp invites, customer profile self-service, duplicate merge and link review, access-admin screens for assignments and grants (see roadmap in plan.md §11).
+| Profile self-service and invites: edit profile, add/change email or phone with one-time codes (email or WhatsApp), Cognito login kept in step; staff invites by email/WhatsApp (opt-in), org admins add/remove members; single-use hashed invite links; accepting with a different account goes to review | [apps/api/src/profile](apps/api/src/profile), [ProfilePages.tsx](apps/web/src/routes/portal/ProfilePages.tsx) |
+
+Not yet: duplicate merge and link-review screens, access-admin screens for assignments and grants, evaluation set (see roadmap in plan.md §11).
+
+Messages locally: with `AUTH_MODE=dev`, email/WhatsApp messages are not sent — codes and invite links are printed in the API log.
 
 ## CI
 

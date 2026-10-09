@@ -19,8 +19,8 @@ export class MeController {
               [p.id],
             )).rows[0]
           : (await db.query(
-              `SELECT id, customer_number, first_name, last_name, email, phone, organization_id, org_role,
-                      time_zone, preferred_location_id, whatsapp_opt_in_at, profile_completed_at
+              `SELECT id, customer_number, first_name, last_name, email, email_verified, phone, phone_verified,
+                      organization_id, org_role, time_zone, preferred_location_id, whatsapp_opt_in_at, profile_completed_at
                  FROM core.customers WHERE id = $1`,
               [p.id],
             )).rows[0];

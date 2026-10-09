@@ -22,6 +22,12 @@ describe('config', () => {
     expect(poolConfig(cfg, 'reader')).toMatchObject({ host: 'reader.cluster', user: 'joybot_reader', password: 'r' });
   });
 
+  it('treats empty optional values (as CloudFormation passes them) as unset', () => {
+    const cfg = loadConfig({ ...aws, SES_FROM_ADDRESS: '', MODEL_ENDPOINT: '', APP_URL: '', FRESHDESK_BASE_URL: '' });
+    expect(cfg.SES_FROM_ADDRESS).toBeUndefined();
+    expect(cfg.MODEL_ENDPOINT).toBeUndefined();
+  });
+
   it('refuses dev auth in production and missing database settings', () => {
     expect(() => loadConfig({ ...aws, AUTH_MODE: 'dev' })).toThrow(/not allowed in production/);
     expect(() => loadConfig({ ...aws, APP_DB_PASSWORD: undefined })).toThrow(/APP_DB_PASSWORD/);

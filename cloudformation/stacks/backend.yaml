@@ -69,6 +69,9 @@ Parameters:
   SesFromAddress:
     Type: String
     Default: ""
+  SesConfigurationSetName:
+    Type: String
+    Default: ""
   ModelEndpoint:
     Type: String
 
@@ -199,10 +202,14 @@ Resources:
                   - cognito-idp:AdminRemoveUserFromGroup
                   - cognito-idp:AdminUserGlobalSignOut
                 Resource: !Ref EmployeesUserPoolArn
-              - Sid: CustomerLoginLookup
+              - Sid: CustomerLogins
                 Effect: Allow
-                Action: [cognito-idp:AdminGetUser, cognito-idp:AdminUserGlobalSignOut]
+                Action: [cognito-idp:AdminGetUser, cognito-idp:AdminUserGlobalSignOut, cognito-idp:AdminUpdateUserAttributes]
                 Resource: !Ref CustomersUserPoolArn
+              - Sid: AppUrlForInviteLinks
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/joybot/${EnvironmentName}/app-url"
               - Sid: WhatsAppInvites
                 Effect: Allow
                 Action: social-messaging:SendWhatsAppMessage
@@ -257,6 +264,10 @@ Resources:
             - { Name: MODEL_ENDPOINT, Value: !Ref ModelEndpoint }
             - { Name: FRESHDESK_SECRET_ARN, Value: !Ref FreshdeskSecretArn }
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
+            - { Name: APP_URL_PARAMETER, Value: !Sub "/joybot/${EnvironmentName}/app-url" }
+            - { Name: MESSAGING_MODE, Value: live }
+            - { Name: SES_FROM_ADDRESS, Value: !Ref SesFromAddress }
+            - { Name: SES_CONFIGURATION_SET, Value: !Ref SesConfigurationSetName }
           Secrets:
             - { Name: APP_DB_PASSWORD, ValueFrom: !Sub "${AppDbSecretArn}:password::" }
             - { Name: READER_DB_PASSWORD, ValueFrom: !Sub "${ReaderDbSecretArn}:password::" }

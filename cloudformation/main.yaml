@@ -416,6 +416,7 @@ Resources:
         EmployeesClientId: !GetAtt AuthStack.Outputs.EmployeesClientId
         WhatsAppSettingsParameterName: !GetAtt MessagingStack.Outputs.WhatsAppSettingsParameterName
         SesFromAddress: !Ref SesFromAddress
+        SesConfigurationSetName: !GetAtt MessagingStack.Outputs.SesConfigurationSetName
         ModelEndpoint: !GetAtt ModelStack.Outputs.ModelEndpoint
 
   FrontendStack:

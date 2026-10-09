@@ -35,6 +35,7 @@ export function api(app: INestApplication, who: Who) {
     get: (url: string) => request(server).get(url).set('x-dev-principal', header),
     post: (url: string, body?: object) => request(server).post(url).set('x-dev-principal', header).send(body),
     put: (url: string, body?: object) => request(server).put(url).set('x-dev-principal', header).send(body),
+    delete: (url: string) => request(server).delete(url).set('x-dev-principal', header),
   };
 }
 

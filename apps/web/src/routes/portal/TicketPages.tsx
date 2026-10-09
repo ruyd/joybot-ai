@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Card, EmptyState, ErrorBanner, PageHeader, Spinner, StatusBadge, Table, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Input, PageHeader, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { dateTime, fullName } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -157,14 +157,15 @@ export function Organization() {
     <Page>
       <PageHeader title={o.organization.name} description={[o.organization.org_number, o.organization.email].filter(Boolean).join(' · ')} />
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={`Members (${o.members.length})`}>
-          <Table head={['Name', 'Email', 'Role', 'Portal']}>
+        <Card title={`Members (${o.members.length})`} actions={<AddMember />}>
+          <Table head={['Name', 'Email', 'Role', 'Portal', '']}>
             {o.members.map((m) => (
               <tr key={m.id}>
                 <Td>{fullName(m)}</Td>
                 <Td className="text-slate-500">{m.email ?? '—'}</Td>
                 <Td>{m.org_role === 'org_admin' ? <Badge tone="brand">admin</Badge> : 'member'}</Td>
                 <Td>{m.has_login ? <Badge tone="green">signed up</Badge> : <Badge>not yet</Badge>}</Td>
+                <Td>{m.org_role !== 'org_admin' && <RemoveMember id={m.id} name={fullName(m)} />}</Td>
               </tr>
             ))}
           </Table>
@@ -189,6 +190,56 @@ export function Organization() {
         </Card>
       </div>
     </Page>
+  );
+}
+
+function AddMember() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ first_name: '', last_name: '', email: '' });
+  const add = useMutation({
+    mutationFn: () => api.post<{ sent: boolean; reason?: string }>('/org/invites', { ...form, last_name: form.last_name || undefined }),
+    onSuccess: () => {
+      setOpen(false);
+      setForm({ first_name: '', last_name: '', email: '' });
+      void queryClient.invalidateQueries({ queryKey: ['org'] });
+    },
+  });
+  if (!open) return <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>Add member</Button>;
+  return (
+    <form
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        add.mutate();
+      }}
+    >
+      <Input aria-label="First name" placeholder="First name" required className="w-28" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
+      <Input aria-label="Last name" placeholder="Last name" className="w-28" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
+      <Input aria-label="Email" placeholder="Email" type="email" required className="w-44" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+      <Button size="sm" type="submit" disabled={add.isPending}>Invite</Button>
+      <Button size="sm" type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+      {add.error && <ErrorBanner error={add.error} />}
+    </form>
+  );
+}
+
+function RemoveMember({ id, name }: { id: string; name: string }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const remove = useMutation({ mutationFn: () => api.del(`/org/members/${id}`), onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['org'] }) });
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      disabled={remove.isPending}
+      onClick={() => {
+        if (window.confirm(`Remove ${name} from the organization? They keep their own account.`)) remove.mutate();
+      }}
+    >
+      Remove
+    </Button>
   );
 }
 

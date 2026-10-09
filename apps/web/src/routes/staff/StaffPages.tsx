@@ -21,6 +21,8 @@ interface Customer {
   org_role: string | null;
   organization_id: string | null;
   notes_internal?: string | null;
+  has_login?: boolean;
+  whatsapp_opt_in_at?: string | null;
 }
 
 // Customers ----------------------------------------------------------------------------------
@@ -93,7 +95,13 @@ export function CustomerDetail() {
       <PageHeader
         title={fullName(c)}
         description={[c.customer_number, c.email, c.phone].filter(Boolean).join(' · ')}
-        actions={<div className="flex gap-2">{c.restricted && <Badge tone="red">restricted</Badge>}<StatusBadge status={c.status} /></div>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {c.restricted && <Badge tone="red">restricted</Badge>}
+            <StatusBadge status={c.status} />
+            {c.has_login ? <Badge tone="green">portal account</Badge> : can('update', 'customers') && <InviteButtons customer={c} />}
+          </div>
+        }
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Appointments">
@@ -153,6 +161,19 @@ export function CustomerDetail() {
         )}
       </div>
     </Page>
+  );
+}
+
+function InviteButtons({ customer: c }: { customer: Customer }) {
+  const api = useApi();
+  const invite = useMutation({ mutationFn: (channel: 'email' | 'whatsapp') => api.post<{ sent_to: string }>(`/customers/${c.id}/invite`, { channel }) });
+  if (invite.isSuccess) return <Badge tone="green">invite sent to {invite.data.sent_to}</Badge>;
+  return (
+    <>
+      {c.email && <Button size="sm" variant="secondary" disabled={invite.isPending} onClick={() => invite.mutate('email')}>Invite by email</Button>}
+      {c.phone && c.whatsapp_opt_in_at && <Button size="sm" variant="secondary" disabled={invite.isPending} onClick={() => invite.mutate('whatsapp')}>Invite on WhatsApp</Button>}
+      {invite.error && <span className="text-sm text-red-600">{(invite.error as Error).message}</span>}
+    </>
   );
 }
 
@@ -442,6 +463,7 @@ interface Settings {
   whatsapp_enabled: boolean;
   whatsapp_phone_number_id: string | null;
   whatsapp_otp_template: string | null;
+  whatsapp_invite_template: string | null;
   freshdesk_domain: string | null;
   freshdesk_portal_url: string | null;
 }
@@ -499,7 +521,10 @@ function SettingsCard() {
           <Field label="Phone number ID" hint="From AWS End User Messaging Social">
             <Input value={v.whatsapp_phone_number_id ?? ''} onChange={(e) => set({ whatsapp_phone_number_id: e.target.value || null })} />
           </Field>
-          <Field label="OTP template name"><Input value={v.whatsapp_otp_template ?? ''} onChange={(e) => set({ whatsapp_otp_template: e.target.value || null })} /></Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Code template (authentication)"><Input value={v.whatsapp_otp_template ?? ''} onChange={(e) => set({ whatsapp_otp_template: e.target.value || null })} /></Field>
+            <Field label="Invite template (utility)" hint="Body: {{1}} name, {{2}} link"><Input value={v.whatsapp_invite_template ?? ''} onChange={(e) => set({ whatsapp_invite_template: e.target.value || null })} /></Field>
+          </div>
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={v.whatsapp_enabled} onChange={(e) => set({ whatsapp_enabled: e.target.checked })} /> Send codes over WhatsApp
           </label>

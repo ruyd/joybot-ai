@@ -1,6 +1,9 @@
 import type { PoolConfig } from 'pg';
 import { z } from 'zod';
 
+/** CloudFormation passes unset optional values as empty strings: treat them as unset. */
+const optional = <T extends z.ZodTypeAny>(t: T) => z.preprocess((v) => (v === '' ? undefined : v), t.optional());
+
 const schema = z
   .object({
     NODE_ENV: z.string().default('development'),
@@ -9,7 +12,7 @@ const schema = z
     APP_DATABASE_URL: z.string().url().optional(),
     READER_DATABASE_URL: z.string().url().optional(),
     DB_HOST: z.string().optional(),
-    DB_READER_HOST: z.string().optional(),
+    DB_READER_HOST: optional(z.string()),
     DB_PORT: z.coerce.number().int().positive().default(5432),
     DB_NAME: z.string().default('joybot'),
     APP_DB_USER: z.string().default('joybot_app'),
@@ -19,7 +22,7 @@ const schema = z
     /** Verify TLS to Aurora (CA bundle via NODE_EXTRA_CA_CERTS in the container image). */
     DB_SSL: z.enum(['true', 'false']).default('false'),
     /** OpenAI-compatible model endpoint (vLLM), e.g. http://model.joybot-dev.internal:8000/v1 */
-    MODEL_ENDPOINT: z.string().url().optional(),
+    MODEL_ENDPOINT: optional(z.string().url()),
     /** Served model name (vLLM: gemma; Ollama: the local tag, e.g. gemma4:e2b). */
     MODEL_NAME: z.string().default('gemma'),
     /** 'dev' trusts the x-dev-principal header — local development and tests only. */
@@ -29,14 +32,21 @@ const schema = z
     EMPLOYEES_USER_POOL_ID: z.string().optional(),
     EMPLOYEES_CLIENT_ID: z.string().optional(),
     /** Stripe: secret with { restrictedKey, webhookSigningSecret } (AWS) or the signing secret directly (local). */
-    STRIPE_SECRET_ARN: z.string().optional(),
-    STRIPE_WEBHOOK_SECRET: z.string().optional(),
+    STRIPE_SECRET_ARN: optional(z.string()),
+    STRIPE_WEBHOOK_SECRET: optional(z.string()),
     /** Freshdesk: secret with { apiKey } (AWS) or the key directly (local). BASE_URL overrides the domain (tests). */
-    FRESHDESK_SECRET_ARN: z.string().optional(),
-    FRESHDESK_API_KEY: z.string().optional(),
-    FRESHDESK_BASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+    FRESHDESK_SECRET_ARN: optional(z.string()),
+    FRESHDESK_API_KEY: optional(z.string()),
+    FRESHDESK_BASE_URL: optional(z.string().url()),
+    /** Public app URL for links in invites: APP_URL locally, or an SSM parameter written by the frontend stack. */
+    APP_URL: optional(z.string().url()),
+    APP_URL_PARAMETER: optional(z.string()),
+    /** 'log' only logs outgoing email/WhatsApp (local); 'live' sends. Defaults to 'log' with AUTH_MODE=dev. */
+    MESSAGING_MODE: z.enum(['log', 'live']).optional(),
+    SES_FROM_ADDRESS: optional(z.string().email()),
+    SES_CONFIGURATION_SET: optional(z.string()),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
-    WHATSAPP_SETTINGS_PARAMETER: z.string().optional(),
+    WHATSAPP_SETTINGS_PARAMETER: optional(z.string()),
   })
   .superRefine((cfg, ctx) => {
     if (!cfg.APP_DATABASE_URL && !(cfg.DB_HOST && cfg.APP_DB_PASSWORD)) {

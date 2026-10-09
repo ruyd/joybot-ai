@@ -2,8 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Page } from '../../components/Layout';
 import { Card, EmptyState, ErrorBanner, PageHeader, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
-import { dateTime, fullName, METHOD_LABEL, money } from '../../lib/format';
-import { useMe } from '../../lib/me';
+import { dateTime, METHOD_LABEL, money } from '../../lib/format';
 
 export interface Appointment {
   id: string;
@@ -187,36 +186,6 @@ export function Locations() {
           ))}
         </div>
       </State>
-    </Page>
-  );
-}
-
-export function Profile() {
-  const { me } = useMe();
-  if (!me) return null;
-  const p = me.profile as Record<string, string | null>;
-  const rows: [string, string | null][] = [
-    ['Name', fullName(p)],
-    ['Customer number', p.customer_number],
-    ['Email', p.email],
-    ['Phone', p.phone],
-    ['Organization role', p.org_role === 'org_admin' ? 'Organization admin' : p.org_role ? 'Member' : null],
-    ['Time zone', p.time_zone],
-    ['WhatsApp messages', p.whatsapp_opt_in_at ? 'Allowed' : 'Not allowed'],
-  ];
-  return (
-    <Page>
-      <PageHeader title="Profile" description="Contact us to change your details. Self-service editing is coming soon." />
-      <Card>
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-[12rem_1fr]">
-          {rows.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-sm text-slate-500">{k}</dt>
-              <dd className="text-sm">{v ?? '—'}</dd>
-            </div>
-          ))}
-        </dl>
-      </Card>
     </Page>
   );
 }
