@@ -35,7 +35,7 @@ export default defineConfig({
   },
   test: {
     include: ['test/**/*.test.ts'],
-    globalSetup: ['test/global-setup.ts'],
+    setupFiles: ['test/reset-db.ts'],
     fileParallelism: false,
   },
 });

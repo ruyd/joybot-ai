@@ -3,6 +3,7 @@ import type { Resource } from '@joybot/access';
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
+import { FreshdeskService } from '../freshdesk/freshdesk.service';
 import { formatLocal } from './time';
 
 /**
@@ -25,7 +26,9 @@ export type ToolName =
   | 'list_unmatched_stripe_payments'
   | 'get_organization'
   | 'list_organization_members'
-  | 'search_customers';
+  | 'search_customers'
+  | 'list_tickets'
+  | 'get_ticket';
 
 export interface ChatScope {
   /** Customer the conversation is about (self for customers). */
@@ -37,7 +40,7 @@ export interface ChatScope {
 }
 
 export interface Evidence {
-  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location';
+  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location' | 'ticket';
   id: string;
   title: string;
   fields: Record<string, string | number | boolean | null>;
@@ -178,6 +181,28 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     requires: 'customers',
     needs: 'org',
   },
+  list_tickets: {
+    description: 'Support tickets (Freshdesk) of the customer or organization members in scope.',
+    parameters: {
+      type: 'object',
+      properties: { status: { type: 'string', enum: ['open', 'pending', 'resolved', 'closed'] } },
+      additionalProperties: false,
+    },
+    audience: ['employee', 'customer'],
+    requires: 'tickets',
+    needs: 'customer_or_org',
+  },
+  get_ticket: {
+    description: 'One support ticket with its public replies, by ticket number.',
+    parameters: {
+      type: 'object',
+      properties: { ticket_id: { type: 'string', pattern: '^\\d{1,12}$' } },
+      required: ['ticket_id'],
+      additionalProperties: false,
+    },
+    audience: ['employee', 'customer'],
+    requires: 'tickets',
+  },
   search_customers: {
     description: 'Find customers by name, email, phone or customer number.',
     parameters: {
@@ -251,15 +276,77 @@ const METHOD_LABEL: Record<string, string> = {
 
 @Injectable()
 export class ChatToolsService {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly freshdesk: FreshdeskService,
+  ) {}
 
   async run(p: Principal, scope: ChatScope, name: ToolName, rawArgs: unknown): Promise<ToolResult> {
     if (!availableTools(p, scope).includes(name)) return { evidence: [], status: 'denied', note: 'tool not available' };
     const args = validateArgs(name, rawArgs);
+    if (name === 'list_tickets' || name === 'get_ticket') {
+      const evidence = await this.tickets(p, scope, name, args);
+      return { evidence, status: evidence.length ? 'ok' : 'empty' };
+    }
     return this.db.read(p, async (db) => {
       const evidence = await this.execute(db, p, scope, name, args);
       return { evidence, status: evidence.length ? 'ok' : 'empty' };
     });
+  }
+
+  /** Freshdesk tools: same ownership checks as the API (reader role), private notes for staff only. */
+  private async tickets(p: Principal, scope: ChatScope, name: 'list_tickets' | 'get_ticket', a: Record<string, unknown>): Promise<Evidence[]> {
+    if (name === 'get_ticket') {
+      const hints = await this.db.read(p, async (db) =>
+        (
+          await db.query<{ id: string }>(
+            scope.organizationId ? 'SELECT id FROM core.customers WHERE organization_id = $1' : 'SELECT id FROM core.customers WHERE id = $1',
+            [scope.organizationId ?? scope.customerId ?? null],
+          )
+        ).rows.map((r) => r.id),
+      );
+      const t = await this.freshdesk.ticketDetail(p, String(a.ticket_id), 'reader', hints);
+      const replies = t.conversation.slice(-5).map((c) => `${c.from}${c.private ? ' (private note)' : ''}: ${c.body.slice(0, 400)}`);
+      return [
+        {
+          type: 'ticket',
+          id: `#${t.id}`,
+          title: `${t.subject} — ${t.status}`,
+          url: t.url ?? undefined,
+          fields: {
+            ticket: `#${t.id}`,
+            status: t.status,
+            priority: t.priority,
+            opened: formatLocal(t.created_at, scope.timeZone),
+            last_update: formatLocal(t.updated_at, scope.timeZone),
+            description: t.description?.slice(0, 600) ?? null,
+            latest_replies: replies.join(' | ') || null,
+          },
+        },
+      ];
+    }
+    const customerIds = await this.db.read(p, async (db) =>
+      (
+        await db.query<{ id: string }>(
+          scope.organizationId ? 'SELECT id FROM core.customers WHERE organization_id = $1' : 'SELECT id FROM core.customers WHERE id = $1',
+          [scope.organizationId ?? scope.customerId],
+        )
+      ).rows.map((r) => r.id),
+    );
+    const tickets = await this.freshdesk.listTickets(p, customerIds, 'reader', a.status as string | undefined);
+    return tickets.slice(0, 10).map((t) => ({
+      type: 'ticket' as const,
+      id: `#${t.id}`,
+      title: `${t.subject} — ${t.status}`,
+      url: t.url ?? undefined,
+      fields: {
+        ticket: `#${t.id}`,
+        status: t.status,
+        priority: t.priority,
+        last_update: formatLocal(t.updated_at, scope.timeZone),
+        ...(p.type === 'employee' || scope.organizationId ? { customer: t.customer_name } : {}),
+      },
+    }));
   }
 
   private async execute(db: PoolClient, p: Principal, scope: ChatScope, name: ToolName, a: Record<string, unknown>): Promise<Evidence[]> {
@@ -506,6 +593,10 @@ export class ChatToolsService {
           fields: { customer_number: r.customer_number, email: r.email, role: r.org_role, status: r.status },
         }));
       }
+
+      case 'list_tickets':
+      case 'get_ticket':
+        return []; // handled by tickets() before reaching SQL tools
 
       case 'search_customers': {
         const rows = (

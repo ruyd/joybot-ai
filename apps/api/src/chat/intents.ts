@@ -42,6 +42,10 @@ export function planByRules(
     if (has(t, /\b(pay|paid|payment|payments|charge|charged|refund|refunded|transfer|receipt|card)\b/)) {
       calls.push({ tool: 'list_payments', args: range });
     }
+    if (has(t, /\b(tickets?|support (cases?|requests?)|cases?|complaints?|issues?)\b/)) {
+      const ticketNo = /#(\d{1,12})\b/.exec(t);
+      calls.push(ticketNo ? { tool: 'get_ticket', args: { ticket_id: ticketNo[1] } } : { tool: 'list_tickets', args: {} });
+    }
     if (ctx.hasOrgScope && has(t, /\b(members?|employees|people|staff of)\b/)) {
       calls.push({ tool: 'list_organization_members', args: {} });
     }

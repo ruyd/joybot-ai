@@ -17,8 +17,11 @@ import { EvidenceOnlyProvider, LLM_PROVIDER, OpenAiCompatibleProvider } from './
 import { ChatToolsService } from './chat/tools';
 import { CustomersController } from './customers/customers.controller';
 import { DbModule } from './db/db.module';
+import { FreshdeskService } from './freshdesk/freshdesk.service';
+import { TicketsController } from './freshdesk/tickets.controller';
 import { HealthController } from './health/health.controller';
 import { MeController } from './me/me.controller';
+import { OrgController } from './org/org.controller';
 import { OrganizationsController } from './organizations/organizations.controller';
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
@@ -55,6 +58,8 @@ export class AppModule {
         AccessController,
         ConversationsController,
         StripeController,
+        TicketsController,
+        OrgController,
       ],
       providers: [
         PermissionsService,
@@ -64,6 +69,7 @@ export class AppModule {
         WhatsAppSettingsPublisher,
         ChatToolsService,
         StripeSecrets,
+        FreshdeskService,
         ChatService,
         {
           provide: LLM_PROVIDER,

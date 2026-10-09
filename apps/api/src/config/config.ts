@@ -31,6 +31,10 @@ const schema = z
     /** Stripe: secret with { restrictedKey, webhookSigningSecret } (AWS) or the signing secret directly (local). */
     STRIPE_SECRET_ARN: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
+    /** Freshdesk: secret with { apiKey } (AWS) or the key directly (local). BASE_URL overrides the domain (tests). */
+    FRESHDESK_SECRET_ARN: z.string().optional(),
+    FRESHDESK_API_KEY: z.string().optional(),
+    FRESHDESK_BASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
     WHATSAPP_SETTINGS_PARAMETER: z.string().optional(),
   })

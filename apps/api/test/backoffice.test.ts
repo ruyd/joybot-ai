@@ -86,7 +86,10 @@ describe('organizations', () => {
 describe('who can access', () => {
   it('explains access to a restricted organization', async () => {
     const res = await api(app, employee(U.ada)).get(`/api/organizations/${O.vip}/access`).expect(200);
-    expect(userIds(res.body)).toEqual([U.ada, U.lia].sort());
+    // Other test files may add admins; the point is who is (and is not) included.
+    expect(userIds(res.body)).toEqual(expect.arrayContaining([U.ada, U.lia]));
+    expect(userIds(res.body)).not.toContain(U.sam);
+    expect(res.body.filter((r: { role: string }) => r.role === 'staff').map((r: { user_id: string }) => r.user_id)).toEqual([U.lia]);
     expect(res.body.find((r: { user_id: string }) => r.user_id === U.lia)).toMatchObject({ can_read: 'assignment', can_update: 'assignment' });
   });
 
@@ -271,5 +274,18 @@ describe('assignments and record grants (admin)', () => {
     await api(app, employee(U.ada))
       .post('/api/admin/assignments', { user_id: '20000000-0000-4000-8000-0000000000ff', customer_id: C.rita })
       .expect(404);
+  });
+});
+
+describe('organization area (org admins)', () => {
+  it('org admins see their organization and members; others cannot', async () => {
+    const res = await api(app, customer(C.john)).get('/api/org').expect(200);
+    expect(res.body.organization.id).toBe(O.acme);
+    expect(res.body.members.map((m: { id: string }) => m.id).sort()).toEqual([C.john, C.jane].sort());
+    expect(res.body.members[0]).toMatchObject({ id: C.john, org_role: 'org_admin' });
+    expect(res.body.members[0]).not.toHaveProperty('notes_internal');
+    await api(app, customer(C.jane)).get('/api/org').expect(403);
+    await api(app, customer(C.maria)).get('/api/org').expect(403);
+    await api(app, employee(U.ada)).get('/api/org').expect(403);
   });
 });

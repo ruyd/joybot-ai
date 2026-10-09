@@ -25,7 +25,9 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 
 | Web app: customer portal (assistant, appointments, payments, services, locations, profile) and staff console (assistant with customer context and disambiguation, customers + who-can-access, payments: record / pending transfers / unmatched Stripe, admin: settings, Stripe sync, employees); Cognito sign-in or local dev picker | [apps/web](apps/web) |
 
-Not yet: Freshdesk tickets, WhatsApp invites, org admin area, access-admin screens for assignments and grants (see roadmap in plan.md §11).
+| Freshdesk tickets: contacts matched by verified email/phone (phone format variants), ownership filter, private notes for staff only, rate-limit retries + circuit breaker, chat tools; portal and staff ticket pages; org admin area | [apps/api/src/freshdesk](apps/api/src/freshdesk), [TicketPages.tsx](apps/web/src/routes/portal/TicketPages.tsx) |
+
+Not yet: WhatsApp invites, customer profile self-service, duplicate merge and link review, access-admin screens for assignments and grants (see roadmap in plan.md §11).
 
 ## CI
 
@@ -48,6 +50,9 @@ pnpm dev:api         # http://localhost:3000/api
 pnpm dev:worker      # Stripe event processing + reconciliation
 pnpm dev:web         # http://localhost:5173 (proxies /api to the API)
 ```
+
+Freshdesk locally: `node tools/fake-freshdesk.mjs`, set `FRESHDESK_BASE_URL=http://localhost:4010` and
+`FRESHDESK_API_KEY=local` in `.env`, and any Freshdesk domain in Admin → Settings.
 
 Stripe locally: set `STRIPE_WEBHOOK_SECRET` from `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
 and enable Stripe in Admin → Settings. Chat uses evidence-only answers unless `MODEL_ENDPOINT` points at

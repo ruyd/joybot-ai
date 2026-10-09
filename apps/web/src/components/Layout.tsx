@@ -11,6 +11,8 @@ export interface NavItem {
   end?: boolean;
   /** Only shown when the principal has this permission. */
   can?: [string, string];
+  /** Only shown for this role. */
+  role?: string;
 }
 
 export function Layout({ title, nav }: { title: string; nav: NavItem[] }) {
@@ -29,7 +31,7 @@ export function Layout({ title, nav }: { title: string; nav: NavItem[] }) {
         </div>
         <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto">
           {nav
-            .filter((n) => !n.can || can(n.can[0], n.can[1]))
+            .filter((n) => (!n.can || can(n.can[0], n.can[1])) && (!n.role || n.role === me?.role))
             .map((n) => (
               <NavLink
                 key={n.to}
