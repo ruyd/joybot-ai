@@ -11,6 +11,8 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Audit log of every change (who, via what) | [0005_audit.sql](packages/db/migrations/0005_audit.sql) |
 | Shared ability builder (CASL) | [packages/access](packages/access) |
 | NestJS API: auth (Cognito or local dev header), `@Can` permission guard, settings, customers, **manual payments** (validation, cross-source duplicate detection, same-day edit rule, admin void/refund, pending bank transfers) | [apps/api](apps/api) |
+| Back-office API: locations, services (price list), organizations (members), appointments (service defaults, employee double-booking check, status transitions, local times) | [apps/api/src](apps/api/src) |
+| Access administration API: employees + work locations, staff permission matrix (with guard-rails), assignments, temporary record grants (≤ 90 days), "who can access" with reasons | [apps/api/src/admin](apps/api/src/admin), [0010_access_reasons.sql](packages/db/migrations/0010_access_reasons.sql) |
 
 Not yet: chat/LLM, Stripe webhooks, Freshdesk, WhatsApp, frontend, CloudFormation (see roadmap in plan.md §11).
 

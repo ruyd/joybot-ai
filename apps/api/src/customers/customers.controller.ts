@@ -83,6 +83,13 @@ export class CustomersController {
     return row;
   }
 
+  /** Admin panel: which employees can access this customer, and why. */
+  @Get(':id/access')
+  @Can('read', 'access')
+  access(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.db.as(p, async (db) => (await db.query('SELECT * FROM authz.who_can_access_customer($1)', [id])).rows);
+  }
+
   @Post()
   @Can('create', 'customers')
   create(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(createSchema)) body: CreateCustomer) {
