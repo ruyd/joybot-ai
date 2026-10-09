@@ -735,6 +735,13 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 ## 10. Quality & Evaluation
 
+**Status (v1):** 110 cases in [apps/api/eval/cases.ts](apps/api/eval/cases.ts), run through the real chat API against the seeded data and a Freshdesk stub.
+- **Access oracle:** written independently of the RLS rules (`score.ts`). It checks every case's evidence, citations and answer for other customers' data, internal notes, POS or bank references, private Freshdesk notes, members' payments for org admins, and staff-only tools.
+- **Evidence-only mode** runs in `pnpm test` and CI. The 97 deterministic cases must all pass; the 13 model-only cases are n/a there.
+- **Real-model mode** is `pnpm --filter @joybot/api eval:model` with `MODEL_ENDPOINT`. Only gate failures fail the run. Reports are written to `apps/api/eval/reports/`.
+- **Metrics:** tool-selection precision and recall, citation recall, resolution accuracy, and latency.
+- **Not yet:** the 200–300 case target, answer faithfulness and number checks scored on real-model output, and a k6 load test.
+
 - **Eval set** (200–300 cases) on seeded data:
   - **Customer questions**:
     - Appointments and balance.
@@ -767,16 +774,18 @@ Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ n
 | **0 — Spike & setup** | ⬜ | E2B vs E4B benchmark. **Create the Meta Business account and start verification** and template approval, which can take days or weeks. A Freshdesk API key and a sandbox or test set of contacts. A Stripe test account and a webhook endpoint in dev |
 | **1 — Foundations, data & access** | ✅ | Monorepo; `packages/db` (core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings and locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers); employee logins kept in sync with Cognito. All nine stacks, private artifacts bootstrap and CI |
 | **2 — Chat MVP + Stripe** | ✅ | Streaming chat for customers, org admins and employees: access-filtered resolution, 16 read-only tools, local times, citations, retrieval traces. **Stripe webhooks, the worker, reconciliation and the unmatched queue**, with combined balances. Web portal and staff console |
-| **3 — Accounts, WhatsApp, Freshdesk** | 🟡 | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ✅ Access admin UI: assignments, temporary access (grants), restricted flags, staff permission matrix. ⬜ Eval set v1 |
+| **3 — Accounts, WhatsApp, Freshdesk** | ✅ | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ✅ Access admin UI: assignments, temporary access (grants), restricted flags, staff permission matrix. ✅ Eval set v1 (110 cases, access gate in CI) |
 | **4 — Hardening** | ⬜ | First real AWS dev deploy. WAF tuning, Cognito advanced security, WhatsApp throttles and cost alarms, red-team and injection suite, observability review, load tests, staging, `cfn-guard`, `taskcat`, Playwright, first private Quick-Create release |
 | **5 — Launch & beyond** | ⬜ | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
 
 ### Next steps
 
-1. **Finish Phase 3:**
-   - **Eval set v1.** Write about 100 seeded cases from §10, covering access, payments, tickets, time zones and partial profiles. Add a runner that scores answers in evidence-only mode and with a real model. Release gate: zero leaks.
+1. **Run the eval against Gemma 4 E2B.** Use Ollama or vLLM with `pnpm --filter @joybot/api eval:model`:
+   - Fix any gate failures.
+   - Review the model-only cases and answer wording.
+   - Grow the set toward 200–300 cases, adding cases from real questions once in use.
 2. **Check the real integrations locally:**
-   - Gemma 4 E2B through Ollama or vLLM (`MODEL_ENDPOINT`): tool-call parsing and answer quality on the eval set.
+   - Stripe test mode with `stripe listen`.
    - Stripe test mode with `stripe listen`.
    - A Freshdesk trial account.
 3. **Phase 0 items with long lead times.** Start these now:

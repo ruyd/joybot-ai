@@ -7,7 +7,7 @@ A chatbot for customers and employees, backed by JoyBot's own PostgreSQL databas
 
 ## What's implemented
 
-Phases 1 and 2 are done and Phase 3 is mostly done; see [plan.md §11](plan.md#11-phased-roadmap) for the remaining work.
+Phases 1–3 are done; see [plan.md §11](plan.md#11-phased-roadmap) for the remaining work.
 
 | Area | What | Where |
 |---|---|---|
@@ -24,11 +24,12 @@ Phases 1 and 2 are done and Phase 3 is mostly done; see [plan.md §11](plan.md#1
 | Profiles & invites | Profile editing and email/phone changes confirmed with one-time codes (email or WhatsApp). Staff invite customers and org admins add or remove members, using single-use hashed links. Accepting an invite from a different account goes to review | [apps/api/src/profile](apps/api/src/profile) |
 | Link review & merge | Sign-ups that conflict with existing records and invites accepted by another account wait in a review queue: link the login, merge, or reject. Likely duplicates can be merged or dismissed. A merge moves appointments, payments, the login and chats, and leaves a hidden tombstone. Admin only | [merge.controller.ts](apps/api/src/customers/merge.controller.ts), [0016](packages/db/migrations/0016_link_review_merge.sql), [ReviewPages.tsx](apps/web/src/routes/staff/ReviewPages.tsx) |
 | Web app | Customer portal: assistant, appointments, payments, tickets, organization, profile. Staff console: assistant, customers, payments worklists, admin. Sign-in through Cognito, or a dev picker locally | [apps/web](apps/web) |
+| Evaluation | 110 chat cases on the sample data: customers, org admins, staff, time zones, partial profiles, access and prompt injection. An independent access oracle checks every answer and the evidence behind it, and any leak fails CI. A real-model mode compares Gemma runs | [apps/api/eval](apps/api/eval) |
 | Infrastructure | CloudFormation: network, data, messaging, auth, compute (ECS on EC2: Graviton and GPU), model (vLLM serving Gemma 4 E2B), backend, frontend (CloudFront, VPC origin, WAF) and observability. Also a private artifacts bootstrap, Lambdas, and publish and Quick-Create scripts | [cloudformation](cloudformation) |
 | CI | Every PR runs typecheck, tests against Postgres, cfn-lint, the nested-parameter check, a Lambda build and image builds. Pushing a `v*.*.*` tag publishes a private release | [.github/workflows](.github/workflows) |
 
 **Not yet:**
-- Evaluation set.
+- An eval run against a real Gemma 4 model (only evidence-only mode has run so far).
 - Phase 4 hardening.
 - A first real AWS deployment.
 
@@ -41,7 +42,8 @@ cp .env.example .env
 pnpm install
 pnpm db:up           # Postgres 16 on localhost:5433
 pnpm db:reset        # migrate + role logins + settings + sample data
-pnpm test            # all packages (each API test file resets the DB)
+pnpm test            # all packages (each API test file resets the DB), incl. the eval in evidence-only mode
+pnpm --filter @joybot/api eval        # eval only; report in apps/api/eval/reports/
 pnpm typecheck
 pnpm lint:cfn        # needs cfn-lint (pip install cfn-lint)
 pnpm dev:api         # http://localhost:3000/api
@@ -52,6 +54,7 @@ pnpm dev:web         # http://localhost:5173 (proxies /api to the API)
 - **Messages:** with `AUTH_MODE=dev`, emails and WhatsApp messages aren't sent. Codes and invite links are printed in the API log.
 - **Freshdesk:** run `node tools/fake-freshdesk.mjs`, then set `FRESHDESK_BASE_URL=http://localhost:4010` and `FRESHDESK_API_KEY=local` in `.env`. Set any Freshdesk domain in Admin → Settings.
 - **Stripe:** take `STRIPE_WEBHOOK_SECRET` from `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then enable Stripe in Admin → Settings.
+- **Eval with a model:** `MODEL_ENDPOINT=http://localhost:11434/v1 MODEL_NAME=<gemma tag> pnpm --filter @joybot/api eval:model`. Set `EVAL_FILTER=<id or category prefix>` to run a subset.
 - **Model:** chat answers from the evidence only unless `MODEL_ENDPOINT` points at an OpenAI-compatible server. For Ollama, use `http://localhost:11434/v1` and set `MODEL_NAME` to the local Gemma tag.
 
 Local auth uses the `x-dev-principal` header (`AUTH_MODE=dev`, refused when `NODE_ENV=production`):

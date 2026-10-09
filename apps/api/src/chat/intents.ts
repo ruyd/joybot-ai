@@ -23,7 +23,7 @@ export function planByRules(
   if (ctx.audience === 'employee' && has(t, /\bmy (schedule|appointments|day|calendar)\b|\bam i (booked|busy|working)\b/)) {
     calls.push({ tool: 'get_my_schedule', args: range });
   }
-  if (ctx.audience === 'employee' && has(t, /\b(pending|overdue|unreceived|outstanding) (bank )?transfers?\b|\btransfers? (pending|overdue)\b/)) {
+  if (ctx.audience === 'employee' && has(t, /\b(pending|overdue|unreceived|outstanding) (bank )?transfers?\b|\btransfers?\b.*\b(pending|overdue|outstanding)\b/)) {
     calls.push({ tool: 'list_pending_bank_transfers', args: { overdue_only: has(t, /\boverdue\b/) } });
   }
   if (ctx.audience === 'employee' && has(t, /\bunmatched\b.*\b(stripe|payments?)\b|\bunassigned payments?\b/)) {
@@ -49,7 +49,9 @@ export function planByRules(
     if (ctx.hasOrgScope && has(t, /\b(members?|employees|people|staff of)\b/)) {
       calls.push({ tool: 'list_organization_members', args: {} });
     }
-    if (calls.length === 0 && has(t, /\b(profile|details|contact|email|phone|address|who is|info)\b/)) {
+    // "address of your branches" is about locations, not the customer's profile.
+    const aboutLocations = has(t, /\b(locations?|branch(es)?|where are you|opening)\b/);
+    if (calls.length === 0 && !aboutLocations && has(t, /\b(profile|details|contact|email|phone|address|who is|info)\b/)) {
       calls.push({ tool: 'get_customer_profile', args: {} });
     }
   }

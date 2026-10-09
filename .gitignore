@@ -7,3 +7,4 @@ coverage/
 .DS_Store
 .turbo/
 __pycache__/
+apps/api/eval/reports/

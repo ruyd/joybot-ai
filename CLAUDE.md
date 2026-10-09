@@ -11,6 +11,7 @@ pnpm typecheck                # builds packages/* first, then tsc everywhere
 pnpm lint:cfn                 # cfn-lint + cloudformation/scripts/check_nested.py
 pnpm dev:api | dev:worker | dev:web
 pnpm --filter @joybot/api exec vitest run test/profile.test.ts   # one file
+pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model uses MODEL_ENDPOINT
 ```
 
 - Preview servers are in `.claude/launch.json`: api on 3000, web on 5173, and fake-freshdesk on 4010.
@@ -72,6 +73,7 @@ pnpm --filter @joybot/api exec vitest run test/profile.test.ts   # one file
   - `test/app.ts` provides `createApp({ env, overrides })` and `api(app, employee(id) | customer(id))`.
   - `test/reset-db.ts` resets the database before each file.
   - Tests must pass with `--sequence.shuffle.files`. If a test changes shared settings, restore them in `afterAll`.
+- **Chat changes:** add or adjust cases in `apps/api/eval/cases.ts`. Every case also runs through the access oracle in `eval/score.ts`, which lists who may see which sample customers. Update it when the seed changes. Never loosen it to make a case pass.
 - **Access tests:** test the access matrix (allowed and denied) for any new data path, using the sample principals in `SAMPLE`.
 
 ## Gotchas
