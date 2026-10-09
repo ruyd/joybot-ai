@@ -441,6 +441,8 @@ interface Settings {
   default_currency: string;
   stripe_enabled: boolean;
   bank_transfer_due_days: number;
+  chat_daily_limit_customer: number;
+  chat_daily_limit_employee: number;
   whatsapp_enabled: boolean;
   whatsapp_phone_number_id: string | null;
   whatsapp_otp_template: string | null;
@@ -494,6 +496,14 @@ function SettingsCard() {
         <Field label="Bank transfers are overdue after (days)">
           <Input type="number" min={1} value={v.bank_transfer_due_days} onChange={(e) => set({ bank_transfer_due_days: Number(e.target.value) })} />
         </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Chat questions per day — customers" hint="Rolling 24 hours, per person">
+            <Input type="number" min={1} value={v.chat_daily_limit_customer} onChange={(e) => set({ chat_daily_limit_customer: Number(e.target.value) })} />
+          </Field>
+          <Field label="Chat questions per day — employees">
+            <Input type="number" min={1} value={v.chat_daily_limit_employee} onChange={(e) => set({ chat_daily_limit_employee: Number(e.target.value) })} />
+          </Field>
+        </div>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={v.stripe_enabled} onChange={(e) => set({ stripe_enabled: e.target.checked })} /> Stripe sync enabled
         </label>

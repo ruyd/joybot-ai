@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
@@ -36,6 +36,36 @@ export class ChatService {
     private readonly tools: ChatToolsService,
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {}
+
+  /**
+   * Questions per rolling 24 hours (settings). Checked before streaming starts, so the client gets
+   * a plain 429 with the time it can ask again.
+   */
+  async assertQuota(p: Principal): Promise<void> {
+    const q = await this.db.as(p, async (db) =>
+      (
+        await db.query<{ used: number; limit: number; oldest: Date | null }>(
+          `SELECT count(*)::int AS used, min(m.created_at) AS oldest,
+                  (SELECT CASE WHEN $1 = 'customer' THEN chat_daily_limit_customer ELSE chat_daily_limit_employee END
+                     FROM core.settings WHERE id = 1) AS limit
+             FROM app.messages m JOIN app.conversations c ON c.id = m.conversation_id
+            WHERE m.role = 'user' AND m.created_at > now() - interval '24 hours'`,
+          [p.type],
+        )
+      ).rows[0],
+    );
+    if (q.used < q.limit) return;
+    const retryAfter = q.oldest ? Math.max(60, Math.ceil((q.oldest.getTime() + 86_400_000 - Date.now()) / 1000)) : 3600;
+    throw new HttpException(
+      {
+        statusCode: 429,
+        code: 'chat_quota_exceeded',
+        message: `You have reached the limit of ${q.limit} questions per day. Please try again later.`,
+        retry_after: retryAfter,
+      },
+      429,
+    );
+  }
 
   /** Throws NotFound before any streaming starts when the conversation is not the principal's. */
   async assertConversation(p: Principal, conversationId: string): Promise<void> {

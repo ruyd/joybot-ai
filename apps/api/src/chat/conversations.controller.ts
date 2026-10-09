@@ -90,6 +90,7 @@ export class ConversationsController {
     @Res() res: Response,
   ) {
     await this.chat.assertConversation(p, id);
+    await this.chat.assertQuota(p);
     res.status(200);
     res.setHeader('content-type', 'text/event-stream; charset=utf-8');
     res.setHeader('cache-control', 'no-cache, no-transform');

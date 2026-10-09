@@ -69,7 +69,10 @@ export function ChatPage({ audience }: { audience: Audience }) {
           body: JSON.stringify({ content: question }),
           signal: controller.signal,
         });
-        if (!res.ok) throw new Error(res.status === 429 ? 'Too many messages — please wait a moment.' : `Request failed (${res.status})`);
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { message?: string };
+          throw new Error(body.message ?? (res.status === 429 ? 'Too many messages — please wait a moment.' : `Request failed (${res.status})`));
+        }
         await readSse(res, (e) => dispatch({ type: 'event', event: e.event, data: e.data }));
         void queryClient.invalidateQueries({ queryKey: ['conversations'] });
       } catch (err) {
