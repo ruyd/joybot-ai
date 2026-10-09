@@ -128,25 +128,21 @@ export class InvitesController {
   @HttpCode(200)
   @CustomersOnly()
   async accept(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(acceptSchema)) body: z.infer<typeof acceptSchema>) {
-    const invite = (
-      await this.pool.query<{ id: string; customer_id: string; expires_at: string; accepted_at: string | null }>(
-        'SELECT id, customer_id, expires_at, accepted_at FROM app.invites WHERE token_hash = $1',
-        [tokenHash(body.token)],
-      )
-    ).rows[0];
-    if (!invite || invite.accepted_at || new Date(invite.expires_at) < new Date()) throw new NotFoundException('This invite is no longer valid');
-    await this.pool.query('UPDATE app.invites SET accepted_at = now() WHERE id = $1 AND accepted_at IS NULL', [invite.id]);
-    if (invite.customer_id === p.id) return { status: 'linked' };
-    // Signed up with a different email/phone than the one invited: staff decide whether to merge.
-    await this.db.as(p, async (db) => {
+    // One transaction: the invite is used once, and an accept by another account is queued with it.
+    const status = await this.db.as(p, async (db) => {
+      const invitedId = (await db.query<{ id: string | null }>('SELECT authz.accept_invite($1) AS id', [tokenHash(body.token)])).rows[0].id;
+      if (!invitedId) throw new NotFoundException('This invite is no longer valid');
+      if (invitedId === p.id) return 'linked' as const;
+      // Signed up with a different email/phone than the one invited: staff decide whether to merge.
       const me = (await db.query<{ cognito_sub: string | null }>('SELECT cognito_sub FROM core.customers WHERE id = $1', [p.id])).rows[0];
       await db.query(
         `INSERT INTO app.link_review_queue (cognito_sub, contact_hash, candidate_customer_id, account_customer_id, reason)
          VALUES ($1, $2, $3, $4, 'invite_accepted_by_other_account')`,
-        [me?.cognito_sub ?? `customer:${p.id}`, tokenHash(body.token), invite.customer_id, p.id],
+        [me?.cognito_sub ?? `customer:${p.id}`, tokenHash(body.token), invitedId, p.id],
       );
+      return 'review' as const;
     });
-    return { status: 'review' };
+    return { status };
   }
 
   // ---------------------------------------------------------------------------------------------

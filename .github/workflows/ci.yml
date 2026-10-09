@@ -52,6 +52,12 @@ jobs:
       - run: pip install cfn-lint==1.57.2
       - run: cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml
       - run: python cloudformation/scripts/check_nested.py
+      - name: Install CloudFormation Guard
+        run: cargo install cfn-guard --version 3.2.0 --locked
+      - name: Guard rules (unit tests, then templates)
+        run: |
+          cfn-guard test --rules-file cloudformation/guard/joybot.guard --test-data cloudformation/guard/tests/joybot_tests.yaml
+          cfn-guard validate --rules cloudformation/guard --data cloudformation/main.yaml --data cloudformation/stacks --data cloudformation/bootstrap --show-summary fail
 
   build:
     name: Build Lambdas and images

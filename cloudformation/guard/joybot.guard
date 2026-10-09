@@ -1,0 +1,166 @@
+#
+# JoyBot template policy (plan.md §8.5–8.6), checked with AWS CloudFormation Guard on every PR:
+#   cfn-guard validate --rules cloudformation/guard --data cloudformation/main.yaml ...
+# Values set through intrinsics (!If, !Ref) cannot be evaluated here; those rules check that the
+# property is present and leave the value to cfn-lint and review.
+#
+
+# Region: the root template refuses to deploy outside us-east-1 ------------------------------
+let nested_stacks = Resources.*[ Type == 'AWS::CloudFormation::Stack' ]
+rule region_us_east_1_only when %nested_stacks !empty {
+  Rules.UsEast1Only.Assertions[*].AssertDescription == /us-east-1/
+}
+
+# S3: private, encrypted, TLS only ------------------------------------------------------------
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+rule s3_private_and_encrypted when %buckets !empty {
+  %buckets.Properties {
+    PublicAccessBlockConfiguration.BlockPublicAcls == true
+    PublicAccessBlockConfiguration.BlockPublicPolicy == true
+    PublicAccessBlockConfiguration.IgnorePublicAcls == true
+    PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+    BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm in ['aws:kms', 'aws:kms:dsse', 'AES256']
+  }
+}
+
+let bucket_policies = Resources.*[ Type == 'AWS::S3::BucketPolicy' ]
+rule s3_policies_deny_plain_http when %bucket_policies !empty {
+  %bucket_policies.Properties.PolicyDocument.Statement[ Effect == 'Deny' ].Condition.Bool['aws:SecureTransport'] exists
+}
+
+# Anyone ("*") may only be allowed within the AWS Organization (private distribution).
+rule s3_no_public_allow when %bucket_policies !empty {
+  %bucket_policies.Properties.PolicyDocument.Statement[ Effect == 'Allow' ] {
+    when Principal == '*' {
+      Condition.StringEquals['aws:PrincipalOrgID'] exists
+    }
+  }
+}
+
+# ECR: scanned, shared only within the organization --------------------------------------------
+let repositories = Resources.*[ Type == 'AWS::ECR::Repository' ]
+rule ecr_private_and_scanned when %repositories !empty {
+  %repositories.Properties {
+    ImageScanningConfiguration.ScanOnPush == true
+    when RepositoryPolicyText exists {
+      RepositoryPolicyText.Statement[ Effect == 'Allow' ] {
+        when Principal == '*' {
+          Condition.StringEquals['aws:PrincipalOrgID'] exists
+        }
+      }
+    }
+  }
+}
+
+# IAM: no wildcard actions, no admin policies ----------------------------------------------------
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+rule iam_no_wildcard_actions when %roles !empty {
+  %roles.Properties {
+    when Policies exists {
+      Policies[*].PolicyDocument.Statement[*] {
+        when Action is_string {
+          Action not in ['*', 'iam:*', 'sts:*']
+        }
+        when Action is_list {
+          Action[*] not in ['*', 'iam:*', 'sts:*']
+        }
+      }
+    }
+    when ManagedPolicyArns exists {
+      ManagedPolicyArns[ this is_string ] != /AdministratorAccess|PowerUserAccess|IAMFullAccess/
+      ManagedPolicyArns[ this is_struct ].'Fn::Sub' != /AdministratorAccess|PowerUserAccess|IAMFullAccess/
+    }
+  }
+}
+
+# Data at rest: encrypted, rotated keys, protected database ---------------------------------------
+let clusters = Resources.*[ Type == 'AWS::RDS::DBCluster' ]
+rule rds_encrypted_and_protected when %clusters !empty {
+  %clusters.Properties {
+    StorageEncrypted == true
+    KmsKeyId exists
+    DeletionProtection exists
+  }
+}
+
+let db_instances = Resources.*[ Type == 'AWS::RDS::DBInstance' ]
+rule rds_not_public when %db_instances !empty {
+  %db_instances.Properties.PubliclyAccessible == false
+}
+
+let kms_keys = Resources.*[ Type == 'AWS::KMS::Key' ]
+rule kms_rotation when %kms_keys !empty {
+  %kms_keys.Properties.EnableKeyRotation == true
+}
+
+# Secrets Manager always encrypts; secrets with customer or database data use the data key
+# (data.yaml). Not enforced here because the Hugging Face token uses the AWS-managed key.
+
+let topics = Resources.*[ Type == 'AWS::SNS::Topic' ]
+rule sns_encrypted when %topics !empty {
+  %topics.Properties.KmsMasterKeyId exists
+}
+
+let log_groups = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
+rule logs_have_retention when %log_groups !empty {
+  %log_groups.Properties.RetentionInDays exists
+}
+
+# Network: only CloudFront is public ---------------------------------------------------------------
+let load_balancers = Resources.*[ Type == 'AWS::ElasticLoadBalancingV2::LoadBalancer' ]
+rule alb_internal when %load_balancers !empty {
+  %load_balancers.Properties.Scheme == 'internal'
+}
+
+let security_groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+rule sg_no_open_ingress when %security_groups !empty {
+  %security_groups.Properties {
+    when SecurityGroupIngress exists {
+      SecurityGroupIngress[ CidrIp is_string ].CidrIp != '0.0.0.0/0'
+      SecurityGroupIngress[ CidrIpv6 is_string ].CidrIpv6 != '::/0'
+    }
+  }
+}
+
+let sg_ingress = Resources.*[ Type == 'AWS::EC2::SecurityGroupIngress' ]
+rule sg_ingress_no_open when %sg_ingress !empty {
+  %sg_ingress.Properties {
+    when CidrIp is_string {
+      CidrIp != '0.0.0.0/0'
+    }
+    when CidrIpv6 is_string {
+      CidrIpv6 != '::/0'
+    }
+  }
+}
+
+let distributions = Resources.*[ Type == 'AWS::CloudFront::Distribution' ]
+rule cloudfront_https_and_waf when %distributions !empty {
+  %distributions.Properties.DistributionConfig {
+    DefaultCacheBehavior.ViewerProtocolPolicy in ['redirect-to-https', 'https-only']
+    when CacheBehaviors exists {
+      CacheBehaviors[*].ViewerProtocolPolicy in ['redirect-to-https', 'https-only']
+    }
+    WebACLId exists
+  }
+}
+
+# Compute: IMDSv2, no privileged containers, no public Lambda invocation ----------------------------
+let launch_templates = Resources.*[ Type == 'AWS::EC2::LaunchTemplate' ]
+rule ec2_imdsv2 when %launch_templates !empty {
+  %launch_templates.Properties.LaunchTemplateData.MetadataOptions.HttpTokens == 'required'
+}
+
+let task_definitions = Resources.*[ Type == 'AWS::ECS::TaskDefinition' ]
+rule ecs_not_privileged when %task_definitions !empty {
+  %task_definitions.Properties.ContainerDefinitions[*] {
+    when Privileged exists {
+      Privileged == false
+    }
+  }
+}
+
+let lambda_permissions = Resources.*[ Type == 'AWS::Lambda::Permission' ]
+rule lambda_not_public when %lambda_permissions !empty {
+  %lambda_permissions.Properties.Principal != '*'
+}

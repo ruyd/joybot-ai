@@ -14,7 +14,8 @@
     "typecheck": "pnpm --filter './packages/*' build && pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "dev:api": "pnpm --filter @joybot/api dev",
-    "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py",
+    "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py && pnpm guard:cfn",
+    "guard:cfn": "cfn-guard test --rules-file cloudformation/guard/joybot.guard --test-data cloudformation/guard/tests/joybot_tests.yaml >/dev/null && cfn-guard validate --rules cloudformation/guard --data cloudformation/main.yaml --data cloudformation/stacks --data cloudformation/bootstrap --show-summary fail",
     "package:functions": "pnpm --filter './packages/*' build && pnpm --filter @joybot/functions build",
     "dev:worker": "pnpm --filter @joybot/worker dev",
     "dev:web": "pnpm --filter @joybot/web dev"

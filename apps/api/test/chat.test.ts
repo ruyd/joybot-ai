@@ -174,6 +174,27 @@ describe('chat (evidence-only model)', () => {
     expect(list.body.find((c: { id: string }) => c.id === id).title).toBe('hello');
   });
 
+  it('limits questions per person per day, before streaming starts', async () => {
+    await migrator.query('UPDATE core.settings SET chat_daily_limit_customer = 2');
+    try {
+      const id = await newConversation(app, customer(C.victor));
+      await chat(app, customer(C.victor), id, 'hello');
+      await chat(app, customer(C.victor), await newConversation(app, customer(C.victor)), 'hello again');
+      const res = await request(app.getHttpServer())
+        .post(`/api/conversations/${id}/messages`)
+        .set('x-dev-principal', `customer:${C.victor}`)
+        .send({ content: 'one more' })
+        .expect(429);
+      expect(res.body).toMatchObject({ code: 'chat_quota_exceeded', retry_after: expect.any(Number) });
+      expect(res.body.message).toMatch(/limit of 2 questions/);
+      // Others are not affected, and employees have their own limit.
+      await chat(app, customer(C.pat), await newConversation(app, customer(C.pat)), 'hello');
+      await chat(app, employee(U.sam), await newConversation(app, employee(U.sam)), 'hello');
+    } finally {
+      await migrator.query('UPDATE core.settings SET chat_daily_limit_customer = 50');
+    }
+  });
+
   it('employees can pin only customers they can access', async () => {
     const id = await newConversation(app, employee(U.sam));
     await api(app, employee(U.sam)).put(`/api/conversations/${id}/scope`, { customer_id: C.john }).expect(404);

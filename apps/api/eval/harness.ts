@@ -160,7 +160,9 @@ async function prepareData(db: Client) {
     [SAMPLE.locations.nyc, SAMPLE.users.ada],
   );
   await db.query('UPDATE core.appointments SET notes_customer = $2 WHERE id = $1', [SAMPLE.appointments.mariaNext, INJECTION]);
-  await db.query(`UPDATE core.settings SET freshdesk_domain = 'eval.freshdesk.com', freshdesk_portal_url = NULL`);
+  // The eval asks some principals many questions; quotas are tested elsewhere.
+  await db.query(`UPDATE core.settings SET freshdesk_domain = 'eval.freshdesk.com', freshdesk_portal_url = NULL,
+                                          chat_daily_limit_customer = 10000, chat_daily_limit_employee = 100000`);
 }
 
 async function loadWorld(db: Client): Promise<World> {

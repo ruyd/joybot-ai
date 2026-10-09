@@ -1,0 +1,180 @@
+# cfn-guard test --rules-file cloudformation/guard/joybot.guard --test-data cloudformation/guard/tests/joybot_tests.yaml
+# Each rule must fail on a deliberately bad snippet (and pass on a good one).
+- name: public bucket
+  input:
+    Resources:
+      B:
+        Type: AWS::S3::Bucket
+        Properties:
+          PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: false, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+          BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms } }] }
+  expectations:
+    rules:
+      s3_private_and_encrypted: FAIL
+
+- name: private encrypted bucket
+  input:
+    Resources:
+      B:
+        Type: AWS::S3::Bucket
+        Properties:
+          PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+          BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: aws:kms } }] }
+  expectations:
+    rules:
+      s3_private_and_encrypted: PASS
+
+- name: bucket policy open to anyone
+  input:
+    Resources:
+      P:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          PolicyDocument:
+            Statement:
+              - { Effect: Allow, Principal: "*", Action: s3:GetObject, Resource: "arn:aws:s3:::b/*" }
+              - { Effect: Deny, Principal: "*", Action: "s3:*", Resource: "*", Condition: { Bool: { "aws:SecureTransport": "false" } } }
+  expectations:
+    rules:
+      s3_no_public_allow: FAIL
+      s3_policies_deny_plain_http: PASS
+
+- name: bucket policy for the organization only
+  input:
+    Resources:
+      P:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          PolicyDocument:
+            Statement:
+              - { Effect: Allow, Principal: "*", Action: s3:GetObject, Resource: "arn:aws:s3:::b/*", Condition: { StringEquals: { "aws:PrincipalOrgID": o-abc } } }
+              - { Effect: Deny, Principal: "*", Action: "s3:*", Resource: "*", Condition: { Bool: { "aws:SecureTransport": "false" } } }
+  expectations:
+    rules:
+      s3_no_public_allow: PASS
+      s3_policies_deny_plain_http: PASS
+
+- name: bucket policy without TLS enforcement
+  input:
+    Resources:
+      P:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          PolicyDocument:
+            Statement:
+              - { Effect: Deny, Principal: "*", Action: "s3:DeleteBucket", Resource: "*" }
+  expectations:
+    rules:
+      s3_policies_deny_plain_http: FAIL
+
+- name: public ECR repository
+  input:
+    Resources:
+      R:
+        Type: AWS::ECR::Repository
+        Properties:
+          ImageScanningConfiguration: { ScanOnPush: true }
+          RepositoryPolicyText: { Statement: [{ Effect: Allow, Principal: "*", Action: ecr:BatchGetImage }] }
+  expectations:
+    rules:
+      ecr_private_and_scanned: FAIL
+
+- name: wildcard IAM action
+  input:
+    Resources:
+      R:
+        Type: AWS::IAM::Role
+        Properties:
+          Policies: [{ PolicyName: p, PolicyDocument: { Statement: [{ Effect: Allow, Action: "*", Resource: "*" }] } }]
+  expectations:
+    rules:
+      iam_no_wildcard_actions: FAIL
+
+- name: wildcard IAM action in a list, and admin managed policy
+  input:
+    Resources:
+      R:
+        Type: AWS::IAM::Role
+        Properties:
+          ManagedPolicyArns: [{ "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess" }]
+          Policies: [{ PolicyName: p, PolicyDocument: { Statement: [{ Effect: Allow, Action: [s3:GetObject, "iam:*"], Resource: "*" }] } }]
+  expectations:
+    rules:
+      iam_no_wildcard_actions: FAIL
+
+- name: scoped IAM role
+  input:
+    Resources:
+      R:
+        Type: AWS::IAM::Role
+        Properties:
+          ManagedPolicyArns: [{ "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" }]
+          Policies: [{ PolicyName: p, PolicyDocument: { Statement: [{ Effect: Allow, Action: [s3:GetObject], Resource: "arn:aws:s3:::b/*" }] } }]
+  expectations:
+    rules:
+      iam_no_wildcard_actions: PASS
+
+- name: unencrypted database without deletion protection
+  input:
+    Resources:
+      C: { Type: AWS::RDS::DBCluster, Properties: { StorageEncrypted: false } }
+      I: { Type: AWS::RDS::DBInstance, Properties: { PubliclyAccessible: true } }
+  expectations:
+    rules:
+      rds_encrypted_and_protected: FAIL
+      rds_not_public: FAIL
+
+- name: key rotation, topic encryption and log retention missing
+  input:
+    Resources:
+      K: { Type: AWS::KMS::Key, Properties: { EnableKeyRotation: false } }
+      T: { Type: AWS::SNS::Topic, Properties: {} }
+      L: { Type: AWS::Logs::LogGroup, Properties: {} }
+  expectations:
+    rules:
+      kms_rotation: FAIL
+      sns_encrypted: FAIL
+      logs_have_retention: FAIL
+
+- name: internet-facing load balancer and open security groups
+  input:
+    Resources:
+      LB: { Type: AWS::ElasticLoadBalancingV2::LoadBalancer, Properties: { Scheme: internet-facing } }
+      SG: { Type: AWS::EC2::SecurityGroup, Properties: { GroupDescription: x, SecurityGroupIngress: [{ IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0 }] } }
+      IN: { Type: AWS::EC2::SecurityGroupIngress, Properties: { GroupId: sg-1, IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIpv6: "::/0" } }
+  expectations:
+    rules:
+      alb_internal: FAIL
+      sg_no_open_ingress: FAIL
+      sg_ingress_no_open: FAIL
+
+- name: CloudFront over plain HTTP without WAF
+  input:
+    Resources:
+      D:
+        Type: AWS::CloudFront::Distribution
+        Properties:
+          DistributionConfig: { DefaultCacheBehavior: { ViewerProtocolPolicy: allow-all } }
+  expectations:
+    rules:
+      cloudfront_https_and_waf: FAIL
+
+- name: IMDSv1, privileged container, public Lambda
+  input:
+    Resources:
+      LT: { Type: AWS::EC2::LaunchTemplate, Properties: { LaunchTemplateData: { MetadataOptions: { HttpTokens: optional } } } }
+      TD: { Type: AWS::ECS::TaskDefinition, Properties: { ContainerDefinitions: [{ Name: a, Image: x, Privileged: true }] } }
+      LP: { Type: AWS::Lambda::Permission, Properties: { Action: lambda:InvokeFunction, FunctionName: f, Principal: "*" } }
+  expectations:
+    rules:
+      ec2_imdsv2: FAIL
+      ecs_not_privileged: FAIL
+      lambda_not_public: FAIL
+
+- name: root template without the region rule
+  input:
+    Resources:
+      S: { Type: AWS::CloudFormation::Stack, Properties: { TemplateURL: https://x } }
+  expectations:
+    rules:
+      region_us_east_1_only: FAIL
