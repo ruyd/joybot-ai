@@ -57,6 +57,7 @@ const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
 const Admin = page(staff, 'Admin');
 const Review = page(() => import('./routes/staff/ReviewPages'), 'Review');
+const Access = page(() => import('./routes/staff/AccessPages'), 'Access');
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: (count, err) => count < 2 && !(err as { status?: number }).status, refetchOnWindowFocus: false } },
@@ -78,6 +79,7 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['merge', 'customers'] },
+  { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
   { to: '/staff/admin', label: 'Admin', can: ['update', 'settings'] },
 ];
 
@@ -133,6 +135,7 @@ export function App() {
             <Route path="tickets/:id" element={<TicketView back="/staff/customers" />} />
             <Route path="admin" element={<Admin />} />
             <Route path="review" element={<Review />} />
+            <Route path="access" element={<Access />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -245,6 +245,7 @@ describe('assignments and record grants (admin)', () => {
 
     const list = await api(app, employee(U.ada)).get(`/api/admin/assignments?customer_id=${C.rita}`).expect(200);
     expect(ids(list.body)).toEqual([a.body.id]);
+    expect(list.body[0]).toMatchObject({ user_name: 'Sam Staff', customer_name: 'Rita Reyes', customer_number: expect.stringMatching(/^C-/), organization_name: null, active: true });
 
     await api(app, employee(U.ada)).post(`/api/admin/assignments/${a.body.id}/end`).expect(201);
     await api(app, employee(U.sam)).get(`/api/customers/${C.rita}`).expect(404);
@@ -261,9 +262,26 @@ describe('assignments and record grants (admin)', () => {
     expect(g.body).toMatchObject({ granted_by: U.ada, reason: 'Covering for Lia' });
     await api(app, employee(U.sam)).get(`/api/customers/${C.john}`).expect(200);
     await api(app, employee(U.sam)).put(`/api/customers/${C.john}`, { first_name: 'Johnny' }).expect(404);
+    const grants = await api(app, employee(U.ada)).get(`/api/admin/record-grants?record_id=${C.john}`).expect(200);
+    expect(grants.body).toEqual([expect.objectContaining({ id: g.body.id, user_name: 'Sam Staff', granted_by_name: 'Ada Admin', customer_name: 'John Smith' })]);
 
     await api(app, employee(U.ada)).post(`/api/admin/record-grants/${g.body.id}/revoke`).expect(201);
     await api(app, employee(U.sam)).get(`/api/customers/${C.john}`).expect(404);
+  });
+
+  it('lists restricted customers and organizations for admins; marking needs access rights', async () => {
+    const res = await api(app, employee(U.ada)).get('/api/admin/restricted').expect(200);
+    expect(ids(res.body.customers)).toEqual([C.rita]);
+    expect(res.body.organizations).toEqual([expect.objectContaining({ id: O.vip, name: 'VIP Holdings', members: 1 })]);
+    await api(app, employee(U.sam)).get('/api/admin/restricted').expect(403);
+
+    await api(app, employee(U.ada)).put(`/api/customers/${C.maria}`, { restricted: true }).expect(200);
+    await api(app, employee(U.sam)).get(`/api/customers/${C.maria}`).expect(404);
+    await api(app, employee(U.ada)).put(`/api/customers/${C.maria}`, { restricted: false }).expect(200);
+    await api(app, employee(U.sam)).get(`/api/customers/${C.maria}`).expect(200);
+    // Staff cannot restrict (the flag is dropped).
+    await api(app, employee(U.sam)).put(`/api/customers/${C.maria}`, { restricted: true }).expect(200);
+    expect((await api(app, employee(U.ada)).get(`/api/customers/${C.maria}`).expect(200)).body.restricted).toBe(false);
   });
 
   it('assignments require exactly one target and an active employee', async () => {

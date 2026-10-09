@@ -16,7 +16,7 @@ Phases 1 and 2 are done and Phase 3 is mostly done; see [plan.md §11](plan.md#1
 | Audit | Every change is logged with who made it and through which channel | [0005_audit.sql](packages/db/migrations/0005_audit.sql) |
 | API | NestJS. Auth through Cognito JWTs or a local dev header, plus `@Can` guards. Endpoints for settings, locations, services, organizations, customers and appointments (local times, double-booking check) | [apps/api](apps/api) |
 | Manual payments | POS, bank transfer and cash. Covers validation, duplicate detection across manual and Stripe, a same-day edit rule, admin-only void and refund, and pending transfers | [apps/api/src/payments](apps/api/src/payments) |
-| Access admin | Employees with work locations, the staff permission matrix, assignments, grants and "who can access". Employee changes stay in sync with the Cognito employees pool | [apps/api/src/admin](apps/api/src/admin) |
+| Access admin | Employees with work locations, the staff permission matrix, assignments, temporary access (grants), restricted flags and "who can access", in the API and on the staff Access page and customer pages. Employee changes stay in sync with the Cognito employees pool | [apps/api/src/admin](apps/api/src/admin) |
 | Identity linking | Customers sign up with a verified email or phone and are linked to existing records. Employees are linked on first sign-in | [0012_identity_linking.sql](packages/db/migrations/0012_identity_linking.sql) |
 | Chat | Answers stream over SSE. Covers scope resolution within access, server-side dates, intent rules, Gemma 4 tool calling over 16 read-only tools, citations and retrieval traces. When no model is configured, answers use the evidence only | [apps/api/src/chat](apps/api/src/chat) |
 | Stripe | Signed webhooks go to an event store. The worker applies them (matching, ordering, refunds, disputes, duplicates) and reconciles nightly or on demand. Includes the unmatched-payment queue | [apps/api/src/stripe](apps/api/src/stripe), [apps/worker](apps/worker) |
@@ -28,7 +28,6 @@ Phases 1 and 2 are done and Phase 3 is mostly done; see [plan.md §11](plan.md#1
 | CI | Every PR runs typecheck, tests against Postgres, cfn-lint, the nested-parameter check, a Lambda build and image builds. Pushing a `v*.*.*` tag publishes a private release | [.github/workflows](.github/workflows) |
 
 **Not yet:**
-- Admin screens for assignments, grants and restricted flags.
 - Evaluation set.
 - Phase 4 hardening.
 - A first real AWS deployment.

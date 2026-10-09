@@ -10,6 +10,7 @@ import { PaymentStatus, type Appointment, type Payment } from '../portal/PortalP
 import { CustomerTickets } from '../portal/TicketPages';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 import { MergeCard } from './ReviewPages';
+import { AssignmentsCard, GrantsCard } from './AccessPages';
 
 
 // Customers ----------------------------------------------------------------------------------
@@ -129,7 +130,7 @@ export function CustomerDetail() {
           </Card>
         )}
         {can('read', 'access') && (
-          <Card title="Who can access this customer">
+          <Card title="Who can access this customer" actions={can('update', 'access') && <RestrictedToggle customer={c} />}>
             {access.data?.length ? (
               <Table head={['Employee', 'Role', 'Read', 'Update']}>
                 {access.data.map((r) => (
@@ -146,9 +147,34 @@ export function CustomerDetail() {
             )}
           </Card>
         )}
+        {can('update', 'access') && (
+          <>
+            <AssignmentsCard fixed={{ kind: 'customer', customer: c }} />
+            <GrantsCard fixed={{ kind: 'customer', customer: c }} />
+          </>
+        )}
         {can('merge', 'customers') && <MergeCard key={c.id} customer={c} />}
       </div>
     </Page>
+  );
+}
+
+/** Admins: restricted customers are hidden from location-wide staff access. */
+function RestrictedToggle({ customer: c }: { customer: Customer }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const set = useMutation({
+    mutationFn: () => api.put<Customer>(`/customers/${c.id}`, { restricted: !c.restricted }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['customer', c.id] });
+      void qc.invalidateQueries({ queryKey: ['access', c.id] });
+      void qc.invalidateQueries({ queryKey: ['restricted'] });
+    },
+  });
+  return (
+    <Button size="sm" variant="secondary" disabled={set.isPending} onClick={() => set.mutate()} title={set.error ? (set.error as Error).message : undefined}>
+      {c.restricted ? 'Remove restriction' : 'Restrict'}
+    </Button>
   );
 }
 

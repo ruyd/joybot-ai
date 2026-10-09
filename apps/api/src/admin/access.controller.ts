@@ -41,6 +41,13 @@ const assignmentSchema = z
   });
 
 const MAX_GRANT_DAYS = 90;
+
+/** Display name and number of the customer or organization a row points at (RLS still applies). */
+const RECORD_NAMES = (customerId: string, orgId: string) => `
+  (SELECT nullif(trim(coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '')), '') FROM core.customers c WHERE c.id = ${customerId}) AS customer_name,
+  (SELECT c.customer_number FROM core.customers c WHERE c.id = ${customerId}) AS customer_number,
+  (SELECT o.name FROM core.organizations o WHERE o.id = ${orgId}) AS organization_name,
+  (SELECT o.org_number FROM core.organizations o WHERE o.id = ${orgId}) AS org_number`;
 const grantSchema = z
   .object({
     user_id: z.string().uuid(),
@@ -117,14 +124,21 @@ export class AccessController {
       if (v) {
         if (!z.string().uuid().safeParse(v).success) throw new BadRequestException(`${col} must be a UUID`);
         args.push(v);
-        where.push(`${col} = $${args.length}`);
+        where.push(`a.${col} = $${args.length}`);
       }
     }
-    if (active !== 'false') where.push('starts_at <= now() AND (ends_at IS NULL OR ends_at > now())');
+    if (active !== 'false') where.push('a.starts_at <= now() AND (a.ends_at IS NULL OR a.ends_at > now())');
     return this.db.as(p, async (db) =>
       (
         await db.query(
-          `SELECT * FROM core.assignments ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC`,
+          `SELECT a.*, ${RECORD_NAMES('a.customer_id', 'a.organization_id')},
+                  u.first_name || ' ' || u.last_name AS user_name,
+                  (a.ends_at IS NULL OR a.ends_at > now()) AS active
+             FROM core.assignments a
+             JOIN core.users u ON u.id = a.user_id
+            ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+            ORDER BY a.created_at DESC
+            LIMIT 200`,
           args,
         )
       ).rows,
@@ -168,17 +182,31 @@ export class AccessController {
   @Get('record-grants')
   @Can('read', 'access')
   listGrants(@CurrentPrincipal() p: Principal, @Query('user_id') userId?: string, @Query('record_id') recordId?: string) {
-    const where = ['(expires_at IS NULL OR expires_at > now())'];
+    const where = ['(g.expires_at IS NULL OR g.expires_at > now())'];
     const args: unknown[] = [];
     for (const [col, v] of [['user_id', userId], ['record_id', recordId]] as const) {
       if (v) {
         if (!z.string().uuid().safeParse(v).success) throw new BadRequestException(`${col} must be a UUID`);
         args.push(v);
-        where.push(`${col} = $${args.length}`);
+        where.push(`g.${col} = $${args.length}`);
       }
     }
     return this.db.as(p, async (db) =>
-      (await db.query(`SELECT * FROM core.record_grants WHERE ${where.join(' AND ')} ORDER BY created_at DESC`, args)).rows,
+      (
+        await db.query(
+          `SELECT g.*,
+                  ${RECORD_NAMES("CASE WHEN g.resource = 'customer' THEN g.record_id END", "CASE WHEN g.resource = 'organization' THEN g.record_id END")},
+                  u.first_name || ' ' || u.last_name AS user_name,
+                  gb.first_name || ' ' || gb.last_name AS granted_by_name
+             FROM core.record_grants g
+             JOIN core.users u ON u.id = g.user_id
+             LEFT JOIN core.users gb ON gb.id = g.granted_by
+            WHERE ${where.join(' AND ')}
+            ORDER BY g.created_at DESC
+            LIMIT 200`,
+          args,
+        )
+      ).rows,
     );
   }
 
@@ -221,6 +249,29 @@ export class AccessController {
     );
     if (!row) throw new NotFoundException('Active grant not found');
     return row;
+  }
+
+  // Restricted records --------------------------------------------------------------------------
+
+  /** Customers and organizations marked restricted (only admins and assigned staff see them). */
+  @Get('restricted')
+  @Can('read', 'access')
+  restricted(@CurrentPrincipal() p: Principal) {
+    return this.db.as(p, async (db) => ({
+      customers: (
+        await db.query(
+          `SELECT id, customer_number, first_name, last_name, email, phone, organization_id, updated_at
+             FROM core.customers WHERE restricted ORDER BY last_name, first_name LIMIT 500`,
+        )
+      ).rows,
+      organizations: (
+        await db.query(
+          `SELECT o.id, o.org_number, o.name, o.updated_at,
+                  (SELECT count(*)::int FROM core.customers c WHERE c.organization_id = o.id) AS members
+             FROM core.organizations o WHERE o.restricted ORDER BY o.name LIMIT 500`,
+        )
+      ).rows,
+    }));
   }
 
   private async assertActiveEmployee(db: import('pg').PoolClient, userId: string) {

@@ -53,3 +53,44 @@ export function CustomerPicker({ value, onChange }: { value: Customer | null; on
     </div>
   );
 }
+
+export interface Organization {
+  id: string;
+  org_number: string;
+  name: string;
+  restricted: boolean;
+}
+
+export function OrganizationPicker({ value, onChange }: { value: Organization | null; onChange: (o: Organization | null) => void }) {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const results = useQuery({
+    queryKey: ['organization-picker', q],
+    enabled: q.trim().length >= 2 && !value,
+    queryFn: () => api.get<Organization[]>(`/organizations?q=${encodeURIComponent(q.trim())}&limit=6`),
+  });
+  if (value) {
+    return (
+      <div className="flex items-center justify-between rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700">
+        <span>{value.name} <span className="text-slate-500">· {value.org_number}</span></span>
+        <Button type="button" size="sm" variant="ghost" onClick={() => onChange(null)}>Change</Button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or number" aria-label="Organization" />
+      {results.data && results.data.length > 0 && (
+        <ul className="mt-1 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+          {results.data.map((o) => (
+            <li key={o.id}>
+              <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-900" onClick={() => onChange(o)}>
+                {o.name} <span className="text-slate-500">· {o.org_number}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
