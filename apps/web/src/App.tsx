@@ -105,7 +105,7 @@ export function App() {
             element={
               <SessionProvider audience="customer">
                 <RequireSession>
-                  <Layout title="JoyBot" nav={PORTAL_NAV} />
+                  <Layout title="JoyBot" nav={PORTAL_NAV} assistant={{ audience: 'customer', path: '/portal' }} />
                 </RequireSession>
               </SessionProvider>
             }
@@ -125,7 +125,7 @@ export function App() {
             element={
               <SessionProvider audience="employee">
                 <RequireSession>
-                  <Layout title="JoyBot Staff" nav={STAFF_NAV} />
+                  <Layout title="JoyBot Staff" nav={STAFF_NAV} assistant={{ audience: 'employee', path: '/staff/assistant' }} />
                 </RequireSession>
               </SessionProvider>
             }

@@ -1,5 +1,6 @@
+import { lazy, Suspense } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { useSession } from '../lib/auth';
+import { useSession, type Audience } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { fullName } from '../lib/format';
 import { useMe } from '../lib/me';
@@ -15,7 +16,10 @@ export interface NavItem {
   role?: string;
 }
 
-export function Layout({ title, nav }: { title: string; nav: NavItem[] }) {
+// Loaded after the page itself, so the markdown renderer stays out of the first bundle.
+const AssistantDock = lazy(() => import('./chat/AssistantDock').then((m) => ({ default: m.AssistantDock })));
+
+export function Layout({ title, nav, assistant }: { title: string; nav: NavItem[]; assistant?: { audience: Audience; path: string } }) {
   const session = useSession();
   const location = useLocation();
   const { me, can, isLoading, error } = useMe();
@@ -64,9 +68,17 @@ export function Layout({ title, nav }: { title: string; nav: NavItem[] }) {
           </Button>
         </div>
       </header>
-      <ErrorBoundary key={location.pathname}>
-        <Outlet />
-      </ErrorBoundary>
+      <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined}>
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
+      </div>
+      {assistant && (
+        // Stays mounted across pages (the conversation carries on); hidden on the Assistant page itself.
+        <Suspense fallback={null}>
+          <AssistantDock audience={assistant.audience} fullView={assistant.path} hidden={location.pathname === assistant.path} />
+        </Suspense>
+      )}
     </div>
   );
 }
