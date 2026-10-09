@@ -688,7 +688,8 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 ### 8.5 Template quality gates
 - **Done:** `cfn-lint` plus `check_nested.py`, which checks that every nested-stack parameter is passed.
-- **Planned (Phase 4):** `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
+- **Done (Phase 4):** `cfn-guard` rules in `cloudformation/guard/joybot.guard`, with unit tests for each rule (`tests/joybot_tests.yaml`), run in CI and in `pnpm lint:cfn`. They check: region rule; private, encrypted, TLS-only S3; organization-only sharing; scanned ECR; no wildcard IAM actions or admin policies; encrypted, protected RDS; KMS rotation; SNS encryption; log retention; internal ALB; no open ingress; HTTPS plus WAF on CloudFront; IMDSv2; no privileged containers; no public Lambda.
+- **Original list:** `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
 - **Planned (Phase 4):** `taskcat` in us-east-1 from a member account. Smoke tests:
   - Customer email sign-up → appointment question.
   - Org admin → org tickets (stubbed Freshdesk).
@@ -717,7 +718,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 **Status:**
 - **Done:** `ci.yml` runs on every PR (typecheck, all tests against a Postgres service, cfn-lint plus the nested-parameter check, Lambda build, image builds). `release.yml` publishes on a `v*.*.*` tag (OIDC role, then `publish.sh`).
-- **Not yet:** `cfn-guard`, the automatic deploy to dev, Playwright and `taskcat`.
+- **Not yet:** the automatic deploy to dev, Playwright and `taskcat`. (`cfn-guard` was added in Phase 4.)
 
 1. **PR**:
    - Lint, typecheck, unit tests.
