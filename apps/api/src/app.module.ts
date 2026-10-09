@@ -11,6 +11,10 @@ import { ServicesController } from './catalog/services.controller';
 import { PermissionsService } from './auth/permissions.service';
 import { AppExceptionFilter } from './common/pg-exception.filter';
 import { APP_CONFIG, type AppConfig } from './config/config';
+import { ChatService } from './chat/chat.service';
+import { ConversationsController } from './chat/conversations.controller';
+import { EvidenceOnlyProvider, LLM_PROVIDER, OpenAiCompatibleProvider } from './chat/llm/llm.provider';
+import { ChatToolsService } from './chat/tools';
 import { CustomersController } from './customers/customers.controller';
 import { DbModule } from './db/db.module';
 import { HealthController } from './health/health.controller';
@@ -47,6 +51,7 @@ export class AppModule {
         PaymentsController,
         UsersController,
         AccessController,
+        ConversationsController,
       ],
       providers: [
         PermissionsService,
@@ -54,6 +59,13 @@ export class AppModule {
         AppointmentsService,
         PaymentsService,
         WhatsAppSettingsPublisher,
+        ChatToolsService,
+        ChatService,
+        {
+          provide: LLM_PROVIDER,
+          useFactory: () =>
+            config.MODEL_ENDPOINT ? new OpenAiCompatibleProvider(config.MODEL_ENDPOINT, config.MODEL_NAME) : new EvidenceOnlyProvider(),
+        },
         {
           provide: EMPLOYEE_LOGINS,
           useFactory: () =>

@@ -20,6 +20,8 @@ const schema = z
     DB_SSL: z.enum(['true', 'false']).default('false'),
     /** OpenAI-compatible model endpoint (vLLM), e.g. http://model.joybot-dev.internal:8000/v1 */
     MODEL_ENDPOINT: z.string().url().optional(),
+    /** Served model name (vLLM: gemma; Ollama: the local tag, e.g. gemma4:e2b). */
+    MODEL_NAME: z.string().default('gemma'),
     /** 'dev' trusts the x-dev-principal header — local development and tests only. */
     AUTH_MODE: z.enum(['dev', 'cognito']).default('cognito'),
     CUSTOMERS_USER_POOL_ID: z.string().optional(),
