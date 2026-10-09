@@ -1,0 +1,35 @@
+{
+  "name": "@joybot/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "dev": "tsc -p tsconfig.build.json && (tsc -p tsconfig.build.json --watch --preserveWatchOutput & node --watch dist/main.js)",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@joybot/access": "workspace:*",
+    "@joybot/db": "workspace:*",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "aws-jwt-verify": "^5.1.0",
+    "dotenv": "^16.4.7",
+    "pg": "^8.16.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.1.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.1.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

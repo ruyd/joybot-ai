@@ -1,0 +1,19 @@
+{
+  "name": "joybot-ai",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @joybot/db migrate",
+    "db:seed": "pnpm --filter @joybot/db seed",
+    "db:reset": "pnpm --filter @joybot/db reset",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "dev:api": "pnpm --filter @joybot/api dev"
+  },
+  "packageManager": "pnpm@12.10.1"
+}
