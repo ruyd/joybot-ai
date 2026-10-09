@@ -50,6 +50,15 @@ describe('catalog', () => {
     const list = await api(app, customer(C.pat)).get('/api/locations').expect(200);
     expect(list.body.map((l: { code: string }) => l.code)).toEqual(expect.arrayContaining(['LA', 'MIA', 'NYC']));
   });
+
+  it('employees list the staff at a location for booking; customers cannot', async () => {
+    const nyc = await api(app, employee(U.lia)).get(`/api/locations/${L.nyc}/staff`).expect(200);
+    expect(ids(nyc.body)).toEqual([U.ada, U.sam].sort());
+    expect(nyc.body[0]).toEqual({ id: expect.any(String), first_name: expect.any(String), last_name: expect.any(String) });
+    const la = await api(app, employee(U.sam)).get(`/api/locations/${L.la}/staff`).expect(200);
+    expect(ids(la.body)).toEqual([U.lia]);
+    await api(app, customer(C.maria)).get(`/api/locations/${L.nyc}/staff`).expect(403);
+  });
 });
 
 describe('organizations', () => {
@@ -114,6 +123,13 @@ describe('appointments', () => {
     expect(done).toMatchObject({ service_name: 'Haircut', location_name: 'New York — Midtown', time_zone: 'America/New_York', employee_name: 'Sam Staff' });
     expect(done.local_start).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
     expect(done).not.toHaveProperty('notes_internal');
+    expect(done).not.toHaveProperty('customer_name');
+  });
+
+  it('employees see the customer’s name and number on appointments they can read', async () => {
+    const res = await api(app, employee(U.sam)).get(`/api/appointments?customer_id=${C.maria}`).expect(200);
+    expect(ids(res.body)).toEqual([A.mariaDone, A.mariaNext].sort());
+    for (const a of res.body) expect(a).toMatchObject({ customer_name: expect.stringMatching(/^Maria /), customer_number: expect.any(String) });
   });
 
   it('org admins see their organization members’ appointments', async () => {

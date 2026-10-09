@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
@@ -17,8 +17,9 @@ import { AssignmentsCard, GrantsCard } from './AccessPages';
 
 export function Customers() {
   const api = useApi();
-  const [q, setQ] = useState('');
-  const [term, setTerm] = useState('');
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(params.get('q') ?? '');
+  const [term, setTerm] = useState(params.get('q') ?? '');
   const query = useQuery({ queryKey: ['customers', term], queryFn: () => api.get<Customer[]>(`/customers?q=${encodeURIComponent(term)}`) });
   return (
     <Page>
@@ -233,7 +234,8 @@ interface Duplicate {
   occurred_at: string;
 }
 
-function RecordPayment() {
+/** Also on the staff home page, with a title. */
+export function RecordPayment({ title }: { title?: string }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [customer, setCustomer] = useState<Customer | null>(null);
@@ -273,7 +275,7 @@ function RecordPayment() {
   };
 
   return (
-    <Card>
+    <Card title={title}>
       <form onSubmit={onSubmit} className="grid max-w-xl gap-4">
         <Field label="Customer">
           <CustomerPicker value={customer} onChange={setCustomer} />
