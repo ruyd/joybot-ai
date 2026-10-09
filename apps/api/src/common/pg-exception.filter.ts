@@ -23,8 +23,12 @@ export class AppExceptionFilter implements ExceptionFilter {
         '23503': [400, 'Referenced record does not exist'], // foreign_key_violation
         '23502': [400, 'Missing required field'], // not_null_violation
         '22P02': [400, 'Invalid value'], // invalid_text_representation
+        P0002: [404, 'Not found'], // no_data_found, raised by authz functions
       };
-      const [status, message] = map[err.code ?? ''] ?? [500, 'Internal error'];
+      const [status, generic] = map[err.code ?? ''] ?? [500, 'Internal error'];
+      // Our own RAISE messages in authz functions (no constraint) are written for users; show them.
+      const raised = !err.constraint && err.where?.includes('PL/pgSQL');
+      const message = raised && status < 500 ? err.message : generic;
       if (status === 500) this.logger.error(err.message, err.stack);
       res.status(status).json({ statusCode: status, message, constraint: err.constraint });
       return;

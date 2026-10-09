@@ -120,7 +120,20 @@ export class AuthGuard implements CanActivate {
         [audience, sub],
       );
       const row = res.rows[0];
-      if (!row) throw new UnauthorizedException('Account is not linked');
+      if (!row) {
+        if (audience === 'customer') {
+          const pending = (await this.pool.query<{ pending: boolean }>('SELECT authz.link_review_pending($1) AS pending', [sub])).rows[0];
+          if (pending?.pending) {
+            // 403, not 401: the token is fine, so the web app should not sign the customer out.
+            throw new ForbiddenException({
+              statusCode: 403,
+              code: 'account_in_review',
+              message: 'Your account is being checked by our team. We will contact you shortly.',
+            });
+          }
+        }
+        throw new UnauthorizedException('Account is not linked');
+      }
       return { type: row.principal_type, id: row.principal_id, role: row.role };
     }
     throw new UnauthorizedException();

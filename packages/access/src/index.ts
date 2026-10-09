@@ -6,7 +6,7 @@ export const RESOURCES = [
   'customers', 'organizations', 'appointments', 'payments', 'services', 'locations',
   'tickets', 'users', 'settings', 'audit', 'notes_internal', 'access',
 ] as const;
-export const ACTIONS = ['read', 'create', 'update', 'delete', 'void', 'refund'] as const;
+export const ACTIONS = ['read', 'create', 'update', 'delete', 'void', 'refund', 'merge'] as const;
 export const SCOPES = [
   'all_including_restricted', 'all', 'location', 'assigned', 'own', 'recorded', 'org', 'self',
 ] as const;

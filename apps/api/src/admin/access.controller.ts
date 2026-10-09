@@ -13,6 +13,7 @@ const STAFF_FORBIDDEN: Partial<Record<Resource, readonly string[]>> = {
   users: ['create', 'update', 'delete'],
   settings: ['update'],
   payments: ['void', 'refund'],
+  customers: ['merge'], // linking logins and merging records stays with admins
 };
 
 const staffPermissionsSchema = z

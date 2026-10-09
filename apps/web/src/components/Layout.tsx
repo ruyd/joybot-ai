@@ -20,7 +20,15 @@ export function Layout({ title, nav }: { title: string; nav: NavItem[] }) {
   const location = useLocation();
   const { me, can, isLoading, error } = useMe();
   if (isLoading) return <div className="p-6"><Spinner /></div>;
-  if (error) return <div className="p-6"><ErrorBanner error={error} /></div>;
+  if (error) {
+    // e.g. a new sign-up waiting for staff review (403 account_in_review): let them sign out.
+    return (
+      <div className="mx-auto max-w-lg space-y-3 p-6">
+        <ErrorBanner error={error} />
+        <Button size="sm" variant="secondary" onClick={() => void session.signOut()}>Sign out</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh">

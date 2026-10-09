@@ -22,12 +22,12 @@ Phases 1 and 2 are done and Phase 3 is mostly done; see [plan.md §11](plan.md#1
 | Stripe | Signed webhooks go to an event store. The worker applies them (matching, ordering, refunds, disputes, duplicates) and reconciles nightly or on demand. Includes the unmatched-payment queue | [apps/api/src/stripe](apps/api/src/stripe), [apps/worker](apps/worker) |
 | Freshdesk | Contacts are matched by verified email or phone (with phone format variants). Includes the ownership filter, private notes for staff only, retries, a circuit breaker and chat tools | [apps/api/src/freshdesk](apps/api/src/freshdesk) |
 | Profiles & invites | Profile editing and email/phone changes confirmed with one-time codes (email or WhatsApp). Staff invite customers and org admins add or remove members, using single-use hashed links. Accepting an invite from a different account goes to review | [apps/api/src/profile](apps/api/src/profile) |
+| Link review & merge | Sign-ups that conflict with existing records and invites accepted by another account wait in a review queue: link the login, merge, or reject. Likely duplicates can be merged or dismissed. A merge moves appointments, payments, the login and chats, and leaves a hidden tombstone. Admin only | [merge.controller.ts](apps/api/src/customers/merge.controller.ts), [0016](packages/db/migrations/0016_link_review_merge.sql), [ReviewPages.tsx](apps/web/src/routes/staff/ReviewPages.tsx) |
 | Web app | Customer portal: assistant, appointments, payments, tickets, organization, profile. Staff console: assistant, customers, payments worklists, admin. Sign-in through Cognito, or a dev picker locally | [apps/web](apps/web) |
 | Infrastructure | CloudFormation: network, data, messaging, auth, compute (ECS on EC2: Graviton and GPU), model (vLLM serving Gemma 4 E2B), backend, frontend (CloudFront, VPC origin, WAF) and observability. Also a private artifacts bootstrap, Lambdas, and publish and Quick-Create scripts | [cloudformation](cloudformation) |
 | CI | Every PR runs typecheck, tests against Postgres, cfn-lint, the nested-parameter check, a Lambda build and image builds. Pushing a `v*.*.*` tag publishes a private release | [.github/workflows](.github/workflows) |
 
 **Not yet:**
-- Duplicate merge and link-review screens.
 - Admin screens for assignments, grants and restricted flags.
 - Evaluation set.
 - Phase 4 hardening.

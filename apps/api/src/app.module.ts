@@ -16,6 +16,7 @@ import { ConversationsController } from './chat/conversations.controller';
 import { EvidenceOnlyProvider, LLM_PROVIDER, OpenAiCompatibleProvider } from './chat/llm/llm.provider';
 import { ChatToolsService } from './chat/tools';
 import { CustomersController } from './customers/customers.controller';
+import { MergeController } from './customers/merge.controller';
 import { DbModule } from './db/db.module';
 import { FreshdeskService } from './freshdesk/freshdesk.service';
 import { TicketsController } from './freshdesk/tickets.controller';
@@ -56,6 +57,7 @@ export class AppModule {
         ServicesController,
         OrganizationsController,
         CustomersController,
+        MergeController,
         AppointmentsController,
         PaymentsController,
         UsersController,

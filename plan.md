@@ -385,7 +385,7 @@ core.record_grants (
 | **Sign-in** | Email + password / email code, or phone + WhatsApp code (Cognito passwordless OTP, Essentials tier). Without WhatsApp → email |
 | **Profile completion** | Name, the other contact method (verified), time zone, preferred location |
 | **Org membership** | Set by staff/admin, or by an org admin inviting members |
-| **Conflicts / duplicates** | Link-review queue; duplicate detection + staff merge (audited) |
+| **Conflicts / duplicates** | Link-review queue (link the waiting login, merge, or reject); duplicate detection (same name, or same last name + birth date) and merge into a hidden tombstone. Admin-only (`customers:merge`), audited. A sign-up waiting for review gets a 403 `account_in_review` |
 
 **WhatsApp configuration lives in `core.settings`**:
 - **Admin → Settings → WhatsApp** holds the End User Messaging Social **phone number ID**, display number, OTP and invite **template names** and language, and the enable toggle. A **"Send test message"** button checks them.
@@ -547,7 +547,8 @@ POST     /api/org/invites · DELETE /api/org/members/:customerId
 
 # Back-office (admin, staff — @Can + RLS)
 GET/POST/PUT /api/organizations[/:id] · /api/customers[/:id]
-POST     /api/customers/:id/invite · POST /api/customers/:id/merge
+POST     /api/customers/:id/invite · GET /api/customers/:id/merge-preview?into= · POST /api/customers/:id/merge
+GET      /api/duplicates · POST /api/duplicates/dismiss · GET /api/link-reviews?status= · POST /api/link-reviews/:id/resolve
 GET/POST/PUT /api/services · /api/appointments
 GET      /api/payments?customerId=&source=&status=
 POST     /api/payments                          (manual: card_pos | bank_transfer | cash | other)
@@ -766,14 +767,13 @@ Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ n
 | **0 — Spike & setup** | ⬜ | E2B vs E4B benchmark. **Create the Meta Business account and start verification** and template approval, which can take days or weeks. A Freshdesk API key and a sandbox or test set of contacts. A Stripe test account and a webhook endpoint in dev |
 | **1 — Foundations, data & access** | ✅ | Monorepo; `packages/db` (core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings and locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers); employee logins kept in sync with Cognito. All nine stacks, private artifacts bootstrap and CI |
 | **2 — Chat MVP + Stripe** | ✅ | Streaming chat for customers, org admins and employees: access-filtered resolution, 16 read-only tools, local times, citations, retrieval traces. **Stripe webhooks, the worker, reconciliation and the unmatched queue**, with combined balances. Web portal and staff console |
-| **3 — Accounts, WhatsApp, Freshdesk** | 🟡 | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ⬜ Duplicate merge and link-review queue (API and UI). ⬜ UI for assignments, grants and restricted flags (the API exists). ⬜ Eval set v1 |
+| **3 — Accounts, WhatsApp, Freshdesk** | 🟡 | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ⬜ UI for assignments, grants and restricted flags (the API exists). ⬜ Eval set v1 |
 | **4 — Hardening** | ⬜ | First real AWS dev deploy. WAF tuning, Cognito advanced security, WhatsApp throttles and cost alarms, red-team and injection suite, observability review, load tests, staging, `cfn-guard`, `taskcat`, Playwright, first private Quick-Create release |
 | **5 — Launch & beyond** | ⬜ | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
 
 ### Next steps
 
 1. **Finish Phase 3:**
-   - **Link review and merge.** Add an API and a staff screen for `app.link_review_queue`, which currently gets sign-ups that didn't match and invites accepted by a different account. Add a customer merge that moves appointments, payments, links and the Cognito sub, keeps a tombstone, and writes to `change_log`.
    - **Access admin screens.** Add web pages for assignments, record grants (expiry of 90 days at most) and the restricted flags on customers and organizations. The API is in `apps/api/src/admin`.
    - **Eval set v1.** Write about 100 seeded cases from §10, covering access, payments, tickets, time zones and partial profiles. Add a runner that scores answers in evidence-only mode and with a real model. Release gate: zero leaks.
 2. **Check the real integrations locally:**

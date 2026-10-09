@@ -35,6 +35,7 @@ pnpm --filter @joybot/api exec vitest run test/profile.test.ts   # one file
 ### Database and access
 - **Every query runs as a principal.** In the API, use `DbService.as(principal, fn)` (or `read` for chat). It sets `app.principal_type`/`app.principal_id`/`app.via` in a transaction, and RLS does the rest. Use `withSystem` only for worker or trigger paths.
 - **Access rules live in SQL.** They are the `authz.*` SECURITY DEFINER functions plus RLS policies. The API adds coarse checks with `@Can(action, resource)`, `@EmployeesOnly` and `@CustomersOnly`. The role always comes from the database (`authz.principal_role()`) and never from the token. When adding a resource, add the RLS policies, the `role_permissions` rows and the CASL mapping together.
+- **Merged customers** become tombstones (`status = 'merged'`, `merged_into`), hidden by the customers SELECT policies. New code that looks customers up by number or Stripe id outside RLS should follow `merged_into`, as `core.match_stripe_customer` does.
 - **Migrations are forward-only.** Add the next numbered file and never edit an applied one. RLS is enabled but not forced, so the owner (`joybot_migrator`) bypasses it.
 - **Postgres roles:**
   - `joybot_app` is the API, with RLS enforced.

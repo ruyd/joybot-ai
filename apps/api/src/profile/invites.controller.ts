@@ -141,9 +141,9 @@ export class InvitesController {
     await this.db.as(p, async (db) => {
       const me = (await db.query<{ cognito_sub: string | null }>('SELECT cognito_sub FROM core.customers WHERE id = $1', [p.id])).rows[0];
       await db.query(
-        `INSERT INTO app.link_review_queue (cognito_sub, contact_hash, candidate_customer_id, reason)
-         VALUES ($1, $2, $3, 'invite_accepted_by_other_account')`,
-        [me?.cognito_sub ?? `customer:${p.id}`, tokenHash(body.token), invite.customer_id],
+        `INSERT INTO app.link_review_queue (cognito_sub, contact_hash, candidate_customer_id, account_customer_id, reason)
+         VALUES ($1, $2, $3, $4, 'invite_accepted_by_other_account')`,
+        [me?.cognito_sub ?? `customer:${p.id}`, tokenHash(body.token), invite.customer_id, p.id],
       );
     });
     return { status: 'review' };

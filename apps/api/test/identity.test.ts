@@ -163,6 +163,16 @@ describe('Cognito authentication', () => {
     expect(unlinked.body.message).toBe('Account is not linked');
   });
 
+  it('tells a sign-up waiting for review that it is being checked (403, so the app does not sign out)', async () => {
+    await migrator.query(`INSERT INTO app.link_review_queue (cognito_sub, contact_hash, reason) VALUES ('sub-unlinked', 'x', 'contact_linked_to_other_login')`);
+    try {
+      const res = await get('/api/me', 'stranger-token').expect(403);
+      expect(res.body.code).toBe('account_in_review');
+    } finally {
+      await migrator.query(`DELETE FROM app.link_review_queue WHERE cognito_sub = 'sub-unlinked'`);
+    }
+  });
+
   it('ignores the dev header in Cognito mode', async () => {
     await request(app.getHttpServer()).get('/api/me').set('x-dev-principal', `employee:${U.ada}`).expect(401);
   });
