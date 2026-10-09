@@ -25,6 +25,8 @@ const schema = z
     MODEL_ENDPOINT: optional(z.string().url()),
     /** Served model name (vLLM: gemma; Ollama: the local tag, e.g. gemma4:e2b). */
     MODEL_NAME: z.string().default('gemma'),
+    /** Logs every model request (prompt, evidence, history) and response (tool calls, reasoning, answer). Dev only: prompts hold customer data. */
+    MODEL_DEBUG: z.enum(['true', 'false']).default('false'),
     /** 'dev' trusts the x-dev-principal header — local development and tests only. */
     AUTH_MODE: z.enum(['dev', 'cognito']).default('cognito'),
     CUSTOMERS_USER_POOL_ID: z.string().optional(),
@@ -57,6 +59,9 @@ const schema = z
     }
     if (cfg.AUTH_MODE === 'dev' && cfg.NODE_ENV === 'production') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'AUTH_MODE=dev is not allowed in production' });
+    }
+    if (cfg.MODEL_DEBUG === 'true' && cfg.AUTH_MODE !== 'dev') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'MODEL_DEBUG=true is only allowed with AUTH_MODE=dev' });
     }
     if (cfg.AUTH_MODE === 'cognito') {
       for (const key of ['CUSTOMERS_USER_POOL_ID', 'CUSTOMERS_CLIENT_ID', 'EMPLOYEES_USER_POOL_ID', 'EMPLOYEES_CLIENT_ID'] as const) {

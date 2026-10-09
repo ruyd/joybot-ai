@@ -708,7 +708,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
   - Records are never deleted; voids and refunds are admin-only, with a reason.
   - Full `change_log`.
 - **WhatsApp**: opt-in required for invites; codes never logged; phone numbers hashed in logs; send throttles and cost alarms.
-- **Public users**: WAF rate limits, Cognito advanced security, per-customer chat quotas.
+- **Public users**: WAF rate limits, Cognito advanced security (planned), per-person chat limits (done: questions per rolling 24 hours, set in Admin → Settings).
 - **Prompt injection**: chat input, notes and ticket text are untrusted. Tools are read-only with validated arguments; RLS and the ownership filter enforce scope.
 - **Compliance**: none for now. Baseline: retention setting, PII out of logs, KMS, TLS, isolated DB, only CloudFront public.
 
@@ -768,7 +768,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 ## 11. Phased Roadmap
 
-Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ not started.
+Status as of 2026-10-09 (`main` after PR #2): ✅ done · 🟡 partly done · ⬜ not started.
 
 | Phase | Status | Deliverables |
 |---|---|---|
@@ -776,7 +776,7 @@ Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ n
 | **1 — Foundations, data & access** | ✅ | Monorepo; `packages/db` (core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings and locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers); employee logins kept in sync with Cognito. All nine stacks, private artifacts bootstrap and CI |
 | **2 — Chat MVP + Stripe** | ✅ | Streaming chat for customers, org admins and employees: access-filtered resolution, 16 read-only tools, local times, citations, retrieval traces. **Stripe webhooks, the worker, reconciliation and the unmatched queue**, with combined balances. Web portal and staff console |
 | **3 — Accounts, WhatsApp, Freshdesk** | ✅ | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ✅ Access admin UI: assignments, temporary access (grants), restricted flags, staff permission matrix. ✅ Eval set v1 (110 cases, access gate in CI) |
-| **4 — Hardening** | ⬜ | First real AWS dev deploy. WAF tuning, Cognito advanced security, WhatsApp throttles and cost alarms, red-team and injection suite, observability review, load tests, staging, `cfn-guard`, `taskcat`, Playwright, first private Quick-Create release |
+| **4 — Hardening** | 🟡 | ✅ Row-level security on the remaining `app` tables (invites accepted through a single-use function; Stripe events stored append-only). ✅ Per-person chat limits. ✅ `cfn-guard` rules with tests, in CI. ⬜ First real AWS dev deploy. ⬜ WAF tuning, Cognito advanced security. ⬜ WhatsApp throttles and cost alarms. ⬜ Red-team and injection suite beyond eval v1. ⬜ Observability review. ⬜ Load tests. ⬜ Staging and prod parameters. ⬜ `taskcat`. ⬜ Playwright. ⬜ First private Quick-Create release |
 | **5 — Launch & beyond** | ⬜ | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
 
 ### Next steps
@@ -787,8 +787,8 @@ Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ n
    - Grow the set toward 200–300 cases, adding cases from real questions once in use.
 2. **Check the real integrations locally:**
    - Stripe test mode with `stripe listen`.
-   - Stripe test mode with `stripe listen`.
    - A Freshdesk trial account.
+   - Cognito hosted sign-in (needs the first deploy, step 4).
 3. **Phase 0 items with long lead times.** Start these now:
    - Meta Business verification and WhatsApp template approval (OTP, invite).
    - The SES domain and leaving the SES sandbox.
@@ -797,14 +797,14 @@ Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ n
    - Run `bootstrap/artifacts.yaml`, `publish.sh` and the Quick-Create link in a member account.
    - Work through "Things to verify on the first real deployment" in `cloudformation/README.md`: Cognito `SMS_OTP` with a custom sender only, the KMS key policy, DB bootstrap reaching Secrets Manager, the Aurora version, the GPU AMI parameter, and `Authorization` forwarding through the VPC origin.
    - Also check that SSE streams through CloudFront without buffering.
-5. **Phase 4 hardening:**
-   - Prompt-injection and red-team suite.
-   - WAF rule tuning.
-   - Per-customer chat quotas.
-   - `cfn-guard` rules from §8.5.
-   - Playwright E2E per role.
+5. **Rest of Phase 4 hardening:**
+   - Playwright E2E per role (customer, org admin, staff, admin).
+   - Prompt-injection and red-team suite beyond the eval's 7 injection cases.
+   - WAF rule tuning and Cognito advanced security.
+   - WhatsApp send throttles and cost alarms.
+   - Observability review: dashboards and alarms against real traffic.
    - k6 load test on one g6.xlarge.
-   - Staging and prod parameter files.
+   - Staging and prod parameter files, `taskcat` from a member account, and the first private Quick-Create release.
 
 ---
 

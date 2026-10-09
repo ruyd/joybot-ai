@@ -15,7 +15,8 @@ export interface AppOptions {
 
 export async function createApp(options: AppOptions = {}): Promise<INestApplication> {
   config({ path: path.resolve(__dirname, '../../../.env') });
-  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test', ...options.env });
+  // Tests use the evidence-only model (or an override) even when .env points at a local Ollama.
+  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test', MODEL_ENDPOINT: '', MODEL_DEBUG: 'false', ...options.env });
   let builder = Test.createTestingModule({ imports: [AppModule.forRoot(cfg)] });
   for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
   const moduleRef = await builder.compile();

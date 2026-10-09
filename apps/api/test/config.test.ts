@@ -33,4 +33,10 @@ describe('config', () => {
     expect(() => loadConfig({ ...aws, APP_DB_PASSWORD: undefined })).toThrow(/APP_DB_PASSWORD/);
     expect(() => loadConfig({ ...aws, EMPLOYEES_CLIENT_ID: undefined })).toThrow(/EMPLOYEES_CLIENT_ID/);
   });
+
+  it('allows model prompt logging only with dev auth', () => {
+    expect(() => loadConfig({ ...aws, MODEL_DEBUG: 'true' })).toThrow(/MODEL_DEBUG=true is only allowed with AUTH_MODE=dev/);
+    expect(loadConfig({ ...aws, NODE_ENV: 'development', AUTH_MODE: 'dev', MODEL_DEBUG: 'true' }).MODEL_DEBUG).toBe('true');
+    expect(loadConfig(aws).MODEL_DEBUG).toBe('false');
+  });
 });

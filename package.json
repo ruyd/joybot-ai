@@ -13,12 +13,15 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm --filter './packages/*' build && pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
+    "dev": "pnpm db:up && pnpm --filter \"./packages/*\" build && pnpm run --workspace-concurrency=16 \"/^dev:/\"",
     "dev:api": "pnpm --filter @joybot/api dev",
+    "dev:worker": "pnpm --filter @joybot/worker dev",
+    "dev:web": "node tools/wait-for-api.mjs && pnpm --filter @joybot/web dev",
+    "dev:freshdesk": "node tools/fake-freshdesk.mjs",
+    "dev:model": "sh tools/dev-model.sh",
     "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py && pnpm guard:cfn",
     "guard:cfn": "cfn-guard test --rules-file cloudformation/guard/joybot.guard --test-data cloudformation/guard/tests/joybot_tests.yaml >/dev/null && cfn-guard validate --rules cloudformation/guard --data cloudformation/main.yaml --data cloudformation/stacks --data cloudformation/bootstrap --show-summary fail",
-    "package:functions": "pnpm --filter './packages/*' build && pnpm --filter @joybot/functions build",
-    "dev:worker": "pnpm --filter @joybot/worker dev",
-    "dev:web": "pnpm --filter @joybot/web dev"
+    "package:functions": "pnpm --filter './packages/*' build && pnpm --filter @joybot/functions build"
   },
   "packageManager": "pnpm@12.10.1"
 }
