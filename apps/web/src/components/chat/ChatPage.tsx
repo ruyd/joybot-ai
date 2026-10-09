@@ -1,19 +1,12 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useReducer, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/api';
 import type { Audience } from '../../lib/auth';
-import { chatReducer, initialChat, type Candidate, type Citation, type Message, type ScopeCard } from '../../lib/chat-state';
-import { readSse } from '../../lib/sse';
+import type { Candidate, Citation, Message, ScopeCard } from '../../lib/chat-state';
 import { Badge, Button, ErrorBanner } from '../ui';
-
-interface Conversation {
-  id: string;
-  title: string | null;
-  active_customer_id: string | null;
-  active_organization_id: string | null;
-  updated_at: string;
-}
+import { useChat, type Conversation } from './useChat';
 
 const SUGGESTIONS: Record<Audience, string[]> = {
   customer: ['When is my next appointment?', 'Did my last payment go through?', 'How much do I owe?', 'What services do you offer?'],
@@ -23,96 +16,23 @@ const SUGGESTIONS: Record<Audience, string[]> = {
 /** Chat for customers (portal) and employees (staff console); answers stream from the API (SSE). */
 export function ChatPage({ audience }: { audience: Audience }) {
   const api = useApi();
-  const queryClient = useQueryClient();
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [state, dispatch] = useReducer(chatReducer, initialChat);
-  const abortRef = useRef<AbortController | null>(null);
+  const { conversationId, state, open, send, choose, clearScope, remove, stop } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [params, setParams] = useSearchParams();
 
   const conversations = useQuery({ queryKey: ['conversations'], queryFn: () => api.get<Conversation[]>('/conversations') });
+
+  // ?c=<id>: continue a conversation started in the assistant dock.
+  const requested = params.get('c');
+  useEffect(() => {
+    if (!requested) return;
+    void open(requested);
+    setParams({}, { replace: true });
+  }, [requested, open, setParams]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [state.messages]);
-
-  const open = useCallback(
-    async (id: string | null) => {
-      abortRef.current?.abort();
-      setConversationId(id);
-      dispatch({ type: 'scope', scope: undefined });
-      if (!id) {
-        dispatch({ type: 'load', messages: [] });
-        return;
-      }
-      const rows = await api.get<{ id: string; role: 'user' | 'assistant'; content: string; citations: Citation[] }[]>(`/conversations/${id}/messages`);
-      dispatch({ type: 'load', messages: rows.map((r) => ({ ...r, citations: r.citations ?? [] })) });
-    },
-    [api],
-  );
-
-  const send = useCallback(
-    async (text: string, forConversation?: string) => {
-      const question = text.trim();
-      if (!question || state.busy) return;
-      let id = forConversation ?? conversationId;
-      try {
-        if (!id) {
-          id = (await api.post<Conversation>('/conversations', {})).id;
-          setConversationId(id);
-        }
-        dispatch({ type: 'send', text: question, id: crypto.randomUUID() });
-        const controller = new AbortController();
-        abortRef.current = controller;
-        const res = await api.fetch(`/conversations/${id}/messages`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-          body: JSON.stringify({ content: question }),
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { message?: string };
-          throw new Error(body.message ?? (res.status === 429 ? 'Too many messages — please wait a moment.' : `Request failed (${res.status})`));
-        }
-        await readSse(res, (e) => dispatch({ type: 'event', event: e.event, data: e.data }));
-        void queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') dispatch({ type: 'aborted' });
-        else dispatch({ type: 'failed', message: (err as Error).message });
-      } finally {
-        abortRef.current = null;
-      }
-    },
-    [api, conversationId, queryClient, state.busy],
-  );
-
-  /** Disambiguation: pin the chosen record, then ask the same question again. */
-  const choose = useCallback(
-    async (candidate: Candidate, question: string) => {
-      if (!conversationId) return;
-      await api.put(`/conversations/${conversationId}/scope`, {
-        customer_id: candidate.kind === 'customer' ? candidate.id : null,
-        organization_id: candidate.kind === 'organization' ? candidate.id : null,
-      });
-      dispatch({ type: 'scope', scope: { kind: candidate.kind, id: candidate.id, name: candidate.label, number: candidate.number, detail: candidate.detail } });
-      await send(question, conversationId);
-    },
-    [api, conversationId, send],
-  );
-
-  const clearScope = useCallback(async () => {
-    if (!conversationId) return;
-    await api.put(`/conversations/${conversationId}/scope`, { customer_id: null, organization_id: null });
-    dispatch({ type: 'scope', scope: undefined });
-  }, [api, conversationId]);
-
-  const remove = useCallback(
-    async (id: string) => {
-      await api.del(`/conversations/${id}`);
-      if (id === conversationId) void open(null);
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
-    },
-    [api, conversationId, open, queryClient],
-  );
 
   return (
     <div className="grid h-[calc(100dvh-4rem)] grid-cols-1 md:grid-cols-[16rem_1fr]">
@@ -160,13 +80,13 @@ export function ChatPage({ audience }: { audience: Audience }) {
             <div ref={bottomRef} />
           </div>
         </div>
-        <Composer busy={state.busy} onSend={(t) => void send(t)} onStop={() => abortRef.current?.abort()} audience={audience} />
+        <Composer busy={state.busy} onSend={(t) => void send(t)} onStop={stop} audience={audience} />
       </section>
     </div>
   );
 }
 
-function Welcome({ audience, onPick }: { audience: Audience; onPick: (q: string) => void }) {
+export function Welcome({ audience, onPick }: { audience: Audience; onPick: (q: string) => void }) {
   return (
     <div className="py-10 text-center">
       <h2 className="text-lg font-semibold">{audience === 'customer' ? 'How can we help?' : 'Ask about customers, payments or your schedule'}</h2>
@@ -186,15 +106,15 @@ function Welcome({ audience, onPick }: { audience: Audience; onPick: (q: string)
   );
 }
 
-function ScopeBar({ scope, onClear }: { scope?: ScopeCard; onClear: () => void }) {
+export function ScopeBar({ scope, onClear }: { scope?: ScopeCard; onClear: () => void }) {
   return (
     <div className="flex min-h-11 items-center gap-2 border-b border-slate-200 px-4 py-2 text-sm dark:border-slate-800">
       {scope ? (
         <>
           <Badge tone="brand">{scope.kind}</Badge>
-          <span className="font-medium">{scope.name}</span>
-          <span className="text-slate-500">{scope.number}</span>
-          {scope.detail && <span className="hidden truncate text-slate-500 sm:inline">· {scope.detail}</span>}
+          <span className="whitespace-nowrap font-medium">{scope.name}</span>
+          <span className="whitespace-nowrap text-slate-500">{scope.number}</span>
+          {scope.detail && <span className="hidden min-w-0 truncate text-slate-500 sm:inline">· {scope.detail}</span>}
           <Button size="sm" variant="ghost" className="ml-auto" onClick={onClear}>
             Clear
           </Button>
@@ -206,7 +126,7 @@ function ScopeBar({ scope, onClear }: { scope?: ScopeCard; onClear: () => void }
   );
 }
 
-function MessageView({ message, onChoose }: { message: Message; onChoose: (c: Candidate) => void }) {
+export function MessageView({ message, onChoose }: { message: Message; onChoose: (c: Candidate) => void }) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -279,7 +199,26 @@ function Sources({ citations }: { citations: Citation[] }) {
   );
 }
 
-function Composer({ busy, onSend, onStop, audience }: { busy: boolean; onSend: (t: string) => void; onStop: () => void; audience: Audience }) {
+export function Composer({
+  busy,
+  onSend,
+  onStop,
+  audience,
+  inputRef,
+  onFocus,
+  placeholder,
+  className = 'border-t border-slate-200 p-3 dark:border-slate-800',
+}: {
+  busy: boolean;
+  onSend: (t: string) => void;
+  onStop: () => void;
+  audience: Audience;
+  inputRef?: React.Ref<HTMLTextAreaElement>;
+  onFocus?: () => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  const id = useId();
   const [text, setText] = useState('');
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -294,19 +233,21 @@ function Composer({ busy, onSend, onStop, audience }: { busy: boolean; onSend: (
     }
   };
   return (
-    <form onSubmit={submit} className="border-t border-slate-200 p-3 dark:border-slate-800">
+    <form onSubmit={submit} className={className}>
       <div className="mx-auto flex max-w-3xl items-end gap-2">
-        <label htmlFor="chat-input" className="sr-only">
+        <label htmlFor={id} className="sr-only">
           Message
         </label>
         <textarea
-          id="chat-input"
+          id={id}
+          ref={inputRef}
+          onFocus={onFocus}
           rows={1}
           maxLength={2000}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={audience === 'customer' ? 'Ask about your appointments or payments…' : 'Ask about a customer, payments or your schedule…'}
+          placeholder={placeholder ?? (audience === 'customer' ? 'Ask about your appointments or payments…' : 'Ask about a customer, payments or your schedule…')}
           className="max-h-40 min-h-10 flex-1 resize-none rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900"
         />
         {busy ? (
