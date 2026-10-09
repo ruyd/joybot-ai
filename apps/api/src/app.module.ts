@@ -95,7 +95,7 @@ export class AppModule {
         {
           provide: LLM_PROVIDER,
           useFactory: () =>
-            config.MODEL_ENDPOINT ? new OpenAiCompatibleProvider(config.MODEL_ENDPOINT, config.MODEL_NAME) : new EvidenceOnlyProvider(),
+            config.MODEL_ENDPOINT ? new OpenAiCompatibleProvider(config.MODEL_ENDPOINT, config.MODEL_NAME, undefined, config.MODEL_DEBUG === 'true') : new EvidenceOnlyProvider(),
         },
         {
           provide: EMPLOYEE_LOGINS,

@@ -49,7 +49,7 @@ export async function runEval(options: EvalOptions): Promise<EvalRun> {
   config({ path: path.join(ROOT, '.env') });
   const inner =
     options.mode === 'model'
-      ? new OpenAiCompatibleProvider(required('MODEL_ENDPOINT'), process.env.MODEL_NAME || 'gemma', 120_000)
+      ? new OpenAiCompatibleProvider(required('MODEL_ENDPOINT'), process.env.MODEL_NAME || 'gemma', 120_000, process.env.MODEL_DEBUG === 'true')
       : new EvidenceOnlyProvider();
   const recorder = new RecordingProvider(inner);
   const freshdesk = await startFakeFreshdesk();

@@ -46,16 +46,19 @@ pnpm test            # all packages (each API test file resets the DB), incl. th
 pnpm --filter @joybot/api eval        # eval only; report in apps/api/eval/reports/
 pnpm typecheck
 pnpm lint:cfn        # needs cfn-lint (pip install cfn-lint)
-pnpm dev:api         # http://localhost:3000/api
+pnpm dev             # everything at once (Ctrl-C stops all): Postgres, API, worker, web, Freshdesk stub, Ollama
+pnpm dev:api         # or one at a time: http://localhost:3000/api
 pnpm dev:worker      # Stripe event processing + reconciliation
-pnpm dev:web         # http://localhost:5173 (proxies /api to the API)
+pnpm dev:web         # http://localhost:5173 (proxies /api to the API; waits up to 60 s for it to answer)
+pnpm dev:freshdesk   # Freshdesk stub on http://localhost:4010
+pnpm dev:model       # Ollama in the foreground (quits the Ollama app first)
 ```
 
 - **Messages:** with `AUTH_MODE=dev`, emails and WhatsApp messages aren't sent. Codes and invite links are printed in the API log.
-- **Freshdesk:** run `node tools/fake-freshdesk.mjs`, then set `FRESHDESK_BASE_URL=http://localhost:4010` and `FRESHDESK_API_KEY=local` in `.env`. Set any Freshdesk domain in Admin → Settings.
+- **Freshdesk:** the stub runs with `pnpm dev` (or `pnpm dev:freshdesk`). Set `FRESHDESK_BASE_URL=http://localhost:4010` and `FRESHDESK_API_KEY=local` in `.env`. Set any Freshdesk domain in Admin → Settings.
 - **Stripe:** take `STRIPE_WEBHOOK_SECRET` from `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then enable Stripe in Admin → Settings.
 - **Eval with a model:** `MODEL_ENDPOINT=http://localhost:11434/v1 MODEL_NAME=<gemma tag> pnpm --filter @joybot/api eval:model`. Set `EVAL_FILTER=<id or category prefix>` to run a subset.
-- **Model:** chat answers from the evidence only unless `MODEL_ENDPOINT` points at an OpenAI-compatible server. For Ollama, use `http://localhost:11434/v1` and set `MODEL_NAME` to the local Gemma tag.
+- **Model:** install Ollama natively (`brew install ollama`; Docker on macOS has no GPU), run `ollama pull gemma4:e2b` (7.5 GB), and set `MODEL_ENDPOINT=http://localhost:11434/v1` and `MODEL_NAME=gemma4:e2b` in `.env`. `pnpm dev` runs Ollama in its console at its normal log level (`OLLAMA_DEBUG=1` or `2` for more); it quits the Ollama menu-bar app first, since both use port 11434. Set `MODEL_DEBUG=true` to have the API console log each model call in full: the system prompt with the records, history, question and tools, then the tool calls, reasoning and answer (only with `AUTH_MODE=dev`, since prompts contain customer data). Without `MODEL_ENDPOINT`, chat lists the records it found instead of writing an answer.
 
 Local auth uses the `x-dev-principal` header (`AUTH_MODE=dev`, refused when `NODE_ENV=production`):
 

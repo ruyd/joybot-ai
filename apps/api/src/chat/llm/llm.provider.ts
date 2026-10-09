@@ -52,6 +52,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     private readonly endpoint: string,
     private readonly model: string,
     private readonly timeoutMs = 60_000,
+    /** MODEL_DEBUG: log full requests and responses (local development only). */
+    private readonly debug = false,
   ) {}
 
   async plan(input: PlanInput): Promise<PlannedToolCall[]> {
@@ -69,8 +71,13 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       ],
     });
     const body = (await res.json()) as {
-      choices?: { message?: { tool_calls?: { function: { name: string; arguments: string } }[] } }[];
+      choices?: { message?: { content?: string; reasoning?: string; tool_calls?: { function: { name: string; arguments: string } }[] } }[];
+      usage?: unknown;
     };
+    if (this.debug) {
+      const m = body.choices?.[0]?.message;
+      this.dump('plan response', { tool_calls: m?.tool_calls?.map((c) => c.function), usage: body.usage }, { reasoning: m?.reasoning, content: m?.content });
+    }
     const calls = body.choices?.[0]?.message?.tool_calls ?? [];
     return calls.flatMap((c) => {
       try {
@@ -100,26 +107,42 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     if (!res.body) return;
     const decoder = new TextDecoder();
     let buffer = '';
-    for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
-      buffer += decoder.decode(chunk, { stream: true });
-      let newline: number;
-      while ((newline = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, newline).trim();
-        buffer = buffer.slice(newline + 1);
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (data === '[DONE]') return;
-        try {
-          const token = JSON.parse(data).choices?.[0]?.delta?.content;
-          if (token) yield token as string;
-        } catch {
-          // ignore keep-alives and partial lines
+    let content = '';
+    let reasoning = '';
+    try {
+      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        buffer += decoder.decode(chunk, { stream: true });
+        let newline: number;
+        while ((newline = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') return;
+          let delta: { content?: string; reasoning?: string } | undefined;
+          try {
+            delta = JSON.parse(data).choices?.[0]?.delta;
+          } catch {
+            continue; // ignore keep-alives and partial lines
+          }
+          if (delta?.reasoning) reasoning += delta.reasoning;
+          if (delta?.content) {
+            content += delta.content;
+            yield delta.content;
+          }
         }
       }
+    } finally {
+      if (this.debug) this.dump('answer response', {}, { reasoning, content });
     }
   }
 
-  private async post(body: object, signal?: AbortSignal): Promise<Response> {
+  private async post(body: { messages: { role: string; content: string }[]; tools?: PlanInput['tools']; [option: string]: unknown }, signal?: AbortSignal): Promise<Response> {
+    if (this.debug) {
+      const { messages, tools, ...options } = body;
+      this.dump(tools ? 'plan request' : 'answer request', { ...options, tools: tools?.map((t) => t.function.name) });
+      for (const m of messages) this.logger.debug(`--- ${m.role} ---\n${m.content}`);
+    }
     const timeout = AbortSignal.timeout(this.timeoutMs);
     const res = await fetch(`${this.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -129,6 +152,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     });
     if (!res.ok) throw new Error(`model endpoint returned ${res.status}`);
     return res;
+  }
+
+  private dump(label: string, data: object, text: Record<string, string | undefined> = {}): void {
+    const blocks = Object.entries(text).flatMap(([name, value]) => (value ? [`--- ${name} ---\n${value}`] : []));
+    this.logger.debug([`=== ${label} ===`, ...(Object.keys(data).length ? [JSON.stringify(data, null, 2)] : []), ...blocks].join('\n'));
   }
 }
 

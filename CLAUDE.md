@@ -9,7 +9,8 @@ pnpm db:up && pnpm db:reset   # Postgres 16 on :5433 (docker compose), migrate +
 pnpm test                     # all packages, sequential; API test files reset the DB themselves
 pnpm typecheck                # builds packages/* first, then tsc everywhere
 pnpm lint:cfn                 # cfn-lint + cloudformation/scripts/check_nested.py
-pnpm dev:api | dev:worker | dev:web
+pnpm dev                      # db:up + package build + every dev:* script in parallel (api, worker, web, freshdesk stub, ollama)
+pnpm dev:api | dev:worker | dev:web | dev:freshdesk | dev:model
 pnpm --filter @joybot/api exec vitest run test/profile.test.ts   # one file
 pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model uses MODEL_ENDPOINT
 ```
