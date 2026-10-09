@@ -53,12 +53,11 @@ export class StripeController {
     if (typeof event.id !== 'string' || typeof event.type !== 'string' || !Number.isInteger(event.created)) {
       throw new BadRequestException('Not a Stripe event');
     }
-    const stored = await this.pool.query(
-      `INSERT INTO app.stripe_events (event_id, type, livemode, created, payload)
-       VALUES ($1, $2, $3, to_timestamp($4), $5::jsonb) ON CONFLICT (event_id) DO NOTHING`,
+    const stored = await this.pool.query<{ inserted: boolean }>(
+      'SELECT authz.store_stripe_event($1, $2, $3, $4, $5) AS inserted',
       [event.id, event.type, event.livemode === true, event.created, req.rawBody.toString('utf8')],
     );
-    return { received: true, duplicate: stored.rowCount === 0 };
+    return { received: true, duplicate: !stored.rows[0].inserted };
   }
 
   /** Sync health for admins: event backlog, failures, unmatched payments, last reconciliation. */
