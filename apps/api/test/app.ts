@@ -6,10 +6,19 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { loadConfig } from '../src/config/config';
 
-export async function createApp(): Promise<INestApplication> {
+export interface AppOptions {
+  /** Extra environment (e.g. AUTH_MODE=cognito with fake pool ids). */
+  env?: Record<string, string>;
+  /** Provider overrides, e.g. fake JWT verifiers or a fake EmployeeLogins. */
+  overrides?: { token: unknown; value: unknown }[];
+}
+
+export async function createApp(options: AppOptions = {}): Promise<INestApplication> {
   config({ path: path.resolve(__dirname, '../../../.env') });
-  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test' });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule.forRoot(cfg)] }).compile();
+  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test', ...options.env });
+  let builder = Test.createTestingModule({ imports: [AppModule.forRoot(cfg)] });
+  for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: false });
   app.setGlobalPrefix('api');
   await app.init();

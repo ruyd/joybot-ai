@@ -12,12 +12,26 @@ Parameters:
   BucketName:
     Type: String
     Default: joybot-artifacts-us-east-1
+  GitHubRepository:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Description: owner/repo allowed to publish releases from version tags (empty = no release role).
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: false if this account already has the token.actions.githubusercontent.com provider.
 
 Rules:
   UsEast1Only:
     Assertions:
       - Assert: !Equals [!Ref "AWS::Region", us-east-1]
         AssertDescription: Artifacts live in us-east-1 (same region as the stacks and their Lambdas).
+
+Conditions:
+  ReleaseRole: !Not [!Equals [!Ref GitHubRepository, ""]]
+  CreateOidcProvider: !And [!Condition ReleaseRole, !Equals [!Ref CreateGitHubOidcProvider, "true"]]
 
 Resources:
   ArtifactsBucket:
@@ -116,7 +130,64 @@ Resources:
             Condition:
               StringEquals: { "aws:PrincipalOrgID": !Ref OrganizationId }
 
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  # Assumed by .github/workflows/release.yml, only from version tags of this repository.
+  ReleaseRole:
+    Type: AWS::IAM::Role
+    Condition: ReleaseRole
+    Properties:
+      RoleName: joybot-release
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+              StringLike:
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubRepository}:ref:refs/tags/v*"
+      Policies:
+        - PolicyName: publish-release
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub "${ArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt ArtifactsBucket.Arn
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: [!GetAtt ApiRepository.Arn, !GetAtt WorkerRepository.Arn, !GetAtt ModelServerRepository.Arn]
+
 Outputs:
+  ReleaseRoleArn:
+    Condition: ReleaseRole
+    Description: Set as the AWS_RELEASE_ROLE_ARN variable of the GitHub "release" environment.
+    Value: !GetAtt ReleaseRole.Arn
   ArtifactsBucketName:
     Value: !Ref ArtifactsBucket
   ApiRepositoryUri:

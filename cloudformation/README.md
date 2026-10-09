@@ -27,8 +27,13 @@ parameters/               parameter files for our own environments
 ```bash
 aws cloudformation deploy --region us-east-1 --stack-name joybot-artifacts \
   --template-file cloudformation/bootstrap/artifacts.yaml \
-  --parameter-overrides OrganizationId=o-xxxxxxxxxx
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides OrganizationId=o-xxxxxxxxxx GitHubRepository=owner/joybot-ai
 ```
+
+With `GitHubRepository` set, the stack also creates the `joybot-release` role for GitHub Actions
+(OIDC, version tags only). Put its ARN in the `AWS_RELEASE_ROLE_ARN` variable of a GitHub
+environment named `release`; pushing a tag such as `v0.1.0` then runs `publish.sh` in CI.
 
 ## Publish a release
 

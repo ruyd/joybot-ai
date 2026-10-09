@@ -12,6 +12,7 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Shared ability builder (CASL) | [packages/access](packages/access) |
 | NestJS API: auth (Cognito or local dev header), `@Can` permission guard, settings, customers, **manual payments** (validation, cross-source duplicate detection, same-day edit rule, admin void/refund, pending bank transfers) | [apps/api](apps/api) |
 | Back-office API: locations, services (price list), organizations (members), appointments (service defaults, employee double-booking check, status transitions, local times) | [apps/api/src](apps/api/src) |
+| Employee sign-in accounts: creating, deactivating, reactivating and re-roling employees keeps the Cognito employees pool in step (rolled back if Cognito fails) | [employee-logins.ts](apps/api/src/admin/employee-logins.ts) |
 | Access administration API: employees + work locations, staff permission matrix (with guard-rails), assignments, temporary record grants (≤ 90 days), "who can access" with reasons | [apps/api/src/admin](apps/api/src/admin), [0010_access_reasons.sql](packages/db/migrations/0010_access_reasons.sql) |
 
 | Cognito identity linking rules (customer sign-up by verified email/phone, employee first sign-in) | [0012_identity_linking.sql](packages/db/migrations/0012_identity_linking.sql) |
@@ -20,6 +21,13 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Lambda functions: DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets | [cloudformation/functions](cloudformation/functions) |
 
 Not yet: chat/LLM, Stripe webhooks, Freshdesk, web app, worker (see roadmap in plan.md §11).
+
+## CI
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml) runs on every pull request: typecheck, all tests
+against a Postgres service, CloudFormation lint + nested-parameter check, Lambda build and an API image
+build. [release.yml](.github/workflows/release.yml) publishes a release when a `v*.*.*` tag is pushed
+(see [cloudformation/README.md](cloudformation/README.md)).
 
 ## Local development
 

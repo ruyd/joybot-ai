@@ -1,0 +1,35 @@
+name: Release
+
+# Publishing a tag such as v0.1.0 builds and uploads the release to the private tooling account
+# (images → ECR, templates/Lambdas/web → S3) and prints the Quick-Create links (plan.md §9).
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  id-token: write   # OIDC: no long-lived AWS keys
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install cfn-lint==1.57.2
+      - run: pnpm install --frozen-lockfile
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: cloudformation/scripts/publish.sh "${GITHUB_REF_NAME}" "${{ vars.ARTIFACTS_BUCKET || 'joybot-artifacts-us-east-1' }}"

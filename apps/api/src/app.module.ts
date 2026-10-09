@@ -1,10 +1,11 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AccessController } from './admin/access.controller';
+import { CognitoEmployeeLogins, EMPLOYEE_LOGINS, LocalEmployeeLogins } from './admin/employee-logins';
 import { UsersController } from './admin/users.controller';
 import { AppointmentsController } from './appointments/appointments.controller';
 import { AppointmentsService } from './appointments/appointments.service';
-import { AuthGuard } from './auth/auth.guard';
+import { AuthGuard, cognitoVerifiers, JWT_VERIFIERS } from './auth/auth.guard';
 import { LocationsController } from './catalog/locations.controller';
 import { ServicesController } from './catalog/services.controller';
 import { PermissionsService } from './auth/permissions.service';
@@ -49,9 +50,17 @@ export class AppModule {
       ],
       providers: [
         PermissionsService,
+        { provide: JWT_VERIFIERS, useFactory: () => cognitoVerifiers(config) },
         AppointmentsService,
         PaymentsService,
         WhatsAppSettingsPublisher,
+        {
+          provide: EMPLOYEE_LOGINS,
+          useFactory: () =>
+            config.AUTH_MODE === 'cognito' && config.EMPLOYEES_USER_POOL_ID
+              ? new CognitoEmployeeLogins(config.EMPLOYEES_USER_POOL_ID)
+              : new LocalEmployeeLogins(),
+        },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: AppExceptionFilter },
       ],

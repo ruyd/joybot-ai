@@ -19,7 +19,36 @@ import { AUDIENCE, IS_PUBLIC, REQUIRES, type Principal } from './principal';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Verifier = { verify(token: string): Promise<{ sub: string }> };
+export type JwtVerifier = { verify(token: string): Promise<{ sub: string }> };
+export interface AudienceVerifier {
+  audience: PrincipalType;
+  verifier: JwtVerifier;
+}
+
+/** One verifier per user pool (employees, customers). Overridable in tests. */
+export const JWT_VERIFIERS = Symbol('JWT_VERIFIERS');
+
+export function cognitoVerifiers(cfg: AppConfig): AudienceVerifier[] {
+  if (cfg.AUTH_MODE !== 'cognito') return [];
+  return [
+    {
+      audience: 'employee',
+      verifier: CognitoJwtVerifier.create({
+        userPoolId: cfg.EMPLOYEES_USER_POOL_ID!,
+        clientId: cfg.EMPLOYEES_CLIENT_ID!,
+        tokenUse: 'access',
+      }),
+    },
+    {
+      audience: 'customer',
+      verifier: CognitoJwtVerifier.create({
+        userPoolId: cfg.CUSTOMERS_USER_POOL_ID!,
+        clientId: cfg.CUSTOMERS_CLIENT_ID!,
+        tokenUse: 'access',
+      }),
+    },
+  ];
+}
 
 /**
  * Authenticates every request (unless @Public), resolves the principal and its role from the
@@ -27,35 +56,13 @@ type Verifier = { verify(token: string): Promise<{ sub: string }> };
  */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  private readonly verifiers: { audience: PrincipalType; verifier: Verifier }[] = [];
-
   constructor(
     private readonly reflector: Reflector,
     private readonly permissions: PermissionsService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     @Inject(APP_POOL) private readonly pool: Pool,
-  ) {
-    if (cfg.AUTH_MODE === 'cognito') {
-      this.verifiers.push(
-        {
-          audience: 'employee',
-          verifier: CognitoJwtVerifier.create({
-            userPoolId: cfg.EMPLOYEES_USER_POOL_ID!,
-            clientId: cfg.EMPLOYEES_CLIENT_ID!,
-            tokenUse: 'access',
-          }),
-        },
-        {
-          audience: 'customer',
-          verifier: CognitoJwtVerifier.create({
-            userPoolId: cfg.CUSTOMERS_USER_POOL_ID!,
-            clientId: cfg.CUSTOMERS_CLIENT_ID!,
-            tokenUse: 'access',
-          }),
-        },
-      );
-    }
-  }
+    @Inject(JWT_VERIFIERS) private readonly verifiers: AudienceVerifier[],
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const targets = [ctx.getHandler(), ctx.getClass()];
