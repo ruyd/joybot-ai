@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot messaging (plan.md §8.3): WhatsApp delivery of Cognito codes via AWS End User Messaging
+  Social (Custom SMS sender trigger + KMS key), the WhatsApp settings parameter written by the API,
+  delivery events topic, and SES for email.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  SesFromAddress:
+    Type: String
+    Default: ""
+    Description: Verified sender for invites and Cognito emails. Empty → Cognito default email (low limits).
+  MetaApiVersion:
+    Type: String
+    Default: v20.0
+  ArtifactsBucket:
+    Type: String
+  ArtifactsVersion:
+    Type: String
+
+Conditions:
+  HasSesFrom: !Not [!Equals [!Ref SesFromAddress, ""]]
+
+Resources:
+  # Cognito encrypts each code with this key before handing it to the sender Lambda.
+  CognitoSenderKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "JoyBot ${EnvironmentName} Cognito custom sender codes"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root" }
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: CognitoEncryptsCodes
+            Effect: Allow
+            Principal: { Service: cognito-idp.amazonaws.com }
+            Action: [kms:Encrypt, kms:CreateGrant]
+            Resource: "*"
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+  CognitoSenderKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/joybot-${EnvironmentName}-cognito-sender"
+      TargetKeyId: !Ref CognitoSenderKey
+
+  # Written by the API when an admin saves Admin → Settings → WhatsApp (plan.md §4.3).
+  WhatsAppSettingsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/joybot/${EnvironmentName}/whatsapp"
+      Type: String
+      Value: '{"enabled":false}'
+      Description: WhatsApp sender number and templates (managed from JoyBot settings)
+
+  WhatsAppSenderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+        - PolicyName: send-whatsapp-codes
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !GetAtt CognitoSenderKey.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WhatsAppSettingsParameter}"
+              # Any WhatsApp number in this account: the number is chosen in settings, no redeploy.
+              - Effect: Allow
+                Action: social-messaging:SendWhatsAppMessage
+                Resource: !Sub "arn:${AWS::Partition}:social-messaging:${AWS::Region}:${AWS::AccountId}:phone-number-id/*"
+
+  WhatsAppSenderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/joybot-${EnvironmentName}-whatsapp-sender"
+      RetentionInDays: 90
+
+  WhatsAppSenderFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: WhatsAppSenderLogGroup
+    Properties:
+      FunctionName: !Sub "joybot-${EnvironmentName}-whatsapp-sender"
+      Description: Cognito custom SMS sender, delivers codes over WhatsApp
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 15
+      MemorySize: 256
+      Role: !GetAtt WhatsAppSenderRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Sub "${ArtifactsVersion}/functions/whatsapp-sender.zip"
+      Environment:
+        Variables:
+          KEY_ARN: !GetAtt CognitoSenderKey.Arn
+          WHATSAPP_SETTINGS_PARAMETER: !Ref WhatsAppSettingsParameter
+          META_API_VERSION: !Ref MetaApiVersion
+
+  # Subscribe this topic to WhatsApp delivery events when linking the WhatsApp Business Account
+  # in the End User Messaging Social console (one-time setup).
+  DeliveryEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "joybot-${EnvironmentName}-whatsapp-events"
+      KmsMasterKeyId: alias/aws/sns
+
+  SesConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: !Sub "joybot-${EnvironmentName}"
+      SendingOptions: { SendingEnabled: true }
+      ReputationOptions: { ReputationMetricsEnabled: true }
+  SesIdentity:
+    Type: AWS::SES::EmailIdentity
+    Condition: HasSesFrom
+    Properties:
+      EmailIdentity: !Ref SesFromAddress
+      ConfigurationSetAttributes:
+        ConfigurationSetName: !Ref SesConfigurationSet
+
+Outputs:
+  CognitoSenderKeyArn:
+    Value: !GetAtt CognitoSenderKey.Arn
+  WhatsAppSenderFunctionArn:
+    Value: !GetAtt WhatsAppSenderFunction.Arn
+  WhatsAppSettingsParameterName:
+    Value: !Ref WhatsAppSettingsParameter
+  DeliveryEventsTopicArn:
+    Value: !Ref DeliveryEventsTopic
+  SesConfigurationSetName:
+    Value: !Ref SesConfigurationSet

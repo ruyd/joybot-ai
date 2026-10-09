@@ -11,9 +11,13 @@
     "db:seed": "pnpm --filter @joybot/db seed",
     "db:reset": "pnpm --filter @joybot/db reset",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter './packages/*' build && pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
-    "dev:api": "pnpm --filter @joybot/api dev"
+    "dev:api": "pnpm --filter @joybot/api dev",
+    "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py",
+    "package:functions": "pnpm --filter './packages/*' build && pnpm --filter @joybot/functions build",
+    "dev:worker": "pnpm --filter @joybot/worker dev",
+    "dev:web": "pnpm --filter @joybot/web dev"
   },
   "packageManager": "pnpm@12.10.1"
 }

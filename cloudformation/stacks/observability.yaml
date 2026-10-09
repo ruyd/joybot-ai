@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot observability (plan.md §8.3): alarm topic (emails the admin), alarms for the API, load
+  balancer, database, CloudFront, Stripe event processing and Cognito triggers, and a dashboard.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  AlarmEmail:
+    Type: String
+  ClusterName:
+    Type: String
+  ApiServiceName:
+    Type: String
+  AlbFullName:
+    Type: String
+  ApiTargetGroupFullName:
+    Type: String
+  DbClusterIdentifier:
+    Type: String
+  DistributionId:
+    Type: String
+
+Resources:
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "joybot-${EnvironmentName}-alarms"
+      KmsMasterKeyId: alias/aws/sns
+  AlarmEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: email
+      Endpoint: !Ref AlarmEmail
+
+  ApiNoHealthyTargets:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-api-no-healthy-targets"
+      AlarmDescription: The API has no healthy instances behind the load balancer.
+      Namespace: AWS/ApplicationELB
+      MetricName: HealthyHostCount
+      Dimensions:
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+        - { Name: TargetGroup, Value: !Ref ApiTargetGroupFullName }
+      Statistic: Minimum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 1
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions: [!Ref AlarmTopic]
+      OKActions: [!Ref AlarmTopic]
+
+  Api5xxErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-api-5xx"
+      AlarmDescription: The API returned more than 10 server errors in 5 minutes.
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions:
+        - { Name: LoadBalancer, Value: !Ref AlbFullName }
+        - { Name: TargetGroup, Value: !Ref ApiTargetGroupFullName }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ApiCpuHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-api-cpu-high"
+      AlarmDescription: API CPU above 85% for 15 minutes (autoscaling may be at its maximum).
+      Namespace: AWS/ECS
+      MetricName: CPUUtilization
+      Dimensions:
+        - { Name: ClusterName, Value: !Ref ClusterName }
+        - { Name: ServiceName, Value: !Ref ApiServiceName }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  DbCapacityHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-db-capacity-high"
+      AlarmDescription: Aurora is using over 90% of its maximum capacity (raise DbMaxAcu).
+      Namespace: AWS/RDS
+      MetricName: ACUUtilization
+      Dimensions:
+        - { Name: DBClusterIdentifier, Value: !Ref DbClusterIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  DbCpuHigh:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-db-cpu-high"
+      AlarmDescription: Aurora CPU above 80% for 15 minutes.
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions:
+        - { Name: DBClusterIdentifier, Value: !Ref DbClusterIdentifier }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  StripeEventsFailing:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-stripe-events-failed"
+      AlarmDescription: Stripe events could not be applied by the worker (see /admin/stripe/status).
+      Namespace: !Sub "JoyBot/${EnvironmentName}"
+      MetricName: StripeEventsFailed
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  CloudFront5xxRate:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-cloudfront-5xx"
+      AlarmDescription: More than 5% of requests to the app failed with server errors.
+      Namespace: AWS/CloudFront
+      MetricName: 5xxErrorRate
+      Dimensions:
+        - { Name: DistributionId, Value: !Ref DistributionId }
+        - { Name: Region, Value: Global }
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  WhatsAppSenderErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-whatsapp-sender-errors"
+      AlarmDescription: Verification codes are failing to send over WhatsApp.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - { Name: FunctionName, Value: !Sub "joybot-${EnvironmentName}-whatsapp-sender" }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  SignUpLinkingErrors:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "joybot-${EnvironmentName}-signup-linking-errors"
+      AlarmDescription: Customer sign-up confirmations are failing (database or linking errors).
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - { Name: FunctionName, Value: !Sub "joybot-${EnvironmentName}-customer-post-confirmation" }
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  Dashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "joybot-${EnvironmentName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            { "type": "metric", "x": 0, "y": 0, "width": 12, "height": 6,
+              "properties": { "title": "API requests and errors", "region": "${AWS::Region}", "stat": "Sum", "period": 300,
+                "metrics": [
+                  ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", "${AlbFullName}", "TargetGroup", "${ApiTargetGroupFullName}"],
+                  [".", "HTTPCode_Target_4XX_Count", ".", ".", ".", "."],
+                  [".", "HTTPCode_Target_5XX_Count", ".", ".", ".", "."]
+                ] } },
+            { "type": "metric", "x": 12, "y": 0, "width": 12, "height": 6,
+              "properties": { "title": "API latency (p50 / p95)", "region": "${AWS::Region}", "period": 300,
+                "metrics": [
+                  ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", "${AlbFullName}", "TargetGroup", "${ApiTargetGroupFullName}", { "stat": "p50" }],
+                  ["...", { "stat": "p95" }]
+                ] } },
+            { "type": "metric", "x": 0, "y": 6, "width": 12, "height": 6,
+              "properties": { "title": "API CPU / memory", "region": "${AWS::Region}", "stat": "Average", "period": 300,
+                "metrics": [
+                  ["AWS/ECS", "CPUUtilization", "ClusterName", "${ClusterName}", "ServiceName", "${ApiServiceName}"],
+                  [".", "MemoryUtilization", ".", ".", ".", "."]
+                ] } },
+            { "type": "metric", "x": 12, "y": 6, "width": 12, "height": 6,
+              "properties": { "title": "Database", "region": "${AWS::Region}", "stat": "Average", "period": 300,
+                "metrics": [
+                  ["AWS/RDS", "ServerlessDatabaseCapacity", "DBClusterIdentifier", "${DbClusterIdentifier}"],
+                  [".", "ACUUtilization", ".", "."],
+                  [".", "DatabaseConnections", ".", "."]
+                ] } },
+            { "type": "metric", "x": 0, "y": 12, "width": 12, "height": 6,
+              "properties": { "title": "Sign-up and WhatsApp codes", "region": "${AWS::Region}", "stat": "Sum", "period": 300,
+                "metrics": [
+                  ["AWS/Lambda", "Invocations", "FunctionName", "joybot-${EnvironmentName}-customer-post-confirmation"],
+                  [".", "Errors", ".", "."],
+                  [".", "Invocations", ".", "joybot-${EnvironmentName}-whatsapp-sender"],
+                  [".", "Errors", ".", "."]
+                ] } },
+            { "type": "metric", "x": 12, "y": 12, "width": 12, "height": 6,
+              "properties": { "title": "Stripe events failed", "region": "${AWS::Region}", "stat": "Sum", "period": 300,
+                "metrics": [
+                  ["JoyBot/${EnvironmentName}", "StripeEventsFailed"]
+                ] } }
+          ]
+        }
+
+Outputs:
+  AlarmTopicArn:
+    Value: !Ref AlarmTopic
+  DashboardUrl:
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=joybot-${EnvironmentName}"

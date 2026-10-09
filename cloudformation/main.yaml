@@ -1,0 +1,501 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot AI root stack (plan.md §8). Launch with a Quick-Create link from an account in the
+  JoyBot AWS Organization: network, data, messaging, identity, compute, model, backend, frontend
+  and observability.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: General }
+        Parameters: [EnvironmentName, AdminEmail, BusinessName, DefaultTimeZone, DefaultCurrency]
+      - Label: { default: Data }
+        Parameters: [SeedSampleData, DbMinAcu, DbMaxAcu, DbEngineVersion]
+      - Label: { default: Identity }
+        Parameters:
+          - CustomerSelfSignUp
+          - CustomerPoolTier
+          - AppCallbackUrls
+          - AppLogoutUrls
+          - EmployeeIdpType
+          - EmployeeSamlMetadataUrl
+          - EmployeeOidcIssuer
+          - EmployeeOidcClientId
+          - EmployeeOidcClientSecret
+      - Label: { default: Model (Gemma 4) }
+        Parameters: [ModelVariant, ModelIdOverride, HuggingFaceToken, GpuInstanceType, GpuMinTasks, GpuMaxTasks, GpuScheduleScaleDown]
+      - Label: { default: Compute }
+        Parameters: [CpuInstanceType, CpuMinCapacity, CpuMaxCapacity, CpuUseSpot, ApiMinTasks, ApiMaxTasks, EnableWorker]
+      - Label: { default: Web }
+        Parameters: [DomainName, HostedZoneId, CertificateArn, EnableWaf]
+      - Label: { default: Email }
+        Parameters: [SesFromAddress]
+      - Label: { default: Integrations }
+        Parameters: [FreshdeskApiKeySecretArn, StripeSecretArn]
+      - Label: { default: Network }
+        Parameters:
+          - VpcCidr
+          - NatGatewayMode
+          - EnableInterfaceEndpoints
+          - ExistingVpcId
+          - ExistingVpcCidr
+          - ExistingPrivateSubnetIds
+          - ExistingDatabaseSubnetIds
+      - Label: { default: Release (do not change) }
+        Parameters: [ArtifactsBucket, ArtifactsAccountId, ArtifactsVersion]
+    ParameterLabels:
+      AdminEmail: { default: First admin email (gets the staff console invite) }
+      SeedSampleData: { default: Load sample data (dev/demo only) }
+      ExistingVpcId: { default: Existing VPC (leave empty to create one) }
+      HuggingFaceToken: { default: Hugging Face token (gated Gemma weights) }
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  AdminEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: must be an email address
+  BusinessName:
+    Type: String
+    Default: JoyBot
+  DefaultTimeZone:
+    Type: String
+    Default: America/New_York
+    Description: IANA time zone (editable later in Admin → Settings)
+  DefaultCurrency:
+    Type: String
+    Default: USD
+    AllowedPattern: '^[A-Z]{3}$'
+  SeedSampleData:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  DbMinAcu:
+    Type: Number
+    Default: 0.5
+  DbMaxAcu:
+    Type: Number
+    Default: 8
+  DbEngineVersion:
+    Type: String
+    Default: "16.6"
+  CustomerSelfSignUp:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  CustomerPoolTier:
+    Type: String
+    Default: ESSENTIALS
+    AllowedValues: [ESSENTIALS, PLUS]
+  AppCallbackUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/auth/callback
+  AppLogoutUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/
+  EmployeeIdpType:
+    Type: String
+    Default: none
+    AllowedValues: [none, saml, oidc]
+  EmployeeSamlMetadataUrl:
+    Type: String
+    Default: ""
+  EmployeeOidcIssuer:
+    Type: String
+    Default: ""
+  EmployeeOidcClientId:
+    Type: String
+    Default: ""
+  EmployeeOidcClientSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+  SesFromAddress:
+    Type: String
+    Default: ""
+  FreshdeskApiKeySecretArn:
+    Type: String
+    Default: ""
+  StripeSecretArn:
+    Type: String
+    Default: ""
+  VpcCidr:
+    Type: String
+    Default: 10.40.0.0/16
+  NatGatewayMode:
+    Type: String
+    Default: single
+    AllowedValues: [single, per-az]
+  EnableInterfaceEndpoints:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ExistingVpcId:
+    Type: String
+    Default: ""
+  ExistingVpcCidr:
+    Type: String
+    Default: ""
+  ExistingPrivateSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+  ExistingDatabaseSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+  ModelVariant:
+    Type: String
+    Default: gemma-4-e2b
+    AllowedValues: [gemma-4-e2b, gemma-4-e4b, gemma-4-12b, gemma-4-26b-a4b, gemma-4-31b]
+  ModelIdOverride:
+    Type: String
+    Default: ""
+  HuggingFaceToken:
+    Type: String
+    NoEcho: true
+    MinLength: 1
+  GpuInstanceType:
+    Type: String
+    Default: g6.xlarge
+    AllowedValues: [g4dn.xlarge, g6.xlarge, g6.2xlarge, g6e.xlarge, g6e.2xlarge, g6.12xlarge, g6e.12xlarge]
+  GpuMinTasks:
+    Type: Number
+    Default: 0
+    AllowedValues: [0, 1, 2]
+    Description: Model instances always running (0 = scale to zero outside business hours).
+  GpuMaxTasks:
+    Type: Number
+    Default: 1
+    AllowedValues: [1, 2, 3, 4]
+  GpuScheduleScaleDown:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  CpuInstanceType:
+    Type: String
+    Default: t4g.medium
+    AllowedValues: [t4g.medium, t4g.large, m7g.large, m7g.xlarge, m6g.large, m6g.xlarge]
+  CpuMinCapacity:
+    Type: Number
+    Default: 1
+  CpuMaxCapacity:
+    Type: Number
+    Default: 2
+  CpuUseSpot:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ApiMinTasks:
+    Type: Number
+    Default: 1
+  ApiMaxTasks:
+    Type: Number
+    Default: 4
+  EnableWorker:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Run the background worker (Stripe sync). Turn off only for debugging.
+  DomainName:
+    Type: String
+    Default: ""
+  HostedZoneId:
+    Type: String
+    Default: ""
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate in us-east-1 for DomainName.
+  EnableWaf:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ArtifactsBucket:
+    Type: String
+    Default: joybot-artifacts-us-east-1
+  ArtifactsAccountId:
+    Type: String
+    AllowedPattern: '^\d{12}$'
+    Description: Tooling account that owns the private ECR repositories.
+  ArtifactsVersion:
+    Type: String
+    Default: v0.1.0
+    AllowedPattern: '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+    Description: Release to deploy. Immutable (Lambda code only updates when this changes).
+
+Rules:
+  UsEast1Only:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: JoyBot is deployed to us-east-1 only.
+  ExistingVpcNeedsSubnets:
+    RuleCondition: !Not [!Equals [!Ref ExistingVpcId, ""]]
+    Assertions:
+      - Assert: !Not [!Equals [!Join ["", !Ref ExistingPrivateSubnetIds], ""]]
+        AssertDescription: ExistingPrivateSubnetIds is required with ExistingVpcId.
+      - Assert: !Not [!Equals [!Join ["", !Ref ExistingDatabaseSubnetIds], ""]]
+        AssertDescription: ExistingDatabaseSubnetIds is required with ExistingVpcId.
+      - Assert: !Not [!Equals [!Ref ExistingVpcCidr, ""]]
+        AssertDescription: ExistingVpcCidr is required with ExistingVpcId.
+
+Conditions:
+  CreateVpc: !Equals [!Ref ExistingVpcId, ""]
+  IsProd: !Equals [!Ref EnvironmentName, prod]
+  HasDomain: !Not [!Equals [!Ref DomainName, ""]]
+  WorkerEnabled: !Equals [!Ref EnableWorker, "true"]
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateVpc
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/network.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcCidr: !Ref VpcCidr
+        NatGatewayMode: !If [IsProd, per-az, !Ref NatGatewayMode]
+        EnableInterfaceEndpoints: !Ref EnableInterfaceEndpoints
+
+  DataStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/data.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcId, !Ref ExistingVpcId]
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        DatabaseSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.IsolatedSubnetIds
+          - !Join [",", !Ref ExistingDatabaseSubnetIds]
+        DbEngineVersion: !Ref DbEngineVersion
+        DbMinAcu: !Ref DbMinAcu
+        DbMaxAcu: !Ref DbMaxAcu
+        AdminEmail: !Ref AdminEmail
+        BusinessName: !Ref BusinessName
+        DefaultTimeZone: !Ref DefaultTimeZone
+        DefaultCurrency: !Ref DefaultCurrency
+        SeedSampleData: !Ref SeedSampleData
+        FreshdeskApiKeySecretArn: !Ref FreshdeskApiKeySecretArn
+        StripeSecretArn: !Ref StripeSecretArn
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  MessagingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/messaging.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        SesFromAddress: !Ref SesFromAddress
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    # Created after DataStack (via GetAtt), so the first admin exists in the database before sign-in.
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/auth.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AdminEmail: !Ref AdminEmail
+        CustomerSelfSignUp: !Ref CustomerSelfSignUp
+        CustomerPoolTier: !Ref CustomerPoolTier
+        AppCallbackUrls: !If
+          - HasDomain
+          - !Join [",", [!Sub "https://${DomainName}/auth/callback", !Join [",", !Ref AppCallbackUrls]]]
+          - !Join [",", !Ref AppCallbackUrls]
+        AppLogoutUrls: !If
+          - HasDomain
+          - !Join [",", [!Sub "https://${DomainName}/", !Join [",", !Ref AppLogoutUrls]]]
+          - !Join [",", !Ref AppLogoutUrls]
+        EmployeeIdpType: !Ref EmployeeIdpType
+        EmployeeSamlMetadataUrl: !Ref EmployeeSamlMetadataUrl
+        EmployeeOidcIssuer: !Ref EmployeeOidcIssuer
+        EmployeeOidcClientId: !Ref EmployeeOidcClientId
+        EmployeeOidcClientSecret: !Ref EmployeeOidcClientSecret
+        SesFromAddress: !Ref SesFromAddress
+        SesConfigurationSetName: !GetAtt MessagingStack.Outputs.SesConfigurationSetName
+        WhatsAppSenderFunctionArn: !GetAtt MessagingStack.Outputs.WhatsAppSenderFunctionArn
+        CognitoSenderKeyArn: !GetAtt MessagingStack.Outputs.CognitoSenderKeyArn
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        DbClientSecurityGroupId: !GetAtt DataStack.Outputs.DbClientSecurityGroupId
+        DbHost: !GetAtt DataStack.Outputs.DbEndpoint
+        DbPort: !GetAtt DataStack.Outputs.DbPort
+        WorkerDbSecretArn: !GetAtt DataStack.Outputs.WorkerDbSecretArn
+        DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/compute.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcId, !Ref ExistingVpcId]
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        DbClientSecurityGroupId: !GetAtt DataStack.Outputs.DbClientSecurityGroupId
+        CpuInstanceType: !Ref CpuInstanceType
+        CpuMinCapacity: !Ref CpuMinCapacity
+        CpuMaxCapacity: !Ref CpuMaxCapacity
+        CpuUseSpot: !If [IsProd, "false", !Ref CpuUseSpot]
+        GpuInstanceType: !Ref GpuInstanceType
+        GpuMaxCapacity: !Ref GpuMaxTasks
+
+  ModelStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/model.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ClusterName: !GetAtt ComputeStack.Outputs.ClusterName
+        GpuCapacityProvider: !GetAtt ComputeStack.Outputs.GpuCapacityProvider
+        VpcId: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcId, !Ref ExistingVpcId]
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        NamespaceId: !GetAtt ComputeStack.Outputs.NamespaceId
+        CpuHostSecurityGroupId: !GetAtt ComputeStack.Outputs.CpuHostSecurityGroupId
+        ModelServerImage: !Sub "${ArtifactsAccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/joybot/model-server:${ArtifactsVersion}"
+        ModelVariant: !Ref ModelVariant
+        ModelIdOverride: !Ref ModelIdOverride
+        HuggingFaceToken: !Ref HuggingFaceToken
+        GpuMinTasks: !Ref GpuMinTasks
+        GpuMaxTasks: !Ref GpuMaxTasks
+        ScheduleScaleDown: !If [IsProd, "false", !Ref GpuScheduleScaleDown]
+
+  BackendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/backend.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcId, !Ref ExistingVpcId]
+        VpcCidr: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcCidr, !Ref ExistingVpcCidr]
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        ClusterName: !GetAtt ComputeStack.Outputs.ClusterName
+        CpuCapacityProvider: !GetAtt ComputeStack.Outputs.CpuCapacityProvider
+        CpuHostSecurityGroupId: !GetAtt ComputeStack.Outputs.CpuHostSecurityGroupId
+        ApiImage: !Sub "${ArtifactsAccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/joybot/api:${ArtifactsVersion}"
+        WorkerImage: !If
+          - WorkerEnabled
+          - !Sub "${ArtifactsAccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/joybot/worker:${ArtifactsVersion}"
+          - ""
+        ApiMinTasks: !Ref ApiMinTasks
+        ApiMaxTasks: !Ref ApiMaxTasks
+        DbHost: !GetAtt DataStack.Outputs.DbEndpoint
+        DbReaderHost: !GetAtt DataStack.Outputs.DbReaderEndpoint
+        DbPort: !GetAtt DataStack.Outputs.DbPort
+        AppDbSecretArn: !GetAtt DataStack.Outputs.AppDbSecretArn
+        ReaderDbSecretArn: !GetAtt DataStack.Outputs.ReaderDbSecretArn
+        WorkerDbSecretArn: !GetAtt DataStack.Outputs.WorkerDbSecretArn
+        DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
+        FreshdeskSecretArn: !GetAtt DataStack.Outputs.FreshdeskSecretArn
+        StripeSecretArn: !GetAtt DataStack.Outputs.StripeSecretArn
+        CustomersUserPoolId: !GetAtt AuthStack.Outputs.CustomersUserPoolId
+        CustomersUserPoolArn: !GetAtt AuthStack.Outputs.CustomersUserPoolArn
+        CustomersClientId: !GetAtt AuthStack.Outputs.CustomersClientId
+        EmployeesUserPoolId: !GetAtt AuthStack.Outputs.EmployeesUserPoolId
+        EmployeesUserPoolArn: !GetAtt AuthStack.Outputs.EmployeesUserPoolArn
+        EmployeesClientId: !GetAtt AuthStack.Outputs.EmployeesClientId
+        WhatsAppSettingsParameterName: !GetAtt MessagingStack.Outputs.WhatsAppSettingsParameterName
+        SesFromAddress: !Ref SesFromAddress
+        SesConfigurationSetName: !GetAtt MessagingStack.Outputs.SesConfigurationSetName
+        ModelEndpoint: !GetAtt ModelStack.Outputs.ModelEndpoint
+
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/frontend.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AlbArn: !GetAtt BackendStack.Outputs.AlbArn
+        AlbDnsName: !GetAtt BackendStack.Outputs.AlbDnsName
+        DomainName: !Ref DomainName
+        HostedZoneId: !Ref HostedZoneId
+        CertificateArn: !Ref CertificateArn
+        EnableWaf: !If [IsProd, "true", !Ref EnableWaf]
+        CustomersUserPoolId: !GetAtt AuthStack.Outputs.CustomersUserPoolId
+        CustomersClientId: !GetAtt AuthStack.Outputs.CustomersClientId
+        CustomersLoginDomain: !GetAtt AuthStack.Outputs.CustomersLoginDomain
+        EmployeesUserPoolId: !GetAtt AuthStack.Outputs.EmployeesUserPoolId
+        EmployeesClientId: !GetAtt AuthStack.Outputs.EmployeesClientId
+        EmployeesLoginDomain: !GetAtt AuthStack.Outputs.EmployeesLoginDomain
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  ObservabilityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/observability.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AlarmEmail: !Ref AdminEmail
+        ClusterName: !GetAtt ComputeStack.Outputs.ClusterName
+        ApiServiceName: !GetAtt BackendStack.Outputs.ApiServiceName
+        AlbFullName: !GetAtt BackendStack.Outputs.AlbFullName
+        ApiTargetGroupFullName: !GetAtt BackendStack.Outputs.ApiTargetGroupFullName
+        DbClusterIdentifier: !GetAtt DataStack.Outputs.DbClusterIdentifier
+        DistributionId: !GetAtt FrontendStack.Outputs.DistributionId
+
+Outputs:
+  AppUrl:
+    Value: !GetAtt FrontendStack.Outputs.AppUrl
+  CustomerPortalUrl:
+    Value: !Sub "${FrontendStack.Outputs.AppUrl}/portal"
+  StaffConsoleUrl:
+    Value: !Sub "${FrontendStack.Outputs.AppUrl}/staff"
+  StripeWebhookUrl:
+    Description: Register this endpoint in the Stripe Dashboard.
+    Value: !Sub "${FrontendStack.Outputs.AppUrl}/api/webhooks/stripe"
+  ModelId:
+    Value: !GetAtt ModelStack.Outputs.ModelId
+  DashboardUrl:
+    Value: !GetAtt ObservabilityStack.Outputs.DashboardUrl
+  CustomersUserPoolId:
+    Value: !GetAtt AuthStack.Outputs.CustomersUserPoolId
+  CustomersClientId:
+    Value: !GetAtt AuthStack.Outputs.CustomersClientId
+  CustomersLoginDomain:
+    Value: !GetAtt AuthStack.Outputs.CustomersLoginDomain
+  EmployeesUserPoolId:
+    Value: !GetAtt AuthStack.Outputs.EmployeesUserPoolId
+  EmployeesClientId:
+    Value: !GetAtt AuthStack.Outputs.EmployeesClientId
+  EmployeesLoginDomain:
+    Value: !GetAtt AuthStack.Outputs.EmployeesLoginDomain
+  DbEndpoint:
+    Value: !GetAtt DataStack.Outputs.DbEndpoint
+  AppliedMigrations:
+    Value: !GetAtt DataStack.Outputs.AppliedMigrations
+  FreshdeskSecretArn:
+    Description: Put the Freshdesk API key here after deploy.
+    Value: !GetAtt DataStack.Outputs.FreshdeskSecretArn
+  StripeSecretArn:
+    Description: Put the Stripe restricted key and webhook signing secret here after deploy.
+    Value: !GetAtt DataStack.Outputs.StripeSecretArn
+  WhatsAppSettingsParameterName:
+    Value: !GetAtt MessagingStack.Outputs.WhatsAppSettingsParameterName
+  WhatsAppDeliveryEventsTopicArn:
+    Description: Subscribe WhatsApp delivery events to this topic in End User Messaging Social.
+    Value: !GetAtt MessagingStack.Outputs.DeliveryEventsTopicArn
+  EgressIps:
+    Condition: CreateVpc
+    Description: NAT Elastic IPs to allowlist in external systems.
+    Value: !GetAtt NetworkStack.Outputs.EgressIps

@@ -103,7 +103,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 | Inference | **vLLM** (OpenAI-compatible, tool calling, guided JSON); Ollama for local dev | |
 | Backend | NestJS + `pg` with hand-written SQL repositories and raw SQL migrations; **CASL** abilities | RLS-centric design: every query runs in a transaction carrying the principal (`withPrincipal`) |
 | Compute | **ECS on EC2**: CPU (Graviton) for `api` + `worker`, GPU for vLLM | Lowest cost at steady load |
-| Frontend | React 18 + Vite + TS + TanStack Query + Tailwind; `/portal` and `/staff` | |
+| Frontend | React 19 + Vite 7 + TS + TanStack Query + Tailwind 4; `/portal` and `/staff` | |
 | IaC | **Plain CloudFormation YAML**, nested stacks; **us-east-1 only** (template `Rules` assertion) | |
 | Distribution | **Private** S3 artifacts bucket + **private ECR**, shared via `aws:PrincipalOrgID` with **one AWS Organization**. No public buckets, images or data | |
 | CI/CD | GitHub Actions (OIDC) → test → publish versioned artifacts → `aws cloudformation deploy` | |
@@ -115,25 +115,25 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 ```
 joybot-ai/
 ├── apps/
-│   ├── api/                 # NestJS backend (chat, tools, back-office, payments, access control, settings, webhooks)
+│   ├── api/                 # NestJS: auth, back-office, payments, access admin, chat, Stripe webhooks, Freshdesk, profile/invites, org area
 │   ├── web/                 # React + Vite frontend (/portal + /staff)
-│   └── worker/              # Stripe reconciliation & event processing, Freshdesk contact refresh, invites, grant expiry
+│   └── worker/              # Stripe event processing + reconciliation, on-demand jobs (app.worker_jobs)
 ├── packages/
-│   ├── db/                  # schema, SQL migrations (RLS policies, access functions), seed + sample data
-│   ├── access/              # CASL ability builder + shared policy tests
-│   ├── freshdesk/           # Freshdesk API v2 client + mapping + ownership filter
-│   ├── shared-types/
-│   └── eslint-config/
+│   ├── db/                  # SQL migrations (schema, RLS policies, authz functions), migrate runner, seed + sample data
+│   └── access/              # CASL ability builder shared by api and web
 ├── services/
-│   └── model-server/        # vLLM config (Gemma 4 E2B)
+│   └── model-server/        # vLLM image (Gemma 4 E2B, S3 weights cache)
 ├── cloudformation/
 │   ├── main.yaml
-│   ├── stacks/              # network, data, auth, messaging, compute, model, backend, frontend, observability
-│   ├── functions/           # asset deploy, DB bootstrap, post-confirmation, custom SMS sender → WhatsApp
-│   ├── parameters/          # dev.json / staging.json / prod.json
-│   └── scripts/             # package, publish, preflight, generate-quickcreate-links
-├── docker-compose.yml       # postgres (seeded), ollama, stripe-cli (webhook forwarding), wiremock (Freshdesk + WhatsApp stubs)
-├── pnpm-workspace.yaml      # pnpm workspaces
+│   ├── stacks/              # network, data, messaging, auth, compute, model, backend, frontend, observability
+│   ├── bootstrap/           # artifacts.yaml: private artifacts bucket + ECR, optional GitHub OIDC release role
+│   ├── functions/           # DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets
+│   ├── parameters/          # dev.json (staging/prod to add in Phase 4)
+│   └── scripts/             # publish.sh, quickcreate-link.mjs, check_nested.py
+├── tools/fake-freshdesk.mjs # local Freshdesk stub
+├── .github/workflows/       # ci.yml, release.yml
+├── docker-compose.yml       # postgres 16 (localhost:5433)
+├── CLAUDE.md                # conventions for working on the code
 └── plan.md
 ```
 
@@ -385,7 +385,7 @@ core.record_grants (
 | **Sign-in** | Email + password / email code, or phone + WhatsApp code (Cognito passwordless OTP, Essentials tier). Without WhatsApp → email |
 | **Profile completion** | Name, the other contact method (verified), time zone, preferred location |
 | **Org membership** | Set by staff/admin, or by an org admin inviting members |
-| **Conflicts / duplicates** | Link-review queue; duplicate detection + staff merge (audited) |
+| **Conflicts / duplicates** | Link-review queue (link the waiting login, merge, or reject); duplicate detection (same name, or same last name + birth date) and merge into a hidden tombstone. Admin-only (`customers:merge`), audited. A sign-up waiting for review gets a 403 `account_in_review` |
 
 **WhatsApp configuration lives in `core.settings`**:
 - **Admin → Settings → WhatsApp** holds the End User Messaging Social **phone number ID**, display number, OTP and invite **template names** and language, and the enable toggle. A **"Send test message"** button checks them.
@@ -547,7 +547,8 @@ POST     /api/org/invites · DELETE /api/org/members/:customerId
 
 # Back-office (admin, staff — @Can + RLS)
 GET/POST/PUT /api/organizations[/:id] · /api/customers[/:id]
-POST     /api/customers/:id/invite · POST /api/customers/:id/merge
+POST     /api/customers/:id/invite · GET /api/customers/:id/merge-preview?into= · POST /api/customers/:id/merge
+GET      /api/duplicates · POST /api/duplicates/dismiss · GET /api/link-reviews?status= · POST /api/link-reviews/:id/resolve
 GET/POST/PUT /api/services · /api/appointments
 GET      /api/payments?customerId=&source=&status=
 POST     /api/payments                          (manual: card_pos | bank_transfer | cash | other)
@@ -605,7 +606,9 @@ GET      /api/health | /api/ready
   - Locations, employees (admin/staff), staff permissions, assignments, record grants, restricted flags, audit.
 
 ### Stack
-React 18 + TS, Vite, React Router, `@casl/react`, TanStack Query, Zustand, Tailwind + shadcn/ui, `react-hook-form` + `zod`, `date-fns-tz`, `libphonenumber-js`, `react-markdown`; Vitest + RTL; Playwright E2E for customer, org admin, staff and admin.
+**Built:** React 19 + TS, Vite 7, React Router 7, TanStack Query 5, Tailwind 4, `oidc-client-ts` (Cognito code flow + PKCE per audience), CASL rules from `/api/me`, `Intl` for time zones, and Vitest for the SSE parser and chat reducer.
+
+**Planned:** Playwright E2E for customer, org admin, staff and admin.
 
 ---
 
@@ -661,7 +664,7 @@ WhatsApp has **no stack parameters**: the number and templates are set in `core.
 | Template | Resources |
 |---|---|
 | `network.yaml` | VPC (us-east-1, 2–3 AZs), NAT with Elastic IPs, VPC endpoints (S3, ECR, Secrets Manager, KMS, SSM, Logs, SQS, SES) |
-| `data.yaml` | Aurora PostgreSQL Serverless v2 (KMS, PITR, deletion protection in prod), role secrets (`joybot_app`, `joybot_reader`, `joybot_migrator`), **Freshdesk** and **Stripe** secrets (placeholders), Stripe events SQS queue + DLQ |
+| `data.yaml` | Aurora PostgreSQL Serverless v2 (KMS, PITR, deletion protection in prod), role secrets (`joybot_app`, `joybot_reader`, `joybot_migrator`), **Freshdesk** and **Stripe** secrets (placeholders). Stripe events are queued in Postgres (`app.stripe_events`), not SQS |
 | `messaging.yaml` | KMS key for the Cognito Custom SMS sender; **WhatsApp sender Lambda** (reads SSM `/joybot/<env>/whatsapp`; `social-messaging:SendWhatsAppMessage` on `phone-number-id/*` in this account); SSM parameter (initially disabled); SNS topic for delivery events → `app.message_deliveries`; SES configuration set |
 | `auth.yaml` | Customers pool (email/phone username, `CustomSMSSender` → WhatsApp Lambda, SES email, passwordless OTP, advanced security in prod); employees pool (MFA, groups `admin`/`staff`, optional SAML/OIDC); post-confirmation Lambda; initial admin |
 | `compute.yaml` | ECS cluster, Cloud Map, CPU (Graviton) and GPU capacity providers, SSM-resolved AMIs, IMDSv2, Session Manager |
@@ -681,11 +684,12 @@ WhatsApp has **no stack parameters**: the number and templates are set in `core.
 | WhatsApp: create a Meta Business account → WhatsApp Business Account + number in **AWS End User Messaging Social** → get templates approved → Admin → Settings → WhatsApp (number ID, templates, language) → "Send test message" → enable | Meta, AWS console, Admin |
 | Locations, staff users, staff locations/assignments, services price list | Admin / back-office |
 
-Other deploy concerns (unchanged): private artifact access with a `preflight` script; asset-deploy and DB-bootstrap custom resources (schema, RLS, seeded permissions, settings row, first location, admin); CloudFront + VPC origin with SSE settings; Aurora snapshot on delete; user pools retained in prod; CI blocks replacement of stateful resources.
+Other deploy concerns: private artifact access (a `preflight` script is planned); asset-deploy and DB-bootstrap custom resources (schema, RLS, seeded permissions, settings row, first location, admin); CloudFront + VPC origin with SSE settings; Aurora snapshot on delete; user pools retained in prod; CI blocks replacement of stateful resources.
 
 ### 8.5 Template quality gates
-- `cfn-lint` + `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
-- `taskcat` in us-east-1 from a member account. Smoke tests:
+- **Done:** `cfn-lint` plus `check_nested.py`, which checks that every nested-stack parameter is passed.
+- **Planned (Phase 4):** `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
+- **Planned (Phase 4):** `taskcat` in us-east-1 from a member account. Smoke tests:
   - Customer email sign-up → appointment question.
   - Org admin → org tickets (stubbed Freshdesk).
   - Staff allowed vs denied lookups.
@@ -711,6 +715,10 @@ Other deploy concerns (unchanged): private artifact access with a `preflight` sc
 
 ## 9. CI/CD & Release
 
+**Status:**
+- **Done:** `ci.yml` runs on every PR (typecheck, all tests against a Postgres service, cfn-lint plus the nested-parameter check, Lambda build, image builds). `release.yml` publishes on a `v*.*.*` tag (OIDC role, then `publish.sh`).
+- **Not yet:** `cfn-guard`, the automatic deploy to dev, Playwright and `taskcat`.
+
 1. **PR**:
    - Lint, typecheck, unit tests.
    - DB tests: migrations, **access matrix** (admin/staff/org_admin/customer × scopes, restricted, assignments, grants), RLS isolation, time zones, linking.
@@ -726,6 +734,13 @@ Other deploy concerns (unchanged): private artifact access with a `preflight` sc
 ---
 
 ## 10. Quality & Evaluation
+
+**Status (v1):** 110 cases in [apps/api/eval/cases.ts](apps/api/eval/cases.ts), run through the real chat API against the seeded data and a Freshdesk stub.
+- **Access oracle:** written independently of the RLS rules (`score.ts`). It checks every case's evidence, citations and answer for other customers' data, internal notes, POS or bank references, private Freshdesk notes, members' payments for org admins, and staff-only tools.
+- **Evidence-only mode** runs in `pnpm test` and CI. The 97 deterministic cases must all pass; the 13 model-only cases are n/a there.
+- **Real-model mode** is `pnpm --filter @joybot/api eval:model` with `MODEL_ENDPOINT`. Only gate failures fail the run. Reports are written to `apps/api/eval/reports/`.
+- **Metrics:** tool-selection precision and recall, citation recall, resolution accuracy, and latency.
+- **Not yet:** the 200–300 case target, answer faithfulness and number checks scored on real-model output, and a k6 load test.
 
 - **Eval set** (200–300 cases) on seeded data:
   - **Customer questions**:
@@ -752,14 +767,43 @@ Other deploy concerns (unchanged): private artifact access with a `preflight` sc
 
 ## 11. Phased Roadmap
 
-| Phase | Duration | Deliverables |
+Status as of 2026-10-09 (branch `phase3`): ✅ done · 🟡 partly done · ⬜ not started.
+
+| Phase | Status | Deliverables |
 |---|---|---|
-| **0 — Spike & setup** | 1 week | E2B vs E4B benchmark. **Create the Meta Business account + start verification** and template approval (can take days or weeks). Freshdesk API key + a sandbox/test contacts set. Stripe test account + webhook endpoint in dev |
-| **1 — Foundations, data & access** | 2–3 weeks | Monorepo; `packages/db` (all core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings & locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers). Network/data/auth/messaging stacks in dev |
-| **2 — Chat MVP + Stripe** | 2–3 weeks | Streaming chat for customers, org admins and employees; access-filtered resolution; core tools; local times; citations. **Stripe webhooks + reconciliation + unmatched queue**, combined balances. Compute/model/backend/frontend stacks in dev |
-| **3 — Accounts, WhatsApp, Freshdesk** | 2–3 weeks | Email/phone sign-up with **WhatsApp OTP** (settings-driven), invites, linking, profile completion, merges. Org admin area. **Freshdesk** (email/phone lookup, tickets list/detail, private-note filter, ownership filter, portal pages, chat tools). "Who can access", grants and restricted flags UI. Eval set v1 |
-| **4 — Hardening** | 2 weeks | WAF, Cognito advanced security, WhatsApp throttles and cost alarms, red-team and injection suite, observability, load tests, staging, `taskcat`, first private Quick-Create release |
-| **5 — Launch & beyond** | ongoing | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
+| **0 — Spike & setup** | ⬜ | E2B vs E4B benchmark. **Create the Meta Business account and start verification** and template approval, which can take days or weeks. A Freshdesk API key and a sandbox or test set of contacts. A Stripe test account and a webhook endpoint in dev |
+| **1 — Foundations, data & access** | ✅ | Monorepo; `packages/db` (core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings and locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers); employee logins kept in sync with Cognito. All nine stacks, private artifacts bootstrap and CI |
+| **2 — Chat MVP + Stripe** | ✅ | Streaming chat for customers, org admins and employees: access-filtered resolution, 16 read-only tools, local times, citations, retrieval traces. **Stripe webhooks, the worker, reconciliation and the unmatched queue**, with combined balances. Web portal and staff console |
+| **3 — Accounts, WhatsApp, Freshdesk** | ✅ | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ✅ Access admin UI: assignments, temporary access (grants), restricted flags, staff permission matrix. ✅ Eval set v1 (110 cases, access gate in CI) |
+| **4 — Hardening** | ⬜ | First real AWS dev deploy. WAF tuning, Cognito advanced security, WhatsApp throttles and cost alarms, red-team and injection suite, observability review, load tests, staging, `cfn-guard`, `taskcat`, Playwright, first private Quick-Create release |
+| **5 — Launch & beyond** | ⬜ | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
+
+### Next steps
+
+1. **Run the eval against Gemma 4 E2B.** Use Ollama or vLLM with `pnpm --filter @joybot/api eval:model`:
+   - Fix any gate failures.
+   - Review the model-only cases and answer wording.
+   - Grow the set toward 200–300 cases, adding cases from real questions once in use.
+2. **Check the real integrations locally:**
+   - Stripe test mode with `stripe listen`.
+   - Stripe test mode with `stripe listen`.
+   - A Freshdesk trial account.
+3. **Phase 0 items with long lead times.** Start these now:
+   - Meta Business verification and WhatsApp template approval (OTP, invite).
+   - The SES domain and leaving the SES sandbox.
+   - The Freshdesk API key.
+4. **First AWS deploy (dev):**
+   - Run `bootstrap/artifacts.yaml`, `publish.sh` and the Quick-Create link in a member account.
+   - Work through "Things to verify on the first real deployment" in `cloudformation/README.md`: Cognito `SMS_OTP` with a custom sender only, the KMS key policy, DB bootstrap reaching Secrets Manager, the Aurora version, the GPU AMI parameter, and `Authorization` forwarding through the VPC origin.
+   - Also check that SSE streams through CloudFront without buffering.
+5. **Phase 4 hardening:**
+   - Prompt-injection and red-team suite.
+   - WAF rule tuning.
+   - Per-customer chat quotas.
+   - `cfn-guard` rules from §8.5.
+   - Playwright E2E per role.
+   - k6 load test on one g6.xlarge.
+   - Staging and prod parameter files.
 
 ---
 

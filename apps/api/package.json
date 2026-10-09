@@ -7,9 +7,16 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/main.js",
     "dev": "tsc -p tsconfig.build.json && (tsc -p tsconfig.build.json --watch --preserveWatchOutput & node --watch dist/main.js)",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval": "vitest run eval",
+    "eval:model": "EVAL_MODE=model vitest run eval"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.700.0",
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "@aws-sdk/client-sesv2": "^3.700.0",
+    "@aws-sdk/client-socialmessaging": "^3.700.0",
+    "@aws-sdk/client-ssm": "^3.700.0",
     "@joybot/access": "workspace:*",
     "@joybot/db": "workspace:*",
     "@nestjs/common": "^11.1.0",

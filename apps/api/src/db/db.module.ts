@@ -1,7 +1,10 @@
 import { Global, Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 import { withPrincipal, type ChangeVia } from '@joybot/db';
-import { Pool, type PoolClient } from 'pg';
-import { APP_CONFIG, type AppConfig } from '../config/config';
+import { Pool, types, type PoolClient } from 'pg';
+
+// DATE columns (e.g. expected_at) are calendar dates, not instants: keep them as 'YYYY-MM-DD'.
+types.setTypeParser(types.builtins.DATE, (value) => value);
+import { APP_CONFIG, poolConfig, type AppConfig } from '../config/config';
 import type { Principal } from '../auth/principal';
 
 export const APP_POOL = Symbol('APP_POOL');
@@ -35,12 +38,12 @@ export class DbService implements OnModuleDestroy {
     {
       provide: APP_POOL,
       inject: [APP_CONFIG],
-      useFactory: (cfg: AppConfig) => new Pool({ connectionString: cfg.APP_DATABASE_URL, max: 10 }),
+      useFactory: (cfg: AppConfig) => new Pool(poolConfig(cfg, 'app')),
     },
     {
       provide: READER_POOL,
       inject: [APP_CONFIG],
-      useFactory: (cfg: AppConfig) => new Pool({ connectionString: cfg.READER_DATABASE_URL, max: 10 }),
+      useFactory: (cfg: AppConfig) => new Pool(poolConfig(cfg, 'reader')),
     },
     DbService,
   ],

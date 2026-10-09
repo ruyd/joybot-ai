@@ -1,0 +1,26 @@
+{
+  "name": "@joybot/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background worker: Stripe event processing and reconciliation, worker jobs.",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js",
+    "dev": "tsx watch src/main.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.700.0",
+    "@joybot/db": "workspace:*",
+    "dotenv": "^16.4.7",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

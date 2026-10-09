@@ -292,6 +292,31 @@ export class PaymentsService {
     });
   }
 
+  /** Links an unmatched Stripe payment to a customer (and optionally an appointment). */
+  async assignStripePayment(p: Principal, id: string, customerId: string, appointmentId?: string) {
+    return this.db.as(p, async (db) => {
+      const current = await this.loadVisible(db, p, id);
+      if (current.source !== 'stripe' || current.customer_id) {
+        throw new BadRequestException('Only unmatched Stripe payments can be assigned');
+      }
+      const customer = (await db.query('SELECT id, preferred_location_id FROM core.customers WHERE id = $1', [customerId])).rows[0];
+      if (!customer) throw new NotFoundException('Customer not found');
+      let locationId = current.location_id ?? customer.preferred_location_id;
+      if (appointmentId) {
+        const appt = (await db.query('SELECT customer_id, location_id FROM core.appointments WHERE id = $1', [appointmentId])).rows[0];
+        if (!appt || appt.customer_id !== customerId) throw new BadRequestException('Appointment does not belong to this customer');
+        locationId = appt.location_id;
+      }
+      const res = await db.query(
+        `UPDATE core.payments SET customer_id = $2, appointment_id = $3, location_id = coalesce(location_id, $4)
+          WHERE id = $1 AND customer_id IS NULL RETURNING ${EMPLOYEE_COLUMNS}`,
+        [id, customerId, appointmentId ?? null, locationId],
+      );
+      if (res.rowCount === 0) throw new ForbiddenException('Not allowed to assign this payment');
+      return res.rows[0];
+    });
+  }
+
   // ---------------------------------------------------------------------------------------
 
   private async findDuplicates(db: PoolClient, customerId: string, amount: number, on: string): Promise<DuplicateCandidate[]> {

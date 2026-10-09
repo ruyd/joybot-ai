@@ -8,7 +8,8 @@ import { loadConfig } from './config/config';
 async function bootstrap(): Promise<void> {
   loadEnv({ path: path.resolve(__dirname, '../../../.env') });
   const config = loadConfig();
-  const app = await NestFactory.create(AppModule.forRoot(config));
+  // rawBody: Stripe signatures are computed over the exact bytes received.
+  const app = await NestFactory.create(AppModule.forRoot(config), { rawBody: true });
   app.setGlobalPrefix('api');
   app.enableShutdownHooks();
   await app.listen(config.PORT);

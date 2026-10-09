@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: joybot_migrator
+          POSTGRES_PASSWORD: migrator
+          POSTGRES_DB: joybot
+        # Same port as docker-compose, so .env.example works unchanged.
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U joybot_migrator -d joybot"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: cp .env.example .env
+      - run: pnpm typecheck
+      # Database access-control matrix, API end-to-end, Lambda unit tests.
+      - run: pnpm test
+
+  templates:
+    name: CloudFormation checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install cfn-lint==1.57.2
+      - run: cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml
+      - run: python cloudformation/scripts/check_nested.py
+
+  build:
+    name: Build Lambdas and images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm package:functions
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API and worker images (not pushed)
+        run: |
+          docker buildx build -f apps/api/Dockerfile -t joybot/api:ci .
+          docker buildx build -f apps/worker/Dockerfile -t joybot/worker:ci .

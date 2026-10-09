@@ -1,9 +1,13 @@
 import path from 'node:path';
 import { config } from 'dotenv';
+import { beforeAll } from 'vitest';
 import { bootstrapRoleLogins, migrate, resetDatabase, seedSampleData, seedSettings } from '@joybot/db';
 
-/** Fresh, seeded database for every API test run. */
-export default async function setup(): Promise<void> {
+/**
+ * Fresh, seeded database before each test file (vitest setupFiles run once per file), so files never
+ * depend on what other files changed — and pass in any order.
+ */
+async function resetDb(): Promise<void> {
   config({ path: path.resolve(__dirname, '../../../.env') });
   const url = process.env.MIGRATOR_DATABASE_URL!;
   await resetDatabase(url);
@@ -16,3 +20,6 @@ export default async function setup(): Promise<void> {
   await seedSettings(url, { businessName: 'JoyBot Test', defaultTimeZone: 'America/New_York', defaultCurrency: 'USD' });
   await seedSampleData(url);
 }
+
+// Runs before the tests of every file (setupFiles are loaded per test file).
+beforeAll(resetDb, 60_000);

@@ -1,0 +1,409 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot identity (plan.md §8.3): customers user pool (email or phone, codes over WhatsApp,
+  self sign-up, account linking) and employees user pool (admin-created, MFA, optional SSO,
+  first sign-in linked to the JoyBot employee record), plus the initial admin login.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  AdminEmail:
+    Type: String
+  CustomerSelfSignUp:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  CustomerPoolTier:
+    Type: String
+    Default: ESSENTIALS
+    AllowedValues: [ESSENTIALS, PLUS]
+    Description: ESSENTIALS enables passwordless email/phone codes; PLUS adds threat protection.
+  AppCallbackUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/auth/callback
+  AppLogoutUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/
+  EmployeeIdpType:
+    Type: String
+    Default: none
+    AllowedValues: [none, saml, oidc]
+  EmployeeSamlMetadataUrl:
+    Type: String
+    Default: ""
+  EmployeeOidcIssuer:
+    Type: String
+    Default: ""
+  EmployeeOidcClientId:
+    Type: String
+    Default: ""
+  EmployeeOidcClientSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+  SesFromAddress:
+    Type: String
+    Default: ""
+  SesConfigurationSetName:
+    Type: String
+  WhatsAppSenderFunctionArn:
+    Type: String
+  CognitoSenderKeyArn:
+    Type: String
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  DbClientSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  DbHost:
+    Type: String
+  DbPort:
+    Type: String
+    Default: "5432"
+  WorkerDbSecretArn:
+    Type: String
+  DataKeyArn:
+    Type: String
+  ArtifactsBucket:
+    Type: String
+  ArtifactsVersion:
+    Type: String
+
+Conditions:
+  IsProd: !Equals [!Ref EnvironmentName, prod]
+  SelfSignUp: !Equals [!Ref CustomerSelfSignUp, "true"]
+  PlusTier: !Equals [!Ref CustomerPoolTier, PLUS]
+  HasSes: !Not [!Equals [!Ref SesFromAddress, ""]]
+  Saml: !Equals [!Ref EmployeeIdpType, saml]
+  Oidc: !Equals [!Ref EmployeeIdpType, oidc]
+  Sso: !Not [!Equals [!Ref EmployeeIdpType, none]]
+
+Resources:
+  # Trigger Lambdas that write to the database (joybot_worker role) --------------------------
+
+  TriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      Policies:
+        - PolicyName: read-worker-secret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref WorkerDbSecretArn
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Ref DataKeyArn
+
+  CustomerPostConfirmationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/joybot-${EnvironmentName}-customer-post-confirmation"
+      RetentionInDays: 90
+  CustomerPostConfirmationFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: CustomerPostConfirmationLogGroup
+    Properties:
+      FunctionName: !Sub "joybot-${EnvironmentName}-customer-post-confirmation"
+      Description: Links customer sign-ups to customer records (verified contacts only)
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 10
+      MemorySize: 256
+      Role: !GetAtt TriggerRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Sub "${ArtifactsVersion}/functions/customer-post-confirmation.zip"
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds: [!Ref DbClientSecurityGroupId]
+      Environment:
+        Variables:
+          DB_HOST: !Ref DbHost
+          DB_PORT: !Ref DbPort
+          DB_NAME: joybot
+          WORKER_SECRET_ARN: !Ref WorkerDbSecretArn
+          NODE_EXTRA_CA_CERTS: /var/runtime/ca-cert.pem
+
+  EmployeePostAuthenticationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/joybot-${EnvironmentName}-employee-post-authentication"
+      RetentionInDays: 90
+  EmployeePostAuthenticationFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: EmployeePostAuthenticationLogGroup
+    Properties:
+      FunctionName: !Sub "joybot-${EnvironmentName}-employee-post-authentication"
+      Description: Links employee logins to JoyBot employee records; rejects non-employees
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 10
+      MemorySize: 256
+      Role: !GetAtt TriggerRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Sub "${ArtifactsVersion}/functions/employee-post-authentication.zip"
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds: [!Ref DbClientSecurityGroupId]
+      Environment:
+        Variables:
+          DB_HOST: !Ref DbHost
+          DB_PORT: !Ref DbPort
+          DB_NAME: joybot
+          WORKER_SECRET_ARN: !Ref WorkerDbSecretArn
+          NODE_EXTRA_CA_CERTS: /var/runtime/ca-cert.pem
+
+  # Customers user pool -------------------------------------------------------------------------
+
+  CustomersUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "joybot-${EnvironmentName}-customers"
+      UserPoolTier: !Ref CustomerPoolTier
+      UsernameAttributes: [email, phone_number]
+      AutoVerifiedAttributes: [email, phone_number]
+      UsernameConfiguration: { CaseSensitive: false }
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: !If [SelfSignUp, false, true]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - { Name: verified_email, Priority: 1 }
+          - { Name: verified_phone_number, Priority: 2 }
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 10
+          RequireLowercase: true
+          RequireUppercase: false
+          RequireNumbers: true
+          RequireSymbols: false
+          TemporaryPasswordValidityDays: 7
+        # Passwordless codes by email or phone (phone codes are delivered over WhatsApp).
+        SignInPolicy:
+          AllowedFirstAuthFactors: [PASSWORD, EMAIL_OTP, SMS_OTP]
+      EmailConfiguration: !If
+        - HasSes
+        - EmailSendingAccount: DEVELOPER
+          From: !Ref SesFromAddress
+          SourceArn: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromAddress}"
+          ConfigurationSet: !Ref SesConfigurationSetName
+        - EmailSendingAccount: COGNITO_DEFAULT
+      LambdaConfig:
+        KMSKeyID: !Ref CognitoSenderKeyArn
+        CustomSMSSender:
+          LambdaArn: !Ref WhatsAppSenderFunctionArn
+          LambdaVersion: V1_0
+        PostConfirmation: !GetAtt CustomerPostConfirmationFunction.Arn
+      UserPoolAddOns:
+        AdvancedSecurityMode: !If [PlusTier, ENFORCED, !Ref "AWS::NoValue"]
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+
+  CustomersAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref CustomersUserPool
+      ClientName: !Sub "joybot-${EnvironmentName}-portal"
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_AUTH, ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, phone, profile]
+      CallbackURLs: !Ref AppCallbackUrls
+      LogoutURLs: !Ref AppLogoutUrls
+      SupportedIdentityProviders: [COGNITO]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 30
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+
+  CustomersDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref CustomersUserPool
+      Domain: !Sub "joybot-${EnvironmentName}-${AWS::AccountId}-portal"
+      ManagedLoginVersion: 2
+
+  WhatsAppSenderInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WhatsAppSenderFunctionArn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt CustomersUserPool.Arn
+  CustomerPostConfirmationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CustomerPostConfirmationFunction
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt CustomersUserPool.Arn
+
+  # Employees user pool --------------------------------------------------------------------------
+
+  EmployeesUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "joybot-${EnvironmentName}-employees"
+      UserPoolTier: ESSENTIALS
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      UsernameConfiguration: { CaseSensitive: false }
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+        InviteMessageTemplate:
+          EmailSubject: Your JoyBot staff account
+          EmailMessage: "Your JoyBot username is {username} and temporary password is {####}. You will set up an authenticator app on first sign-in."
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - { Name: verified_email, Priority: 1 }
+      MfaConfiguration: "ON"
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+      EmailConfiguration: !If
+        - HasSes
+        - EmailSendingAccount: DEVELOPER
+          From: !Ref SesFromAddress
+          SourceArn: !Sub "arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesFromAddress}"
+          ConfigurationSet: !Ref SesConfigurationSetName
+        - EmailSendingAccount: COGNITO_DEFAULT
+      LambdaConfig:
+        PostAuthentication: !GetAtt EmployeePostAuthenticationFunction.Arn
+      DeletionProtection: !If [IsProd, ACTIVE, INACTIVE]
+
+  EmployeePostAuthenticationInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EmployeePostAuthenticationFunction
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt EmployeesUserPool.Arn
+
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      GroupName: admin
+      Description: Mirrors the JoyBot admin role (JoyBot's database is the source of truth)
+  StaffGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      GroupName: staff
+      Description: Mirrors the JoyBot staff role (JoyBot's database is the source of truth)
+
+  SamlProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: Saml
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      ProviderName: CorporateSSO
+      ProviderType: SAML
+      ProviderDetails:
+        MetadataURL: !Ref EmployeeSamlMetadataUrl
+      AttributeMapping:
+        email: http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress
+  OidcProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: Oidc
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      ProviderName: CorporateSSO
+      ProviderType: OIDC
+      ProviderDetails:
+        client_id: !Ref EmployeeOidcClientId
+        client_secret: !Ref EmployeeOidcClientSecret
+        oidc_issuer: !Ref EmployeeOidcIssuer
+        authorize_scopes: openid email profile
+        attributes_request_method: GET
+      AttributeMapping:
+        email: email
+
+  EmployeesAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: SsoReady
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      ClientName: !Sub "joybot-${EnvironmentName}-staff"
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      CallbackURLs: !Ref AppCallbackUrls
+      LogoutURLs: !Ref AppLogoutUrls
+      SupportedIdentityProviders: !If [Sso, [COGNITO, CorporateSSO], [COGNITO]]
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 60
+      IdTokenValidity: 60
+      RefreshTokenValidity: 1
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+
+  # The client must be created after the SSO provider (when there is one).
+  SsoReady:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Metadata:
+      DependsOnProvider: !If [Saml, !Ref SamlProvider, !If [Oidc, !Ref OidcProvider, none]]
+
+  EmployeesDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      Domain: !Sub "joybot-${EnvironmentName}-${AWS::AccountId}-staff"
+      ManagedLoginVersion: 2
+
+  # First admin: the matching employee row is created by the DB bootstrap (data stack).
+  InitialAdminUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      Username: !Ref AdminEmail
+      DesiredDeliveryMediums: [EMAIL]
+      UserAttributes:
+        - { Name: email, Value: !Ref AdminEmail }
+        - { Name: email_verified, Value: "true" }
+  InitialAdminGroup:
+    Type: AWS::Cognito::UserPoolUserToGroupAttachment
+    Properties:
+      UserPoolId: !Ref EmployeesUserPool
+      GroupName: !Ref AdminGroup
+      Username: !Ref InitialAdminUser
+
+Outputs:
+  CustomersUserPoolId:
+    Value: !Ref CustomersUserPool
+  CustomersUserPoolArn:
+    Value: !GetAtt CustomersUserPool.Arn
+  CustomersClientId:
+    Value: !Ref CustomersAppClient
+  CustomersLoginDomain:
+    Value: !Sub "https://${CustomersDomain}.auth.${AWS::Region}.amazoncognito.com"
+  EmployeesUserPoolId:
+    Value: !Ref EmployeesUserPool
+  EmployeesUserPoolArn:
+    Value: !GetAtt EmployeesUserPool.Arn
+  EmployeesClientId:
+    Value: !Ref EmployeesAppClient
+  EmployeesLoginDomain:
+    Value: !Sub "https://${EmployeesDomain}.auth.${AWS::Region}.amazoncognito.com"

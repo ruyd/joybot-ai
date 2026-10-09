@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot release artifacts (deploy once in the tooling account, us-east-1; plan.md §8.1):
+  private S3 bucket for templates and Lambda zips, and private ECR repositories, both readable only
+  by principals in the JoyBot AWS Organization. Nothing here is public.
+
+Parameters:
+  OrganizationId:
+    Type: String
+    AllowedPattern: '^o-[a-z0-9]{10,32}$'
+    Description: AWS Organization allowed to read artifacts and pull images.
+  BucketName:
+    Type: String
+    Default: joybot-artifacts-us-east-1
+  GitHubRepository:
+    Type: String
+    Default: ""
+    AllowedPattern: '^$|^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+    Description: owner/repo allowed to publish releases from version tags (empty = no release role).
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: false if this account already has the token.actions.githubusercontent.com provider.
+
+Rules:
+  UsEast1Only:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: Artifacts live in us-east-1 (same region as the stacks and their Lambdas).
+
+Conditions:
+  ReleaseRole: !Not [!Equals [!Ref GitHubRepository, ""]]
+  CreateOidcProvider: !And [!Condition ReleaseRole, !Equals [!Ref CreateGitHubOidcProvider, "true"]]
+
+Resources:
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration: { Status: Enabled }
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-old-noncurrent-versions
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 90 }
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # CloudFormation (templates) and Lambda (zips) fetch with the deploying principal's credentials.
+          - Sid: OrganizationRead
+            Effect: Allow
+            Principal: "*"
+            Action: [s3:GetObject, s3:GetObjectVersion]
+            Resource: !Sub "${ArtifactsBucket.Arn}/*"
+            Condition:
+              StringEquals: { "aws:PrincipalOrgID": !Ref OrganizationId }
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt ArtifactsBucket.Arn, !Sub "${ArtifactsBucket.Arn}/*"]
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  ApiRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: joybot/api
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OrganizationPull
+            Effect: Allow
+            Principal: "*"
+            Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+            Condition:
+              StringEquals: { "aws:PrincipalOrgID": !Ref OrganizationId }
+  WorkerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: joybot/worker
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OrganizationPull
+            Effect: Allow
+            Principal: "*"
+            Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+            Condition:
+              StringEquals: { "aws:PrincipalOrgID": !Ref OrganizationId }
+  ModelServerRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: joybot/model-server
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration: { ScanOnPush: true }
+      EncryptionConfiguration: { EncryptionType: AES256 }
+      RepositoryPolicyText:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OrganizationPull
+            Effect: Allow
+            Principal: "*"
+            Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, ecr:BatchCheckLayerAvailability]
+            Condition:
+              StringEquals: { "aws:PrincipalOrgID": !Ref OrganizationId }
+
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  # Assumed by .github/workflows/release.yml, only from version tags of this repository.
+  ReleaseRole:
+    Type: AWS::IAM::Role
+    Condition: ReleaseRole
+    Properties:
+      RoleName: joybot-release
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                "token.actions.githubusercontent.com:aud": sts.amazonaws.com
+              StringLike:
+                "token.actions.githubusercontent.com:sub": !Sub "repo:${GitHubRepository}:ref:refs/tags/v*"
+      Policies:
+        - PolicyName: publish-release
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:PutObject, s3:GetObject]
+                Resource: !Sub "${ArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt ArtifactsBucket.Arn
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:UploadLayerPart
+                Resource: [!GetAtt ApiRepository.Arn, !GetAtt WorkerRepository.Arn, !GetAtt ModelServerRepository.Arn]
+
+Outputs:
+  ReleaseRoleArn:
+    Condition: ReleaseRole
+    Description: Set as the AWS_RELEASE_ROLE_ARN variable of the GitHub "release" environment.
+    Value: !GetAtt ReleaseRole.Arn
+  ArtifactsBucketName:
+    Value: !Ref ArtifactsBucket
+  ApiRepositoryUri:
+    Value: !GetAtt ApiRepository.RepositoryUri
+  WorkerRepositoryUri:
+    Value: !GetAtt WorkerRepository.RepositoryUri
+  ModelServerRepositoryUri:
+    Value: !GetAtt ModelServerRepository.RepositoryUri

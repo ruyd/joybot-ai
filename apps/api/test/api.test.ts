@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SAMPLE } from '@joybot/db';
+import { WhatsAppSettingsPublisher } from '../src/settings/whatsapp-publisher';
 import { api, createApp, customer, employee } from './app';
 
 const { customers: C, users: U, payments: P, appointments: A } = SAMPLE;
@@ -51,7 +52,27 @@ describe('settings', () => {
     expect(res.body).toMatchObject({ bank_transfer_due_days: 7, updated_by: U.ada });
   });
 
+  it('publishes WhatsApp settings for the sender Lambda when they change', async () => {
+    const res = await api(app, employee(U.ada))
+      .put('/api/admin/settings', {
+        whatsapp_phone_number_id: 'phone-number-id-abc',
+        whatsapp_otp_template: 'joybot_otp',
+        whatsapp_enabled: true,
+      })
+      .expect(200);
+    expect(JSON.parse(WhatsAppSettingsPublisher.payload(res.body))).toEqual({
+      enabled: true,
+      phoneNumberId: 'phone-number-id-abc',
+      otpTemplate: 'joybot_otp',
+      language: 'en_US',
+    });
+    await api(app, employee(U.ada)).put('/api/admin/settings', { whatsapp_enabled: false }).expect(200);
+  });
+
   it('cannot enable WhatsApp without a number and OTP template', async () => {
+    await api(app, employee(U.ada))
+      .put('/api/admin/settings', { whatsapp_phone_number_id: null, whatsapp_otp_template: null })
+      .expect(200);
     await api(app, employee(U.ada)).put('/api/admin/settings', { whatsapp_enabled: true }).expect(400);
   });
 });
