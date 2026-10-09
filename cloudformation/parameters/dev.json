@@ -4,6 +4,9 @@
   { "ParameterKey": "BusinessName", "ParameterValue": "JoyBot Dev" },
   { "ParameterKey": "SeedSampleData", "ParameterValue": "true" },
   { "ParameterKey": "NatGatewayMode", "ParameterValue": "single" },
-  { "ParameterKey": "EnableInterfaceEndpoints", "ParameterValue": "false" },
+  { "ParameterKey": "CpuUseSpot", "ParameterValue": "true" },
+  { "ParameterKey": "GpuMinTasks", "ParameterValue": "0" },
+  { "ParameterKey": "GpuScheduleScaleDown", "ParameterValue": "true" },
+  { "ParameterKey": "ArtifactsAccountId", "ParameterValue": "111122223333" },
   { "ParameterKey": "ArtifactsVersion", "ParameterValue": "v0.1.0-dev.1" }
 ]

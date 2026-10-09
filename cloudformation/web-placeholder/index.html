@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>JoyBot</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+      main { max-width: 32rem; }
+      code { font-size: 0.9em; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>JoyBot is deployed</h1>
+      <p>The customer portal and staff console arrive in Phase 2. The API is live at <code>/api/health</code>.</p>
+      <p id="env"></p>
+    </main>
+    <script>
+      fetch('/config.json').then((r) => r.json()).then((c) => {
+        document.getElementById('env').textContent = 'Environment: ' + c.environment;
+      }).catch(() => {});
+    </script>
+  </body>
+</html>

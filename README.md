@@ -15,10 +15,11 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Access administration API: employees + work locations, staff permission matrix (with guard-rails), assignments, temporary record grants (≤ 90 days), "who can access" with reasons | [apps/api/src/admin](apps/api/src/admin), [0010_access_reasons.sql](packages/db/migrations/0010_access_reasons.sql) |
 
 | Cognito identity linking rules (customer sign-up by verified email/phone, employee first sign-in) | [0012_identity_linking.sql](packages/db/migrations/0012_identity_linking.sql) |
-| CloudFormation (Phase 1): network, data (Aurora + DB bootstrap), messaging (WhatsApp codes), auth (two user pools); private artifacts bootstrap; publish + Quick-Create scripts | [cloudformation](cloudformation) |
-| Lambda functions: DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender | [cloudformation/functions](cloudformation/functions) |
+| CloudFormation: network, data (Aurora + DB bootstrap), messaging (WhatsApp codes), auth (two user pools), compute (ECS on EC2, Graviton + GPU), model (vLLM + Gemma 4), backend (internal ALB + API), frontend (CloudFront + VPC origin, WAF), observability; private artifacts bootstrap; publish + Quick-Create scripts | [cloudformation](cloudformation) |
+| Container images: API (non-root, verified TLS to Aurora) and model server (vLLM with S3 weights cache) | [apps/api/Dockerfile](apps/api/Dockerfile), [services/model-server](services/model-server) |
+| Lambda functions: DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets | [cloudformation/functions](cloudformation/functions) |
 
-Not yet: chat/LLM, Stripe webhooks, Freshdesk, frontend, compute/model/backend/frontend stacks (see roadmap in plan.md §11).
+Not yet: chat/LLM, Stripe webhooks, Freshdesk, web app, worker (see roadmap in plan.md §11).
 
 ## Local development
 

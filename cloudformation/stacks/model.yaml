@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot model service (plan.md §6, §8.3): vLLM serving Gemma 4 on the gpu capacity provider
+  (one task per instance), reachable only from the API hosts through Cloud Map, with a private S3
+  weights cache and optional after-hours scale-to-zero.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  ClusterName:
+    Type: String
+  GpuCapacityProvider:
+    Type: String
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  NamespaceId:
+    Type: String
+  CpuHostSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  ModelServerImage:
+    Type: String
+    Description: Model server image URI (private ECR), e.g. 111122223333.dkr.ecr.us-east-1.amazonaws.com/joybot/model-server:v0.1.0
+  ModelVariant:
+    Type: String
+    Default: gemma-4-e2b
+    AllowedValues: [gemma-4-e2b, gemma-4-e4b, gemma-4-12b, gemma-4-26b-a4b, gemma-4-31b]
+  ModelIdOverride:
+    Type: String
+    Default: ""
+    Description: Hugging Face repo to serve instead of the variant's default (e.g. a quantized build).
+  ToolCallParser:
+    Type: String
+    Default: gemma4
+    Description: vLLM tool-call parser; empty disables tool calling.
+  MaxModelLen:
+    Type: Number
+    Default: 16384
+  VllmExtraArgs:
+    Type: String
+    Default: ""
+    Description: Extra vLLM flags, e.g. "--quantization fp8 --gpu-memory-utilization 0.90"
+  HuggingFaceToken:
+    Type: String
+    NoEcho: true
+    Description: Token with access to the gated Gemma weights (stored in Secrets Manager).
+  GpuMinTasks:
+    Type: Number
+    Default: 0
+    AllowedValues: [0, 1, 2]
+    Description: Model tasks kept running (0 lets dev scale to zero).
+  GpuMaxTasks:
+    Type: Number
+    Default: 1
+  ScheduleScaleDown:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Run the model only during business hours (dev).
+  ScaleUpCron:
+    Type: String
+    Default: cron(0 12 ? * MON-FRI *)
+    Description: UTC. 12:00 UTC = 08:00 New York.
+  ScaleDownCron:
+    Type: String
+    Default: cron(0 0 ? * TUE-SAT *)
+    Description: UTC. 00:00 UTC = 20:00 New York (previous day).
+
+Mappings:
+  # Hugging Face repositories. E2B is verified against the vLLM recipe; confirm the others in
+  # Phase 0 (or use ModelIdOverride).
+  Variants:
+    gemma-4-e2b: { ModelId: google/gemma-4-E2B-it }
+    gemma-4-e4b: { ModelId: google/gemma-4-E4B-it }
+    gemma-4-12b: { ModelId: google/gemma-4-12B-it }
+    gemma-4-26b-a4b: { ModelId: google/gemma-4-26B-A4B-it }
+    gemma-4-31b: { ModelId: google/gemma-4-31B-it }
+
+Conditions:
+  HasOverride: !Not [!Equals [!Ref ModelIdOverride, ""]]
+  Scheduled: !Equals [!Ref ScheduleScaleDown, "true"]
+
+Resources:
+  HuggingFaceTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/model/hugging-face-token"
+      Description: Hugging Face token for gated Gemma weights
+      SecretString: !Ref HuggingFaceToken
+
+  WeightsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+  WeightsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WeightsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt WeightsBucket.Arn, !Sub "${WeightsBucket.Arn}/*"]
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  ModelSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: JoyBot model service (vLLM), reachable only from API and worker hosts
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          SourceSecurityGroupId: !Ref CpuHostSecurityGroupId
+          Description: OpenAI-compatible API from JoyBot hosts
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Outbound: S3 weights cache, Hugging Face" }
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Policies:
+        - PolicyName: read-hf-token
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref HuggingFaceTokenSecret
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: weights-cache
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt WeightsBucket.Arn
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub "${WeightsBucket.Arn}/models/*"
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/joybot/${EnvironmentName}/model"
+      RetentionInDays: 30
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "joybot-${EnvironmentName}-model"
+      RequiresCompatibilities: [EC2]
+      NetworkMode: awsvpc
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      Volumes:
+        - Name: models
+          Host: { SourcePath: /var/lib/joybot/models }
+      ContainerDefinitions:
+        - Name: vllm
+          Image: !Ref ModelServerImage
+          Essential: true
+          MemoryReservation: 12288
+          ResourceRequirements:
+            - { Type: GPU, Value: "1" }
+          LinuxParameters:
+            SharedMemorySize: 2048
+          PortMappings:
+            - { ContainerPort: 8000, Protocol: tcp }
+          MountPoints:
+            - { SourceVolume: models, ContainerPath: /models }
+          Environment:
+            - Name: MODEL_ID
+              Value: !If [HasOverride, !Ref ModelIdOverride, !FindInMap [Variants, !Ref ModelVariant, ModelId]]
+            - { Name: SERVED_MODEL_NAME, Value: gemma }
+            - { Name: WEIGHTS_BUCKET, Value: !Ref WeightsBucket }
+            - { Name: MAX_MODEL_LEN, Value: !Ref MaxModelLen }
+            - { Name: TOOL_CALL_PARSER, Value: !Ref ToolCallParser }
+            - { Name: VLLM_EXTRA_ARGS, Value: !Ref VllmExtraArgs }
+          Secrets:
+            - { Name: HF_TOKEN, ValueFrom: !Ref HuggingFaceTokenSecret }
+          HealthCheck:
+            Command: [CMD-SHELL, "curl -sf http://localhost:8000/health || exit 1"]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 300   # weights download + load
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: vllm
+
+  DiscoveryService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: model
+      NamespaceId: !Ref NamespaceId
+      DnsConfig:
+        RoutingPolicy: MULTIVALUE
+        DnsRecords:
+          - { Type: A, TTL: 10 }
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: model
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref GpuMinTasks
+      CapacityProviderStrategy:
+        - { CapacityProvider: !Ref GpuCapacityProvider, Weight: 1 }
+      PlacementConstraints:
+        - Type: distinctInstance   # one model per GPU instance
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets: !Ref PrivateSubnetIds
+          SecurityGroups: [!Ref ModelSecurityGroup]
+          AssignPublicIp: DISABLED
+      ServiceRegistries:
+        - RegistryArn: !GetAtt DiscoveryService.Arn
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0     # a single GPU cannot run old and new side by side
+        MaximumPercent: 100
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub "service/${ClusterName}/${Service.Name}"
+      MinCapacity: !Ref GpuMinTasks
+      MaxCapacity: !Ref GpuMaxTasks
+      ScheduledActions: !If
+        - Scheduled
+        - - ScheduledActionName: business-hours-start
+            Schedule: !Ref ScaleUpCron
+            ScalableTargetAction: { MinCapacity: 1, MaxCapacity: !Ref GpuMaxTasks }
+          - ScheduledActionName: business-hours-end
+            Schedule: !Ref ScaleDownCron
+            ScalableTargetAction: { MinCapacity: 0, MaxCapacity: 0 }
+        - !Ref AWS::NoValue
+
+Outputs:
+  ModelEndpoint:
+    Description: OpenAI-compatible endpoint for the API (Cloud Map).
+    Value: !Sub
+      - "http://model.${Namespace}:8000/v1"
+      - Namespace: !Sub "joybot-${EnvironmentName}.internal"
+  ServedModelName:
+    Value: gemma
+  ModelId:
+    Value: !If [HasOverride, !Ref ModelIdOverride, !FindInMap [Variants, !Ref ModelVariant, ModelId]]
+  ServiceName:
+    Value: !GetAtt Service.Name
+  WeightsBucketName:
+    Value: !Ref WeightsBucket

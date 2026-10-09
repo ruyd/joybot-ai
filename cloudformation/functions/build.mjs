@@ -8,7 +8,7 @@ import { build } from 'esbuild';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
-const functions = ['db-bootstrap', 'customer-post-confirmation', 'employee-post-authentication', 'whatsapp-sender'];
+const functions = ['db-bootstrap', 'customer-post-confirmation', 'employee-post-authentication', 'whatsapp-sender', 'web-assets'];
 
 rmSync(dist, { recursive: true, force: true });
 for (const name of functions) {

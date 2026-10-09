@@ -98,7 +98,7 @@ Resources:
     DependsOn: WhatsAppSenderLogGroup
     Properties:
       FunctionName: !Sub "joybot-${EnvironmentName}-whatsapp-sender"
-      Description: Cognito custom SMS sender — delivers codes over WhatsApp
+      Description: Cognito custom SMS sender, delivers codes over WhatsApp
       Runtime: nodejs22.x
       Architectures: [arm64]
       Handler: index.handler

@@ -1,0 +1,246 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot compute (plan.md §8.3): one ECS cluster with two EC2 Auto Scaling group capacity providers —
+  cpu (Graviton) for the API and worker, gpu for vLLM — using ECS-optimized AMIs from SSM, managed
+  scaling/termination protection/draining, IMDSv2 and Session Manager (no SSH).
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  DbClientSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  CpuInstanceType:
+    Type: String
+    Default: t4g.medium
+    AllowedValues: [t4g.medium, t4g.large, m7g.large, m7g.xlarge, m6g.large, m6g.xlarge]
+    Description: Graviton (arm64) instance type for API/worker hosts.
+  CpuMinCapacity:
+    Type: Number
+    Default: 1
+  CpuMaxCapacity:
+    Type: Number
+    Default: 2
+  CpuUseSpot:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  GpuInstanceType:
+    Type: String
+    Default: g6.xlarge
+    AllowedValues: [g4dn.xlarge, g6.xlarge, g6.2xlarge, g6e.xlarge, g6e.2xlarge, g6.12xlarge, g6e.12xlarge]
+  GpuMaxCapacity:
+    Type: Number
+    Default: 1
+  CpuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id
+  GpuAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/gpu/recommended/image_id
+
+Conditions:
+  IsProd: !Equals [!Ref EnvironmentName, prod]
+  Spot: !Equals [!Ref CpuUseSpot, "true"]
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "joybot-${EnvironmentName}"
+      ClusterSettings:
+        - Name: containerInsights
+          Value: !If [IsProd, enhanced, disabled]
+
+  Namespace:
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: !Sub "joybot-${EnvironmentName}.internal"
+      Vpc: !Ref VpcId
+      Description: Internal service discovery (model service)
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # API/worker tasks use bridge networking, so the host security group is theirs; the backend stack
+  # adds ALB → host ingress. Hosts also join the database client group.
+  CpuHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: JoyBot CPU hosts (API and worker containers)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Outbound: AWS APIs, model service, integrations" }
+  GpuHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: JoyBot GPU hosts (model tasks use their own awsvpc security group)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Outbound: ECR, S3 weights cache, Hugging Face" }
+
+  CpuLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref CpuAmiId
+        IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
+        SecurityGroupIds: [!Ref CpuHostSecurityGroup, !Ref DbClientSecurityGroupId]
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1   # containers cannot reach instance metadata
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs: { VolumeSize: 30, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-cpu" }
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            cat >> /etc/ecs/ecs.config <<'CONF'
+            ECS_CLUSTER=${Cluster}
+            ECS_ENABLE_SPOT_INSTANCE_DRAINING=true
+            ECS_CONTAINER_INSTANCE_PROPAGATE_TAGS_FROM=ec2_instance
+            ECS_CONTAINER_STOP_TIMEOUT=120s
+            CONF
+
+  GpuLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref GpuAmiId
+        InstanceType: !Ref GpuInstanceType
+        IamInstanceProfile: { Arn: !GetAtt InstanceProfile.Arn }
+        SecurityGroupIds: [!Ref GpuHostSecurityGroup]
+        MetadataOptions:
+          HttpTokens: required
+          HttpPutResponseHopLimit: 1
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            # vLLM image (~10 GB) + local copy of the weights
+            Ebs: { VolumeSize: 150, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-gpu" }
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            cat >> /etc/ecs/ecs.config <<'CONF'
+            ECS_CLUSTER=${Cluster}
+            ECS_ENABLE_GPU_SUPPORT=true
+            ECS_AWSVPC_BLOCK_IMDS=true
+            ECS_CONTAINER_INSTANCE_PROPAGATE_TAGS_FROM=ec2_instance
+            CONF
+            mkdir -p /var/lib/joybot/models
+
+  CpuAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "joybot-${EnvironmentName}-cpu"
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      MinSize: !Ref CpuMinCapacity
+      MaxSize: !Ref CpuMaxCapacity
+      NewInstancesProtectedFromScaleIn: true   # required by managed termination protection
+      CapacityRebalance: !If [Spot, true, false]
+      MixedInstancesPolicy:
+        LaunchTemplate:
+          LaunchTemplateSpecification:
+            LaunchTemplateId: !Ref CpuLaunchTemplate
+            Version: !GetAtt CpuLaunchTemplate.LatestVersionNumber
+          Overrides:
+            - InstanceType: !Ref CpuInstanceType
+        InstancesDistribution:
+          OnDemandBaseCapacity: !If [Spot, 0, !Ref CpuMinCapacity]
+          OnDemandPercentageAboveBaseCapacity: !If [Spot, 0, 100]
+          SpotAllocationStrategy: price-capacity-optimized
+      Tags:
+        - { Key: AmazonECSManaged, Value: "", PropagateAtLaunch: true }
+
+  # Scale-to-zero capable: the model service's desired count drives instances (min 0).
+  GpuAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "joybot-${EnvironmentName}-gpu"
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      MinSize: 0
+      MaxSize: !Ref GpuMaxCapacity
+      NewInstancesProtectedFromScaleIn: true
+      LaunchTemplate:
+        LaunchTemplateId: !Ref GpuLaunchTemplate
+        Version: !GetAtt GpuLaunchTemplate.LatestVersionNumber
+      Tags:
+        - { Key: AmazonECSManaged, Value: "", PropagateAtLaunch: true }
+
+  CpuCapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref CpuAutoScalingGroup
+        ManagedTerminationProtection: ENABLED
+        ManagedDraining: ENABLED
+        ManagedScaling:
+          Status: ENABLED
+          TargetCapacity: 90   # headroom for bursts of streaming connections
+          MinimumScalingStepSize: 1
+          MaximumScalingStepSize: 2
+  GpuCapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref GpuAutoScalingGroup
+        ManagedTerminationProtection: ENABLED
+        ManagedDraining: ENABLED
+        ManagedScaling:
+          Status: ENABLED
+          TargetCapacity: 100
+          MinimumScalingStepSize: 1
+          MaximumScalingStepSize: 1
+
+  ClusterCapacityProviders:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      Cluster: !Ref Cluster
+      CapacityProviders: [!Ref CpuCapacityProvider, !Ref GpuCapacityProvider]
+      DefaultCapacityProviderStrategy:
+        - { CapacityProvider: !Ref CpuCapacityProvider, Weight: 1 }
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  ClusterArn:
+    Value: !GetAtt Cluster.Arn
+  CpuCapacityProvider:
+    Value: !Ref CpuCapacityProvider
+  GpuCapacityProvider:
+    Value: !Ref GpuCapacityProvider
+  CpuHostSecurityGroupId:
+    Value: !Ref CpuHostSecurityGroup
+  NamespaceId:
+    Value: !Ref Namespace
+  NamespaceName:
+    Value: !Sub "joybot-${EnvironmentName}.internal"
+  CpuAutoScalingGroupName:
+    Value: !Ref CpuAutoScalingGroup
+  GpuAutoScalingGroupName:
+    Value: !Ref GpuAutoScalingGroup

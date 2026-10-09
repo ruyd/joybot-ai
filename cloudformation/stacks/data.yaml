@@ -314,6 +314,8 @@ Outputs:
     Value: !GetAtt DataKey.Arn
   DbClusterArn:
     Value: !GetAtt DbCluster.DBClusterArn
+  DbClusterIdentifier:
+    Value: !Ref DbCluster
   DbEndpoint:
     Value: !GetAtt DbCluster.Endpoint.Address
   DbReaderEndpoint:
@@ -338,5 +340,7 @@ Outputs:
     Value: !Ref StripeEventsQueue
   StripeEventsQueueArn:
     Value: !GetAtt StripeEventsQueue.Arn
+  StripeEventsDeadLetterQueueName:
+    Value: !GetAtt StripeEventsDeadLetterQueue.QueueName
   AppliedMigrations:
     Value: !GetAtt DbBootstrap.AppliedMigrations

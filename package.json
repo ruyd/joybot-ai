@@ -14,7 +14,7 @@
     "typecheck": "pnpm --filter './packages/*' build && pnpm -r typecheck",
     "test": "pnpm -r --workspace-concurrency=1 test",
     "dev:api": "pnpm --filter @joybot/api dev",
-    "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml",
+    "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py",
     "package:functions": "pnpm --filter './packages/*' build && pnpm --filter @joybot/functions build"
   },
   "packageManager": "pnpm@12.10.1"
