@@ -23,7 +23,9 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Chat: conversations API with streamed answers (SSE), scope resolution within access, server-side dates, intent rules + Gemma 4 tool calling over 14 read-only tools, citations, audit traces | [apps/api/src/chat](apps/api/src/chat) |
 | Stripe sync: signed webhook → event store; worker applies events (matching, ordering, refunds, disputes, duplicates), nightly + on-demand reconciliation, unmatched-payment assignment, admin status | [apps/api/src/stripe](apps/api/src/stripe), [apps/worker](apps/worker) |
 
-Not yet: web app (portal + staff console), Freshdesk, WhatsApp invites (see roadmap in plan.md §11).
+| Web app: customer portal (assistant, appointments, payments, services, locations, profile) and staff console (assistant with customer context and disambiguation, customers + who-can-access, payments: record / pending transfers / unmatched Stripe, admin: settings, Stripe sync, employees); Cognito sign-in or local dev picker | [apps/web](apps/web) |
+
+Not yet: Freshdesk tickets, WhatsApp invites, org admin area, access-admin screens for assignments and grants (see roadmap in plan.md §11).
 
 ## CI
 
@@ -44,6 +46,7 @@ pnpm db:reset        # migrate + role logins + settings + sample data
 pnpm test            # access, DB access-control and API tests
 pnpm dev:api         # http://localhost:3000/api
 pnpm dev:worker      # Stripe event processing + reconciliation
+pnpm dev:web         # http://localhost:5173 (proxies /api to the API)
 ```
 
 Stripe locally: set `STRIPE_WEBHOOK_SECRET` from `stripe listen --forward-to localhost:3000/api/webhooks/stripe`

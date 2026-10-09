@@ -1,0 +1,5 @@
+{
+  "environment": "local",
+  "apiBase": "/api",
+  "authMode": "dev"
+}

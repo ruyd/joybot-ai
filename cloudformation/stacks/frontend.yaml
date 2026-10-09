@@ -344,6 +344,7 @@ Resources:
           {
             "environment": "${EnvironmentName}",
             "apiBase": "/api",
+            "authMode": "cognito",
             "region": "${AWS::Region}",
             "customers": { "userPoolId": "${CustomersUserPoolId}", "clientId": "${CustomersClientId}", "loginDomain": "${CustomersLoginDomain}" },
             "employees": { "userPoolId": "${EmployeesUserPoolId}", "clientId": "${EmployeesClientId}", "loginDomain": "${EmployeesLoginDomain}" },

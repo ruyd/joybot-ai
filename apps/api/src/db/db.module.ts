@@ -1,6 +1,9 @@
 import { Global, Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 import { withPrincipal, type ChangeVia } from '@joybot/db';
-import { Pool, type PoolClient } from 'pg';
+import { Pool, types, type PoolClient } from 'pg';
+
+// DATE columns (e.g. expected_at) are calendar dates, not instants: keep them as 'YYYY-MM-DD'.
+types.setTypeParser(types.builtins.DATE, (value) => value);
 import { APP_CONFIG, poolConfig, type AppConfig } from '../config/config';
 import type { Principal } from '../auth/principal';
 

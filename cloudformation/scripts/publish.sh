@@ -28,6 +28,7 @@ echo "› building Lambda functions"
 pnpm --dir "$ROOT" package:functions
 
 echo "› building the web bundle"
+pnpm --dir "$ROOT" --filter @joybot/web build
 WEB_DIR="$ROOT/apps/web/dist"
 [[ -f "$WEB_DIR/index.html" ]] || WEB_DIR="$CFN/web-placeholder"
 rm -f "$CFN/functions/dist/site.zip"

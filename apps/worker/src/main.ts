@@ -1,6 +1,9 @@
 import path from 'node:path';
 import { config as loadEnv } from 'dotenv';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// DATE columns are calendar dates: keep them as 'YYYY-MM-DD' (no time-zone shift).
+types.setTypeParser(types.builtins.DATE, (value) => value);
 import { loadConfig, stripeRestrictedKey } from './config';
 import { runQueuedJobs } from './jobs';
 import { StripeApi } from './stripe/api';
