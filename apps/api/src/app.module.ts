@@ -18,6 +18,7 @@ import { OrganizationsController } from './organizations/organizations.controlle
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
 import { SettingsController } from './settings/settings.controller';
+import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
 
 @Module({})
 export class AppModule {
@@ -50,6 +51,7 @@ export class AppModule {
         PermissionsService,
         AppointmentsService,
         PaymentsService,
+        WhatsAppSettingsPublisher,
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: AppExceptionFilter },
       ],

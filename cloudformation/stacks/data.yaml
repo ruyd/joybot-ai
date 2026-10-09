@@ -1,0 +1,342 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot data (plan.md §8.3): Aurora PostgreSQL Serverless v2 (source of truth) with per-role
+  secrets, integration secrets (Freshdesk, Stripe), the Stripe events queue, and the DB bootstrap
+  custom resource that applies migrations, role logins, settings and the first admin.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets with outbound access (bootstrap Lambda).
+  DatabaseSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets for the database (isolated when JoyBot creates the VPC).
+  DbEngineVersion:
+    Type: String
+    Default: "16.6"
+  DbMinAcu:
+    Type: Number
+    Default: 0.5
+    MinValue: 0
+    MaxValue: 256
+  DbMaxAcu:
+    Type: Number
+    Default: 8
+    MinValue: 1
+    MaxValue: 256
+  AdminEmail:
+    Type: String
+  BusinessName:
+    Type: String
+  DefaultTimeZone:
+    Type: String
+  DefaultCurrency:
+    Type: String
+  SeedSampleData:
+    Type: String
+    AllowedValues: ["true", "false"]
+  FreshdeskApiKeySecretArn:
+    Type: String
+    Default: ""
+  StripeSecretArn:
+    Type: String
+    Default: ""
+  ArtifactsBucket:
+    Type: String
+  ArtifactsVersion:
+    Type: String
+
+Conditions:
+  IsProd: !Equals [!Ref EnvironmentName, prod]
+  CreateFreshdeskSecret: !Equals [!Ref FreshdeskApiKeySecretArn, ""]
+  CreateStripeSecret: !Equals [!Ref StripeSecretArn, ""]
+
+Resources:
+  DataKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: !Sub "JoyBot ${EnvironmentName} data encryption (database, secrets)"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministration
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root" }
+            Action: "kms:*"
+            Resource: "*"
+  DataKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: !Sub "alias/joybot-${EnvironmentName}-data"
+      TargetKeyId: !Ref DataKey
+
+  # Network access: anything that talks to the database joins DbClientSecurityGroup.
+  DbClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: JoyBot database clients (API, worker, Lambdas)
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 0.0.0.0/0, Description: "Outbound: database, AWS APIs, integrations" }
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: JoyBot Aurora PostgreSQL
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref DbClientSecurityGroup
+          Description: PostgreSQL from JoyBot clients
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 127.0.0.1/32, Description: No outbound traffic }
+
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: !Sub "JoyBot ${EnvironmentName} database"
+      SubnetIds: !Ref DatabaseSubnetIds
+
+  DbClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: JoyBot Aurora PostgreSQL 16
+      Family: aurora-postgresql16
+      Parameters:
+        rds.force_ssl: "1"
+        log_min_duration_statement: "1000"
+
+  DbCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: !Ref DbEngineVersion
+      DatabaseName: joybot
+      MasterUsername: joybot_migrator
+      ManageMasterUserPassword: true
+      MasterUserSecret:
+        KmsKeyId: !Ref DataKey
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref DbMinAcu
+        MaxCapacity: !Ref DbMaxAcu
+      StorageEncrypted: true
+      KmsKeyId: !Ref DataKey
+      BackupRetentionPeriod: !If [IsProd, 14, 7]
+      PreferredBackupWindow: "07:00-08:00"
+      DeletionProtection: !If [IsProd, true, false]
+      CopyTagsToSnapshot: true
+      EnableCloudwatchLogsExports: [postgresql]
+      DBClusterParameterGroupName: !Ref DbClusterParameterGroup
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VpcSecurityGroupIds: [!Ref DbSecurityGroup]
+
+  DbWriter:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DbCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+  DbReader:
+    Type: AWS::RDS::DBInstance
+    Condition: IsProd
+    DependsOn: DbWriter
+    Properties:
+      DBClusterIdentifier: !Ref DbCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      AutoMinorVersionUpgrade: true
+
+  # Database role secrets (logins are set by the bootstrap custom resource) ---------------------
+
+  AppDbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/db/app"
+      Description: API back-office role (RLS enforced)
+      KmsKeyId: !Ref DataKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"joybot_app"}'
+        GenerateStringKey: password
+        PasswordLength: 40
+        ExcludePunctuation: true
+  ReaderDbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/db/reader"
+      Description: Chat retrieval role, read-only (RLS enforced)
+      KmsKeyId: !Ref DataKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"joybot_reader"}'
+        GenerateStringKey: password
+        PasswordLength: 40
+        ExcludePunctuation: true
+  WorkerDbSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/db/worker"
+      Description: Worker, Stripe sync and Cognito triggers (system access)
+      KmsKeyId: !Ref DataKey
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"joybot_worker"}'
+        GenerateStringKey: password
+        PasswordLength: 40
+        ExcludePunctuation: true
+
+  # Integration secrets: placeholders filled in after deploy (plan.md §8.4) ---------------------
+
+  FreshdeskSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateFreshdeskSecret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/integrations/freshdesk"
+      Description: 'Freshdesk API key: {"apiKey": "..."} (read-only agent)'
+      KmsKeyId: !Ref DataKey
+      SecretString: '{"apiKey":""}'
+  StripeSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: CreateStripeSecret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/integrations/stripe"
+      Description: 'Stripe: {"restrictedKey": "rk_...", "webhookSigningSecret": "whsec_..."}'
+      KmsKeyId: !Ref DataKey
+      SecretString: '{"restrictedKey":"","webhookSigningSecret":""}'
+
+  StripeEventsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "joybot-${EnvironmentName}-stripe-events-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+  StripeEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "joybot-${EnvironmentName}-stripe-events"
+      VisibilityTimeout: 120
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt StripeEventsDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  # DB bootstrap custom resource ---------------------------------------------------------------
+
+  DbBootstrapRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+      Policies:
+        - PolicyName: read-db-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !GetAtt DbCluster.MasterUserSecret.SecretArn
+                  - !Ref AppDbSecret
+                  - !Ref ReaderDbSecret
+                  - !Ref WorkerDbSecret
+              - Effect: Allow
+                Action: kms:Decrypt
+                Resource: !GetAtt DataKey.Arn
+
+  DbBootstrapLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/joybot-${EnvironmentName}-db-bootstrap"
+      RetentionInDays: 90
+
+  DbBootstrapFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DbBootstrapLogGroup
+    Properties:
+      FunctionName: !Sub "joybot-${EnvironmentName}-db-bootstrap"
+      Description: Applies migrations, role logins, settings and first admin
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: index.handler
+      Timeout: 300
+      MemorySize: 512
+      Role: !GetAtt DbBootstrapRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Sub "${ArtifactsVersion}/functions/db-bootstrap.zip"
+      VpcConfig:
+        SubnetIds: !Ref PrivateSubnetIds
+        SecurityGroupIds: [!Ref DbClientSecurityGroup]
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt DbCluster.Endpoint.Address
+          DB_PORT: !GetAtt DbCluster.Endpoint.Port
+          DB_NAME: joybot
+          MASTER_SECRET_ARN: !GetAtt DbCluster.MasterUserSecret.SecretArn
+          APP_SECRET_ARN: !Ref AppDbSecret
+          READER_SECRET_ARN: !Ref ReaderDbSecret
+          WORKER_SECRET_ARN: !Ref WorkerDbSecret
+          NODE_EXTRA_CA_CERTS: /var/runtime/ca-cert.pem
+
+  DbBootstrap:
+    Type: Custom::DbBootstrap
+    DependsOn: DbWriter
+    Properties:
+      ServiceToken: !GetAtt DbBootstrapFunction.Arn
+      ServiceTimeout: 300
+      # Changing the version re-runs migrations on stack update.
+      ArtifactsVersion: !Ref ArtifactsVersion
+      AdminEmail: !Ref AdminEmail
+      BusinessName: !Ref BusinessName
+      DefaultTimeZone: !Ref DefaultTimeZone
+      DefaultCurrency: !Ref DefaultCurrency
+      SeedSampleData: !Ref SeedSampleData
+
+Outputs:
+  DataKeyArn:
+    Value: !GetAtt DataKey.Arn
+  DbClusterArn:
+    Value: !GetAtt DbCluster.DBClusterArn
+  DbEndpoint:
+    Value: !GetAtt DbCluster.Endpoint.Address
+  DbReaderEndpoint:
+    Value: !GetAtt DbCluster.ReadEndpoint.Address
+  DbPort:
+    Value: !GetAtt DbCluster.Endpoint.Port
+  DbClientSecurityGroupId:
+    Value: !Ref DbClientSecurityGroup
+  MasterDbSecretArn:
+    Value: !GetAtt DbCluster.MasterUserSecret.SecretArn
+  AppDbSecretArn:
+    Value: !Ref AppDbSecret
+  ReaderDbSecretArn:
+    Value: !Ref ReaderDbSecret
+  WorkerDbSecretArn:
+    Value: !Ref WorkerDbSecret
+  FreshdeskSecretArn:
+    Value: !If [CreateFreshdeskSecret, !Ref FreshdeskSecret, !Ref FreshdeskApiKeySecretArn]
+  StripeSecretArn:
+    Value: !If [CreateStripeSecret, !Ref StripeSecret, !Ref StripeSecretArn]
+  StripeEventsQueueUrl:
+    Value: !Ref StripeEventsQueue
+  StripeEventsQueueArn:
+    Value: !GetAtt StripeEventsQueue.Arn
+  AppliedMigrations:
+    Value: !GetAtt DbBootstrap.AppliedMigrations

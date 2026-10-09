@@ -1,0 +1,307 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot network (plan.md §8.3): VPC across two AZs with public, private (NAT) and isolated (database)
+  subnets, NAT gateways with static Elastic IPs, and VPC endpoints.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues: [dev, staging, prod]
+  VpcCidr:
+    Type: String
+    Default: 10.40.0.0/16
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/(1[6-9]|2[0-2])$'
+    Description: /16–/22 CIDR; split into six equal subnets.
+  NatGatewayMode:
+    Type: String
+    Default: single
+    AllowedValues: [single, per-az]
+    Description: One NAT gateway (cheaper, dev) or one per AZ (resilient, prod).
+  EnableInterfaceEndpoints:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Private endpoints for ECR, Secrets Manager, KMS, SSM, Logs and SQS (cuts NAT traffic; ~$7/month each per AZ).
+
+Conditions:
+  NatPerAz: !Equals [!Ref NatGatewayMode, per-az]
+  InterfaceEndpoints: !Equals [!Ref EnableInterfaceEndpoints, "true"]
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}" }
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}" }
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # Subnets: six equal blocks — public A/B, private A/B, isolated A/B -------------------------
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-public-a" }
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-public-b" }
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-private-a" }
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-private-b" }
+  IsolatedSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-isolated-a" }
+  IsolatedSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCidr, 6, 12]]
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-isolated-b" }
+
+  # Routing --------------------------------------------------------------------------------
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-public" }
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PublicSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PublicSubnetA, RouteTableId: !Ref PublicRouteTable }
+  PublicSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PublicSubnetB, RouteTableId: !Ref PublicRouteTable }
+
+  NatEipA:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-nat-a" }
+  NatGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEipA.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-a" }
+  NatEipB:
+    Type: AWS::EC2::EIP
+    Condition: NatPerAz
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-nat-b" }
+  NatGatewayB:
+    Type: AWS::EC2::NatGateway
+    Condition: NatPerAz
+    Properties:
+      AllocationId: !GetAtt NatEipB.AllocationId
+      SubnetId: !Ref PublicSubnetB
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-b" }
+
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-private-a" }
+  PrivateDefaultRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayA
+  PrivateSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetA, RouteTableId: !Ref PrivateRouteTableA }
+
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-private-b" }
+  PrivateDefaultRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !If [NatPerAz, !Ref NatGatewayB, !Ref NatGatewayA]
+  PrivateSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref PrivateSubnetB, RouteTableId: !Ref PrivateRouteTableB }
+
+  # Isolated subnets (database): no route to the internet.
+  IsolatedRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - { Key: Name, Value: !Sub "joybot-${EnvironmentName}-isolated" }
+  IsolatedSubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref IsolatedSubnetA, RouteTableId: !Ref IsolatedRouteTable }
+  IsolatedSubnetBRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties: { SubnetId: !Ref IsolatedSubnetB, RouteTableId: !Ref IsolatedRouteTable }
+
+  # VPC endpoints ----------------------------------------------------------------------------
+
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds: [!Ref PrivateRouteTableA, !Ref PrivateRouteTableB, !Ref IsolatedRouteTable]
+
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: InterfaceEndpoints
+    Properties:
+      GroupDescription: HTTPS from inside the VPC to interface endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref VpcCidr, Description: VPC clients }
+      SecurityGroupEgress:
+        - { IpProtocol: "-1", CidrIp: 127.0.0.1/32, Description: No outbound traffic }
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  KmsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kms"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  SsmEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ssm"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+  SqsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Condition: InterfaceEndpoints
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.sqs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+  VpcCidr:
+    Value: !GetAtt Vpc.CidrBlock
+  PublicSubnetIds:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+  PrivateSubnetIds:
+    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+  IsolatedSubnetIds:
+    Value: !Join [",", [!Ref IsolatedSubnetA, !Ref IsolatedSubnetB]]
+  EgressIps:
+    Description: NAT Elastic IPs to allowlist in external systems (Freshdesk, Stripe-restricted keys).
+    Value: !If [NatPerAz, !Join [",", [!Ref NatEipA, !Ref NatEipB]], !Ref NatEipA]

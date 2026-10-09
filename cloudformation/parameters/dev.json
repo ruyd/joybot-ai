@@ -1,0 +1,9 @@
+[
+  { "ParameterKey": "EnvironmentName", "ParameterValue": "dev" },
+  { "ParameterKey": "AdminEmail", "ParameterValue": "admin@example.com" },
+  { "ParameterKey": "BusinessName", "ParameterValue": "JoyBot Dev" },
+  { "ParameterKey": "SeedSampleData", "ParameterValue": "true" },
+  { "ParameterKey": "NatGatewayMode", "ParameterValue": "single" },
+  { "ParameterKey": "EnableInterfaceEndpoints", "ParameterValue": "false" },
+  { "ParameterKey": "ArtifactsVersion", "ParameterValue": "v0.1.0-dev.1" }
+]

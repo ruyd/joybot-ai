@@ -1,0 +1,276 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  JoyBot AI — root stack (plan.md §8). Launch with a Quick-Create link from an account in the
+  JoyBot AWS Organization. Phase 1: network, data, messaging and identity.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: { default: General }
+        Parameters: [EnvironmentName, AdminEmail, BusinessName, DefaultTimeZone, DefaultCurrency]
+      - Label: { default: Data }
+        Parameters: [SeedSampleData, DbMinAcu, DbMaxAcu, DbEngineVersion]
+      - Label: { default: Identity }
+        Parameters:
+          - CustomerSelfSignUp
+          - CustomerPoolTier
+          - AppCallbackUrls
+          - AppLogoutUrls
+          - EmployeeIdpType
+          - EmployeeSamlMetadataUrl
+          - EmployeeOidcIssuer
+          - EmployeeOidcClientId
+          - EmployeeOidcClientSecret
+      - Label: { default: Email }
+        Parameters: [SesFromAddress]
+      - Label: { default: Integrations }
+        Parameters: [FreshdeskApiKeySecretArn, StripeSecretArn]
+      - Label: { default: Network }
+        Parameters:
+          - VpcCidr
+          - NatGatewayMode
+          - EnableInterfaceEndpoints
+          - ExistingVpcId
+          - ExistingPrivateSubnetIds
+          - ExistingDatabaseSubnetIds
+      - Label: { default: Release (do not change) }
+        Parameters: [ArtifactsBucket, ArtifactsVersion]
+    ParameterLabels:
+      AdminEmail: { default: First admin email (gets the staff console invite) }
+      SeedSampleData: { default: Load sample data (dev/demo only) }
+      ExistingVpcId: { default: Existing VPC (leave empty to create one) }
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+  AdminEmail:
+    Type: String
+    AllowedPattern: '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+    ConstraintDescription: must be an email address
+  BusinessName:
+    Type: String
+    Default: JoyBot
+  DefaultTimeZone:
+    Type: String
+    Default: America/New_York
+    Description: IANA time zone (editable later in Admin → Settings)
+  DefaultCurrency:
+    Type: String
+    Default: USD
+    AllowedPattern: '^[A-Z]{3}$'
+  SeedSampleData:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  DbMinAcu:
+    Type: Number
+    Default: 0.5
+  DbMaxAcu:
+    Type: Number
+    Default: 8
+  DbEngineVersion:
+    Type: String
+    Default: "16.6"
+  CustomerSelfSignUp:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  CustomerPoolTier:
+    Type: String
+    Default: ESSENTIALS
+    AllowedValues: [ESSENTIALS, PLUS]
+  AppCallbackUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/auth/callback
+  AppLogoutUrls:
+    Type: CommaDelimitedList
+    Default: http://localhost:5173/
+  EmployeeIdpType:
+    Type: String
+    Default: none
+    AllowedValues: [none, saml, oidc]
+  EmployeeSamlMetadataUrl:
+    Type: String
+    Default: ""
+  EmployeeOidcIssuer:
+    Type: String
+    Default: ""
+  EmployeeOidcClientId:
+    Type: String
+    Default: ""
+  EmployeeOidcClientSecret:
+    Type: String
+    Default: ""
+    NoEcho: true
+  SesFromAddress:
+    Type: String
+    Default: ""
+  FreshdeskApiKeySecretArn:
+    Type: String
+    Default: ""
+  StripeSecretArn:
+    Type: String
+    Default: ""
+  VpcCidr:
+    Type: String
+    Default: 10.40.0.0/16
+  NatGatewayMode:
+    Type: String
+    Default: single
+    AllowedValues: [single, per-az]
+  EnableInterfaceEndpoints:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ExistingVpcId:
+    Type: String
+    Default: ""
+  ExistingPrivateSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+  ExistingDatabaseSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+  ArtifactsBucket:
+    Type: String
+    Default: joybot-artifacts-us-east-1
+  ArtifactsVersion:
+    Type: String
+    Default: v0.1.0
+    AllowedPattern: '^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$'
+    Description: Release to deploy. Immutable (Lambda code only updates when this changes).
+
+Rules:
+  UsEast1Only:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: JoyBot is deployed to us-east-1 only.
+  ExistingVpcNeedsSubnets:
+    RuleCondition: !Not [!Equals [!Ref ExistingVpcId, ""]]
+    Assertions:
+      - Assert: !Not [!Equals [!Join ["", !Ref ExistingPrivateSubnetIds], ""]]
+        AssertDescription: ExistingPrivateSubnetIds is required with ExistingVpcId.
+      - Assert: !Not [!Equals [!Join ["", !Ref ExistingDatabaseSubnetIds], ""]]
+        AssertDescription: ExistingDatabaseSubnetIds is required with ExistingVpcId.
+
+Conditions:
+  CreateVpc: !Equals [!Ref ExistingVpcId, ""]
+  IsProd: !Equals [!Ref EnvironmentName, prod]
+
+Resources:
+  NetworkStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateVpc
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/network.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcCidr: !Ref VpcCidr
+        NatGatewayMode: !If [IsProd, per-az, !Ref NatGatewayMode]
+        EnableInterfaceEndpoints: !Ref EnableInterfaceEndpoints
+
+  DataStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/data.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !If [CreateVpc, !GetAtt NetworkStack.Outputs.VpcId, !Ref ExistingVpcId]
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        DatabaseSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.IsolatedSubnetIds
+          - !Join [",", !Ref ExistingDatabaseSubnetIds]
+        DbEngineVersion: !Ref DbEngineVersion
+        DbMinAcu: !Ref DbMinAcu
+        DbMaxAcu: !Ref DbMaxAcu
+        AdminEmail: !Ref AdminEmail
+        BusinessName: !Ref BusinessName
+        DefaultTimeZone: !Ref DefaultTimeZone
+        DefaultCurrency: !Ref DefaultCurrency
+        SeedSampleData: !Ref SeedSampleData
+        FreshdeskApiKeySecretArn: !Ref FreshdeskApiKeySecretArn
+        StripeSecretArn: !Ref StripeSecretArn
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  MessagingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/messaging.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        SesFromAddress: !Ref SesFromAddress
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+  AuthStack:
+    Type: AWS::CloudFormation::Stack
+    # Created after DataStack (via GetAtt), so the first admin exists in the database before sign-in.
+    Properties:
+      TemplateURL: !Sub "https://${ArtifactsBucket}.s3.${AWS::Region}.amazonaws.com/${ArtifactsVersion}/stacks/auth.yaml"
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        AdminEmail: !Ref AdminEmail
+        CustomerSelfSignUp: !Ref CustomerSelfSignUp
+        CustomerPoolTier: !Ref CustomerPoolTier
+        AppCallbackUrls: !Join [",", !Ref AppCallbackUrls]
+        AppLogoutUrls: !Join [",", !Ref AppLogoutUrls]
+        EmployeeIdpType: !Ref EmployeeIdpType
+        EmployeeSamlMetadataUrl: !Ref EmployeeSamlMetadataUrl
+        EmployeeOidcIssuer: !Ref EmployeeOidcIssuer
+        EmployeeOidcClientId: !Ref EmployeeOidcClientId
+        EmployeeOidcClientSecret: !Ref EmployeeOidcClientSecret
+        SesFromAddress: !Ref SesFromAddress
+        SesConfigurationSetName: !GetAtt MessagingStack.Outputs.SesConfigurationSetName
+        WhatsAppSenderFunctionArn: !GetAtt MessagingStack.Outputs.WhatsAppSenderFunctionArn
+        CognitoSenderKeyArn: !GetAtt MessagingStack.Outputs.CognitoSenderKeyArn
+        PrivateSubnetIds: !If
+          - CreateVpc
+          - !GetAtt NetworkStack.Outputs.PrivateSubnetIds
+          - !Join [",", !Ref ExistingPrivateSubnetIds]
+        DbClientSecurityGroupId: !GetAtt DataStack.Outputs.DbClientSecurityGroupId
+        DbHost: !GetAtt DataStack.Outputs.DbEndpoint
+        DbPort: !GetAtt DataStack.Outputs.DbPort
+        WorkerDbSecretArn: !GetAtt DataStack.Outputs.WorkerDbSecretArn
+        DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
+        ArtifactsBucket: !Ref ArtifactsBucket
+        ArtifactsVersion: !Ref ArtifactsVersion
+
+Outputs:
+  CustomersUserPoolId:
+    Value: !GetAtt AuthStack.Outputs.CustomersUserPoolId
+  CustomersClientId:
+    Value: !GetAtt AuthStack.Outputs.CustomersClientId
+  CustomersLoginDomain:
+    Value: !GetAtt AuthStack.Outputs.CustomersLoginDomain
+  EmployeesUserPoolId:
+    Value: !GetAtt AuthStack.Outputs.EmployeesUserPoolId
+  EmployeesClientId:
+    Value: !GetAtt AuthStack.Outputs.EmployeesClientId
+  EmployeesLoginDomain:
+    Value: !GetAtt AuthStack.Outputs.EmployeesLoginDomain
+  DbEndpoint:
+    Value: !GetAtt DataStack.Outputs.DbEndpoint
+  AppliedMigrations:
+    Value: !GetAtt DataStack.Outputs.AppliedMigrations
+  FreshdeskSecretArn:
+    Description: Put the Freshdesk API key here after deploy.
+    Value: !GetAtt DataStack.Outputs.FreshdeskSecretArn
+  StripeSecretArn:
+    Description: Put the Stripe restricted key and webhook signing secret here after deploy.
+    Value: !GetAtt DataStack.Outputs.StripeSecretArn
+  WhatsAppSettingsParameterName:
+    Value: !GetAtt MessagingStack.Outputs.WhatsAppSettingsParameterName
+  WhatsAppDeliveryEventsTopicArn:
+    Description: Subscribe WhatsApp delivery events to this topic in End User Messaging Social.
+    Value: !GetAtt MessagingStack.Outputs.DeliveryEventsTopicArn
+  EgressIps:
+    Condition: CreateVpc
+    Description: NAT Elastic IPs to allowlist in external systems.
+    Value: !GetAtt NetworkStack.Outputs.EgressIps

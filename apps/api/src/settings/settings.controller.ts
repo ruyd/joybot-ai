@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Can, CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import { DbService } from '../db/db.module';
+import { WhatsAppSettingsPublisher } from './whatsapp-publisher';
 
 const PUBLIC_FIELDS = `business_name, default_time_zone, default_currency, default_locale,
   whatsapp_enabled, whatsapp_display_number, freshdesk_portal_url, stripe_enabled`;
@@ -35,7 +36,10 @@ type SettingsUpdate = z.infer<typeof updateSchema>;
 
 @Controller()
 export class SettingsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly whatsapp: WhatsAppSettingsPublisher,
+  ) {}
 
   /** Display settings for any signed-in principal (time zone, currency, feature toggles). */
   @Get('settings')
@@ -57,8 +61,10 @@ export class SettingsController {
           p.id,
         ]);
       }
-      // WhatsApp settings are also published to SSM for the Cognito sender Lambda (Phase 3).
-      return (await db.query(`SELECT ${ALL_FIELDS} FROM core.settings WHERE id = 1`)).rows[0];
+      const row = (await db.query(`SELECT ${ALL_FIELDS} FROM core.settings WHERE id = 1`)).rows[0];
+      // Inside the transaction: if publishing fails, the settings change is rolled back too.
+      if (entries.some(([k]) => k.startsWith('whatsapp_'))) await this.whatsapp.publish(row);
+      return row;
     });
   }
 }

@@ -1,4 +1,4 @@
-import { Client } from 'pg';
+import { Client, type ClientConfig } from 'pg';
 
 /** Fixed IDs for sample data, so tests and local demos can refer to them. */
 export const SAMPLE = {
@@ -50,8 +50,8 @@ export interface SettingsDefaults {
 }
 
 /** Creates the settings row if missing (DB bootstrap). */
-export async function seedSettings(connectionString: string, defaults: SettingsDefaults): Promise<void> {
-  const client = new Client({ connectionString });
+export async function seedSettings(connectionString: string | ClientConfig, defaults: SettingsDefaults): Promise<void> {
+  const client = new Client(typeof connectionString === 'string' ? { connectionString } : connectionString);
   await client.connect();
   try {
     await client.query(`SELECT set_config('app.via', 'seed', false)`);
@@ -66,9 +66,9 @@ export async function seedSettings(connectionString: string, defaults: SettingsD
 }
 
 /** Sample data for local development and tests (SeedSampleData=true). Idempotent. */
-export async function seedSampleData(connectionString: string): Promise<void> {
+export async function seedSampleData(connectionString: string | ClientConfig): Promise<void> {
   const S = SAMPLE;
-  const client = new Client({ connectionString });
+  const client = new Client(typeof connectionString === 'string' ? { connectionString } : connectionString);
   await client.connect();
   try {
     await client.query('BEGIN');

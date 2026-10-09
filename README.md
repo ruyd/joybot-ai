@@ -14,7 +14,11 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Back-office API: locations, services (price list), organizations (members), appointments (service defaults, employee double-booking check, status transitions, local times) | [apps/api/src](apps/api/src) |
 | Access administration API: employees + work locations, staff permission matrix (with guard-rails), assignments, temporary record grants (≤ 90 days), "who can access" with reasons | [apps/api/src/admin](apps/api/src/admin), [0010_access_reasons.sql](packages/db/migrations/0010_access_reasons.sql) |
 
-Not yet: chat/LLM, Stripe webhooks, Freshdesk, WhatsApp, frontend, CloudFormation (see roadmap in plan.md §11).
+| Cognito identity linking rules (customer sign-up by verified email/phone, employee first sign-in) | [0012_identity_linking.sql](packages/db/migrations/0012_identity_linking.sql) |
+| CloudFormation (Phase 1): network, data (Aurora + DB bootstrap), messaging (WhatsApp codes), auth (two user pools); private artifacts bootstrap; publish + Quick-Create scripts | [cloudformation](cloudformation) |
+| Lambda functions: DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender | [cloudformation/functions](cloudformation/functions) |
+
+Not yet: chat/LLM, Stripe webhooks, Freshdesk, frontend, compute/model/backend/frontend stacks (see roadmap in plan.md §11).
 
 ## Local development
 

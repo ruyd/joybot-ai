@@ -12,6 +12,8 @@ const schema = z
     CUSTOMERS_CLIENT_ID: z.string().optional(),
     EMPLOYEES_USER_POOL_ID: z.string().optional(),
     EMPLOYEES_CLIENT_ID: z.string().optional(),
+    /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
+    WHATSAPP_SETTINGS_PARAMETER: z.string().optional(),
   })
   .superRefine((cfg, ctx) => {
     if (cfg.AUTH_MODE === 'dev' && cfg.NODE_ENV === 'production') {
