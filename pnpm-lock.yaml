@@ -171,6 +171,9 @@ importers:
       '@aws-sdk/client-cognito-identity-provider':
         specifier: ^3.700.0
         version: 3.1147.0
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.700.0
+        version: 3.1147.0
       '@aws-sdk/client-ssm':
         specifier: ^3.700.0
         version: 3.1147.0
@@ -226,6 +229,37 @@ importers:
       supertest:
         specifier: ^7.1.0
         version: 7.3.1
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.5)(tsx@4.23.15)
+
+  apps/worker:
+    dependencies:
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.700.0
+        version: 3.1147.0
+      '@joybot/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      dotenv:
+        specifier: ^16.4.7
+        version: 16.6.1
+      pg:
+        specifier: ^8.16.0
+        version: 8.23.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      '@types/pg':
+        specifier: ^8.15.0
+        version: 8.23.1
+      tsx:
+        specifier: ^4.20.0
+        version: 4.23.15
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

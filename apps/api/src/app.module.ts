@@ -23,6 +23,8 @@ import { OrganizationsController } from './organizations/organizations.controlle
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
 import { SettingsController } from './settings/settings.controller';
+import { StripeController } from './stripe/stripe.controller';
+import { StripeSecrets } from './stripe/stripe-secrets';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
 
 @Module({})
@@ -52,6 +54,7 @@ export class AppModule {
         UsersController,
         AccessController,
         ConversationsController,
+        StripeController,
       ],
       providers: [
         PermissionsService,
@@ -60,6 +63,7 @@ export class AppModule {
         PaymentsService,
         WhatsAppSettingsPublisher,
         ChatToolsService,
+        StripeSecrets,
         ChatService,
         {
           provide: LLM_PROVIDER,

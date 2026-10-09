@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publishes a JoyBot release to the private tooling account (plan.md §9 "Release"):
-#   - container images → private ECR (joybot/api arm64, joybot/model-server amd64)
+#   - container images → private ECR (joybot/api + joybot/worker arm64, joybot/model-server amd64)
 #   - templates, Lambda zips and the web bundle → s3://<bucket>/<version>/
 # Usage: cloudformation/scripts/publish.sh <version> [bucket]
 # Versions are immutable: an existing version is never overwritten (use v0.1.1-dev.3 while iterating).
@@ -36,6 +36,7 @@ rm -f "$CFN/functions/dist/site.zip"
 echo "› building and pushing images to $REGISTRY"
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY"
 docker buildx build --platform linux/arm64 -f "$ROOT/apps/api/Dockerfile" -t "$REGISTRY/joybot/api:$VERSION" --push "$ROOT"
+docker buildx build --platform linux/arm64 -f "$ROOT/apps/worker/Dockerfile" -t "$REGISTRY/joybot/worker:$VERSION" --push "$ROOT"
 docker buildx build --platform linux/amd64 -t "$REGISTRY/joybot/model-server:$VERSION" --push "$ROOT/services/model-server"
 
 echo "› uploading to s3://$BUCKET/$VERSION/"

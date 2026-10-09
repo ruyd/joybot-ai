@@ -195,9 +195,9 @@ Parameters:
     Default: 4
   EnableWorker:
     Type: String
-    Default: "false"
+    Default: "true"
     AllowedValues: ["true", "false"]
-    Description: Run the background worker (requires a worker image in the release).
+    Description: Run the background worker (Stripe sync). Turn off only for debugging.
   DomainName:
     Type: String
     Default: ""
@@ -408,8 +408,6 @@ Resources:
         DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
         FreshdeskSecretArn: !GetAtt DataStack.Outputs.FreshdeskSecretArn
         StripeSecretArn: !GetAtt DataStack.Outputs.StripeSecretArn
-        StripeEventsQueueArn: !GetAtt DataStack.Outputs.StripeEventsQueueArn
-        StripeEventsQueueUrl: !GetAtt DataStack.Outputs.StripeEventsQueueUrl
         CustomersUserPoolId: !GetAtt AuthStack.Outputs.CustomersUserPoolId
         CustomersUserPoolArn: !GetAtt AuthStack.Outputs.CustomersUserPoolArn
         CustomersClientId: !GetAtt AuthStack.Outputs.CustomersClientId
@@ -453,7 +451,6 @@ Resources:
         AlbFullName: !GetAtt BackendStack.Outputs.AlbFullName
         ApiTargetGroupFullName: !GetAtt BackendStack.Outputs.ApiTargetGroupFullName
         DbClusterIdentifier: !GetAtt DataStack.Outputs.DbClusterIdentifier
-        StripeEventsDeadLetterQueueName: !GetAtt DataStack.Outputs.StripeEventsDeadLetterQueueName
         DistributionId: !GetAtt FrontendStack.Outputs.DistributionId
 
 Outputs:

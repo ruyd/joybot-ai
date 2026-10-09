@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query
 import { Can, CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import {
+  assignSchema,
   createManualPaymentSchema,
   duplicateCheckSchema,
   listSchema,
@@ -76,6 +77,19 @@ export class PaymentsController {
     @Body(new ZodPipe(markReceivedSchema)) body: { bank_reference: string; paid_at: string },
   ) {
     return this.payments.markReceived(p, id, body.bank_reference, body.paid_at);
+  }
+
+  /** Unmatched Stripe payment → customer (plan.md §4.4 unmatched queue). */
+  @Post(':id/assign')
+  @HttpCode(200)
+  @EmployeesOnly()
+  @Can('update', 'payments')
+  assign(
+    @CurrentPrincipal() p: Principal,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(assignSchema)) body: { customer_id: string; appointment_id?: string },
+  ) {
+    return this.payments.assignStripePayment(p, id, body.customer_id, body.appointment_id);
   }
 
   @Post(':id/void')

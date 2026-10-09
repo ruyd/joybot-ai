@@ -95,3 +95,7 @@ export const listSchema = z
   })
   .strict();
 export type ListPayments = z.infer<typeof listSchema>;
+
+export const assignSchema = z
+  .object({ customer_id: z.string().uuid(), appointment_id: z.string().uuid().optional() })
+  .strict();

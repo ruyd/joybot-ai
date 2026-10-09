@@ -28,6 +28,9 @@ const schema = z
     CUSTOMERS_CLIENT_ID: z.string().optional(),
     EMPLOYEES_USER_POOL_ID: z.string().optional(),
     EMPLOYEES_CLIENT_ID: z.string().optional(),
+    /** Stripe: secret with { restrictedKey, webhookSigningSecret } (AWS) or the signing secret directly (local). */
+    STRIPE_SECRET_ARN: z.string().optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().optional(),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
     WHATSAPP_SETTINGS_PARAMETER: z.string().optional(),
   })

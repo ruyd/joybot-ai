@@ -215,22 +215,6 @@ Resources:
       KmsKeyId: !Ref DataKey
       SecretString: '{"restrictedKey":"","webhookSigningSecret":""}'
 
-  StripeEventsDeadLetterQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "joybot-${EnvironmentName}-stripe-events-dlq"
-      MessageRetentionPeriod: 1209600
-      SqsManagedSseEnabled: true
-  StripeEventsQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub "joybot-${EnvironmentName}-stripe-events"
-      VisibilityTimeout: 120
-      SqsManagedSseEnabled: true
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt StripeEventsDeadLetterQueue.Arn
-        maxReceiveCount: 5
-
   # DB bootstrap custom resource ---------------------------------------------------------------
 
   DbBootstrapRole:
@@ -336,11 +320,5 @@ Outputs:
     Value: !If [CreateFreshdeskSecret, !Ref FreshdeskSecret, !Ref FreshdeskApiKeySecretArn]
   StripeSecretArn:
     Value: !If [CreateStripeSecret, !Ref StripeSecret, !Ref StripeSecretArn]
-  StripeEventsQueueUrl:
-    Value: !Ref StripeEventsQueue
-  StripeEventsQueueArn:
-    Value: !GetAtt StripeEventsQueue.Arn
-  StripeEventsDeadLetterQueueName:
-    Value: !GetAtt StripeEventsDeadLetterQueue.QueueName
   AppliedMigrations:
     Value: !GetAtt DbBootstrap.AppliedMigrations

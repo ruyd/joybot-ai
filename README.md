@@ -20,7 +20,10 @@ Customer + employee chatbot backed by JoyBot's own PostgreSQL source of truth. S
 | Container images: API (non-root, verified TLS to Aurora) and model server (vLLM with S3 weights cache) | [apps/api/Dockerfile](apps/api/Dockerfile), [services/model-server](services/model-server) |
 | Lambda functions: DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets | [cloudformation/functions](cloudformation/functions) |
 
-Not yet: chat/LLM, Stripe webhooks, Freshdesk, web app, worker (see roadmap in plan.md §11).
+| Chat: conversations API with streamed answers (SSE), scope resolution within access, server-side dates, intent rules + Gemma 4 tool calling over 14 read-only tools, citations, audit traces | [apps/api/src/chat](apps/api/src/chat) |
+| Stripe sync: signed webhook → event store; worker applies events (matching, ordering, refunds, disputes, duplicates), nightly + on-demand reconciliation, unmatched-payment assignment, admin status | [apps/api/src/stripe](apps/api/src/stripe), [apps/worker](apps/worker) |
+
+Not yet: web app (portal + staff console), Freshdesk, WhatsApp invites (see roadmap in plan.md §11).
 
 ## CI
 
@@ -40,7 +43,12 @@ pnpm db:up           # Postgres 16 on localhost:5433
 pnpm db:reset        # migrate + role logins + settings + sample data
 pnpm test            # access, DB access-control and API tests
 pnpm dev:api         # http://localhost:3000/api
+pnpm dev:worker      # Stripe event processing + reconciliation
 ```
+
+Stripe locally: set `STRIPE_WEBHOOK_SECRET` from `stripe listen --forward-to localhost:3000/api/webhooks/stripe`
+and enable Stripe in Admin → Settings. Chat uses evidence-only answers unless `MODEL_ENDPOINT` points at
+an OpenAI-compatible model (e.g. Ollama: `http://localhost:11434/v1` with `MODEL_NAME` set to the local Gemma tag).
 
 Local auth uses the `x-dev-principal` header (`AUTH_MODE=dev`, refused when `NODE_ENV=production`):
 

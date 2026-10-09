@@ -52,10 +52,6 @@ Parameters:
     Type: String
   StripeSecretArn:
     Type: String
-  StripeEventsQueueArn:
-    Type: String
-  StripeEventsQueueUrl:
-    Type: String
   CustomersUserPoolId:
     Type: String
   CustomersUserPoolArn:
@@ -192,10 +188,6 @@ Resources:
               - Effect: Allow
                 Action: kms:Decrypt
                 Resource: !Ref DataKeyArn
-              - Sid: EnqueueStripeEvents
-                Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !Ref StripeEventsQueueArn
               - Sid: ProvisionEmployeeLogins
                 Effect: Allow
                 Action:
@@ -265,7 +257,6 @@ Resources:
             - { Name: MODEL_ENDPOINT, Value: !Ref ModelEndpoint }
             - { Name: FRESHDESK_SECRET_ARN, Value: !Ref FreshdeskSecretArn }
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
-            - { Name: STRIPE_EVENTS_QUEUE_URL, Value: !Ref StripeEventsQueueUrl }
           Secrets:
             - { Name: APP_DB_PASSWORD, ValueFrom: !Sub "${AppDbSecretArn}:password::" }
             - { Name: READER_DB_PASSWORD, ValueFrom: !Sub "${ReaderDbSecretArn}:password::" }
@@ -326,7 +317,7 @@ Resources:
           PredefinedMetricType: ALBRequestCountPerTarget
           ResourceLabel: !Sub "${Alb.LoadBalancerFullName}/${ApiTargetGroup.TargetGroupFullName}"
 
-  # Worker (Stripe reconciliation, invites, grant expiry) — when its image exists ----------------
+  # Worker (Stripe event processing and reconciliation, worker jobs) ----------------------------
 
   WorkerTaskRole:
     Type: AWS::IAM::Role
@@ -343,9 +334,6 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
-                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:ChangeMessageVisibility, sqs:GetQueueAttributes]
-                Resource: !Ref StripeEventsQueueArn
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: [!Ref FreshdeskSecretArn, !Ref StripeSecretArn]
@@ -377,6 +365,7 @@ Resources:
           Cpu: 256
           Memory: 512
           MemoryReservation: 256
+          StopTimeout: 30
           Environment:
             - { Name: NODE_ENV, Value: production }
             - { Name: DB_HOST, Value: !Ref DbHost }
@@ -384,7 +373,6 @@ Resources:
             - { Name: DB_SSL, Value: "true" }
             - { Name: FRESHDESK_SECRET_ARN, Value: !Ref FreshdeskSecretArn }
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
-            - { Name: STRIPE_EVENTS_QUEUE_URL, Value: !Ref StripeEventsQueueUrl }
           Secrets:
             - { Name: WORKER_DB_PASSWORD, ValueFrom: !Sub "${WorkerDbSecretArn}:password::" }
           LogConfiguration:
@@ -393,6 +381,19 @@ Resources:
               awslogs-group: !Ref WorkerLogGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: worker
+
+  # The worker logs {"event":"stripe_event_failed",…} when a Stripe event cannot be applied.
+  StripeEventsFailedMetric:
+    Type: AWS::Logs::MetricFilter
+    Condition: HasWorker
+    Properties:
+      LogGroupName: !Ref WorkerLogGroup
+      FilterPattern: '{ $.event = "stripe_event_failed" }'
+      MetricTransformations:
+        - MetricNamespace: !Sub "JoyBot/${EnvironmentName}"
+          MetricName: StripeEventsFailed
+          MetricValue: "1"
+          DefaultValue: 0
 
   WorkerService:
     Type: AWS::ECS::Service

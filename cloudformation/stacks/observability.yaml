@@ -19,8 +19,6 @@ Parameters:
     Type: String
   DbClusterIdentifier:
     Type: String
-  StripeEventsDeadLetterQueueName:
-    Type: String
   DistributionId:
     Type: String
 
@@ -126,16 +124,14 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [!Ref AlarmTopic]
 
-  StripeEventsDeadLetters:
+  StripeEventsFailing:
     Type: AWS::CloudWatch::Alarm
     Properties:
       AlarmName: !Sub "joybot-${EnvironmentName}-stripe-events-failed"
-      AlarmDescription: Stripe events could not be processed (dead-letter queue is not empty).
-      Namespace: AWS/SQS
-      MetricName: ApproximateNumberOfMessagesVisible
-      Dimensions:
-        - { Name: QueueName, Value: !Ref StripeEventsDeadLetterQueueName }
-      Statistic: Maximum
+      AlarmDescription: Stripe events could not be applied by the worker (see /admin/stripe/status).
+      Namespace: !Sub "JoyBot/${EnvironmentName}"
+      MetricName: StripeEventsFailed
+      Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
       Threshold: 0
@@ -237,10 +233,9 @@ Resources:
                   [".", "Errors", ".", "."]
                 ] } },
             { "type": "metric", "x": 12, "y": 12, "width": 12, "height": 6,
-              "properties": { "title": "Stripe events", "region": "${AWS::Region}", "stat": "Maximum", "period": 300,
+              "properties": { "title": "Stripe events failed", "region": "${AWS::Region}", "stat": "Sum", "period": 300,
                 "metrics": [
-                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "joybot-${EnvironmentName}-stripe-events"],
-                  [".", ".", ".", "${StripeEventsDeadLetterQueueName}"]
+                  ["JoyBot/${EnvironmentName}", "StripeEventsFailed"]
                 ] } }
           ]
         }

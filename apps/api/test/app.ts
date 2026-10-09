@@ -19,7 +19,7 @@ export async function createApp(options: AppOptions = {}): Promise<INestApplicat
   let builder = Test.createTestingModule({ imports: [AppModule.forRoot(cfg)] });
   for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication({ logger: false });
+  const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
   app.setGlobalPrefix('api');
   await app.init();
   return app;
