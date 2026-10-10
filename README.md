@@ -30,7 +30,7 @@ Phases 1–3 are done; see [plan.md §11](plan.md#11-phased-roadmap) for the rem
 
 **Not yet:**
 - A full eval run against a real Gemma 4 model (only a 5-case sample on local Gemma 4 E2B so far).
-- Phase 5 launch readiness: hardening, Playwright, load tests.
+- Phase 5 feature refinements, then Phase 6 pre-launch: hardening, Playwright, load tests.
 - A first real AWS deployment.
 
 ## Local development
