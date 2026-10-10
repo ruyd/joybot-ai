@@ -121,6 +121,7 @@ async function runCase(app: INestApplication, recorder: RecordingProvider, world
     evidence: recorder.lastEvidence,
     customerEvent: of('customer')[0] ?? null,
     disambiguation: of('disambiguation').length > 0,
+    actions: of('actions')[0] ?? [],
     latencyMs: Date.now() - started,
     error: of('error')[0]?.message ?? null,
   };
@@ -196,6 +197,8 @@ async function loadWorld(db: Client): Promise<World> {
   for (const [k, id] of Object.entries(S.orgs)) refs[`org:${k}`] = (await db.query('SELECT org_number FROM core.organizations WHERE id = $1', [id])).rows[0].org_number;
   for (const k of Object.keys(S.customers)) refs[`cust:${k}`] = customers[k].number;
   for (const n of [5001, 5002, 5003, 5004, 5006]) refs[`ticket:${n}`] = `#${n}`;
+  for (const [k, id] of Object.entries(S.answers)) refs[`answer:${k}`] = id;
+  for (const slug of ['reschedule-or-cancel', 'payment-options', 'handling-booking-requests']) refs[`article:${slug}`] = slug;
 
   const internal = [
     ...(await db.query(`SELECT notes_internal FROM core.appointments WHERE notes_internal IS NOT NULL`)).rows.map((r) => r.notes_internal),

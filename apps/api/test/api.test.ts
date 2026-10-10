@@ -95,6 +95,18 @@ describe('customers', () => {
     expect(byPhone.body.map((c: { id: string }) => c.id)).toEqual([C.pat]);
   });
 
+  it('finds customers by short name prefixes, word by word', async () => {
+    const ids = async (who: ReturnType<typeof employee>, q: string) =>
+      (await api(app, who).get(`/api/customers?q=${encodeURIComponent(q)}`).expect(200)).body.map((c: { id: string }) => c.id);
+    for (const q of ['ma', 'MA', 'lop', 'mar lop', 'maria lo']) expect(await ids(employee(U.ada), q)).toEqual([C.maria]);
+    expect(await ids(employee(U.ada), 'jo')).toContain(C.john);
+    expect(await ids(employee(U.ada), 'ia')).not.toContain(C.maria); // word starts only, not "Mar-ia"
+    // LIKE wildcards are literal, and access control still applies.
+    expect(await ids(employee(U.ada), '%')).toEqual([]);
+    expect(await ids(employee(U.ada), '_a')).toEqual([]);
+    expect(await ids(employee(U.sam), 'jo')).not.toContain(C.john);
+  });
+
   it('creates a minimal customer (name + phone) and keeps it visible to its creator', async () => {
     const res = await api(app, employee(U.lia))
       .post('/api/customers', { first_name: 'Walk-in', phone: '+13105550177', whatsapp_opt_in: true })

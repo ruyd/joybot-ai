@@ -18,6 +18,7 @@ const obs = (o: Partial<Observation>): Observation => ({
   answer: '',
   tools: [],
   citations: [],
+  actions: [],
   evidence: [],
   customerEvent: null,
   disambiguation: false,

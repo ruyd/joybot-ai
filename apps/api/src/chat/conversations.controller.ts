@@ -44,7 +44,7 @@ export class ConversationsController {
   async messages(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     await this.chat.assertConversation(p, id);
     return this.db.as(p, async (db) =>
-      (await db.query('SELECT id, role, content, citations, created_at FROM app.messages WHERE conversation_id = $1 ORDER BY created_at', [id])).rows,
+      (await db.query('SELECT id, role, content, citations, actions, created_at FROM app.messages WHERE conversation_id = $1 ORDER BY created_at', [id])).rows,
     );
   }
 

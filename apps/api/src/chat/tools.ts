@@ -4,6 +4,7 @@ import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
 import { FreshdeskService } from '../freshdesk/freshdesk.service';
+import { actionsFor, searchKnowledge, type ChatAction } from '../knowledge/knowledge';
 import { formatLocal } from './time';
 
 /**
@@ -28,7 +29,8 @@ export type ToolName =
   | 'list_organization_members'
   | 'search_customers'
   | 'list_tickets'
-  | 'get_ticket';
+  | 'get_ticket'
+  | 'search_knowledge';
 
 export interface ChatScope {
   /** Customer the conversation is about (self for customers). */
@@ -40,7 +42,7 @@ export interface ChatScope {
 }
 
 export interface Evidence {
-  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location' | 'ticket';
+  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location' | 'ticket' | 'answer' | 'article';
   id: string;
   title: string;
   fields: Record<string, string | number | boolean | null>;
@@ -51,6 +53,8 @@ export interface ToolResult {
   evidence: Evidence[];
   status: 'ok' | 'empty' | 'denied' | 'error';
   note?: string;
+  /** Buttons from matched saved answers and articles (search_knowledge). */
+  actions?: ChatAction[];
 }
 
 interface ToolSpec {
@@ -203,6 +207,19 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     audience: ['employee', 'customer'],
     requires: 'tickets',
   },
+  search_knowledge: {
+    description:
+      'Saved answers and help articles written by the business: how-to, policies, booking, payments and account help. ' +
+      'The server already searches the question itself; call this with other wording when that may find more.',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', minLength: 3 } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    audience: ['employee', 'customer'],
+    requires: 'knowledge',
+  },
   search_customers: {
     description: 'Find customers by name, email, phone or customer number.',
     parameters: {
@@ -288,10 +305,26 @@ export class ChatToolsService {
       const evidence = await this.tickets(p, scope, name, args);
       return { evidence, status: evidence.length ? 'ok' : 'empty' };
     }
+    if (name === 'search_knowledge') return this.db.read(p, (db) => this.knowledge(db, p, String(args.query)));
     return this.db.read(p, async (db) => {
       const evidence = await this.execute(db, p, scope, name, args);
       return { evidence, status: evidence.length ? 'ok' : 'empty' };
     });
+  }
+
+  /** Saved answers (approved replies) and article passages, with their buttons. */
+  private async knowledge(db: PoolClient, p: Principal, query: string): Promise<ToolResult> {
+    const { answers, passages } = await searchKnowledge(db, query, p.type);
+    const evidence: Evidence[] = [
+      ...answers.map((a) => ({ type: 'answer' as const, id: a.id, title: a.title, fields: { approved_answer: a.body } })),
+      ...passages.map((s) => ({
+        type: 'article' as const,
+        id: s.slug,
+        title: s.heading ? `${s.title} — ${s.heading}` : s.title,
+        fields: { article: s.title, section: s.heading, text: s.body },
+      })),
+    ];
+    return { evidence, status: evidence.length ? 'ok' : 'empty', actions: await actionsFor(db, answers, passages, p.type) };
   }
 
   /** Freshdesk tools: same ownership checks as the API (reader role), private notes for staff only. */
@@ -597,6 +630,9 @@ export class ChatToolsService {
       case 'list_tickets':
       case 'get_ticket':
         return []; // handled by tickets() before reaching SQL tools
+
+      case 'search_knowledge':
+        return []; // handled in run() (it also returns buttons)
 
       case 'search_customers': {
         const rows = (

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
@@ -188,8 +188,14 @@ function BookAppointment() {
   const { me } = useMe();
   const services = useQuery({ queryKey: ['services'], queryFn: () => api.get<Service[]>('/services') });
   const locations = useQuery({ queryKey: ['locations'], queryFn: () => api.get<Location[]>('/locations') });
+  const [params] = useSearchParams();
+  const cardRef = useRef<HTMLDivElement>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
-  const [serviceId, setServiceId] = useState('');
+  // ?book=<service id>: from the assistant's "Book" button.
+  const [serviceId, setServiceId] = useState(params.get('book') ?? '');
+  useEffect(() => {
+    if (params.has('book')) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [params]);
   const [locationId, setLocationId] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [day, setDay] = useState('');
@@ -250,6 +256,7 @@ function BookAppointment() {
   const zone = location ? time(zonedToIso(day || todayIn(location.time_zone), clock || '12:00', location.time_zone), location.time_zone).split(' ').pop() : '';
 
   return (
+    <div ref={cardRef} className="scroll-mt-20">
     <Card title="Book an appointment">
       <form onSubmit={onSubmit} className="grid gap-4">
         <Field label="Customer">
@@ -317,5 +324,6 @@ function BookAppointment() {
         </div>
       </form>
     </Card>
+    </div>
   );
 }

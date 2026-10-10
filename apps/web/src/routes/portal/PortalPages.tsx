@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Card, EmptyState, ErrorBanner, PageHeader, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { dateTime, METHOD_LABEL, money } from '../../lib/format';
+import { RequestBadge, type CustomerAppointment } from './BookPage';
 
 export interface Appointment {
   id: string;
@@ -48,11 +50,11 @@ function State({ q, empty, children }: { q: { isLoading: boolean; error: unknown
 }
 
 export function MyAppointments() {
-  const q = useList<Appointment>('appointments', '/appointments?limit=100');
+  const q = useList<CustomerAppointment>('appointments', '/appointments?limit=100');
   const now = Date.now();
   const upcoming = (q.data ?? []).filter((a) => new Date(a.scheduled_start).getTime() >= now && ['scheduled', 'confirmed'].includes(a.status));
   const past = (q.data ?? []).filter((a) => !upcoming.includes(a)).reverse();
-  const table = (rows: Appointment[]) => (
+  const table = (rows: CustomerAppointment[]) => (
     <Table head={['When', 'Service', 'Where', 'With', 'Status', 'Price']}>
       {rows.map((a) => (
         <tr key={a.id}>
@@ -60,7 +62,7 @@ export function MyAppointments() {
           <Td>{a.service_name}</Td>
           <Td>{a.location_name}</Td>
           <Td>{a.employee_name ?? '—'}</Td>
-          <Td><StatusBadge status={a.status} /></Td>
+          <Td><span className="flex flex-wrap gap-1"><StatusBadge status={a.status} /><RequestBadge a={a} /></span></Td>
           <Td>{money(a.price_quoted, a.currency)}</Td>
         </tr>
       ))}
@@ -68,7 +70,11 @@ export function MyAppointments() {
   );
   return (
     <Page>
-      <PageHeader title="My appointments" description="Times are shown in each location's time zone." />
+      <PageHeader
+        title="My appointments"
+        description="Times are shown in each location's time zone."
+        actions={<Link to="/portal/book" className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700">Book an appointment</Link>}
+      />
       <div className="space-y-4">
         <Card title="Upcoming">
           <State q={{ ...q, data: upcoming }} empty="No upcoming appointments.">{table(upcoming)}</State>

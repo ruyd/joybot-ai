@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/api';
 import type { Audience } from '../../lib/auth';
-import type { Candidate, Citation, Message, ScopeCard } from '../../lib/chat-state';
+import type { Candidate, Citation, Message, ScopeCard, SuggestedAction } from '../../lib/chat-state';
 import { Badge, Button, ErrorBanner } from '../ui';
 import { useChat, type Conversation } from './useChat';
 
@@ -74,6 +74,7 @@ export function ChatPage({ audience }: { audience: Audience }) {
               <MessageView
                 key={m.id}
                 message={m}
+                audience={audience}
                 onChoose={(c) => void choose(c, state.messages[i - 1]?.content ?? '')}
               />
             ))}
@@ -126,7 +127,18 @@ export function ScopeBar({ scope, onClear }: { scope?: ScopeCard; onClear: () =>
   );
 }
 
-export function MessageView({ message, onChoose }: { message: Message; onChoose: (c: Candidate) => void }) {
+export function MessageView({
+  message,
+  audience,
+  onChoose,
+  onAction,
+}: {
+  message: Message;
+  audience: Audience;
+  onChoose: (c: Candidate) => void;
+  /** Called when a suggested action is followed (the dock minimizes so the page is clear). */
+  onAction?: () => void;
+}) {
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
@@ -165,8 +177,34 @@ export function MessageView({ message, onChoose }: { message: Message; onChoose:
           ))}
         </div>
       )}
+      {message.actions && message.actions.length > 0 && !message.streaming && <ActionButtons actions={message.actions} audience={audience} onFollow={onAction} />}
       {message.citations.length > 0 && <Sources citations={message.citations} />}
       {message.error && <ErrorBanner error={message.error} />}
+    </div>
+  );
+}
+
+/** Where a suggested action leads: the booking page (prefilled) or a help article, per audience. */
+function actionHref(a: SuggestedAction, audience: Audience): string {
+  const base = audience === 'customer' ? '/portal' : '/staff';
+  if (a.type === 'article') return `${base}/help/${a.slug}`;
+  if (audience === 'customer') return a.service_id ? `/portal/book?service=${a.service_id}` : '/portal/book';
+  return a.service_id ? `/staff?book=${a.service_id}` : '/staff?book=';
+}
+
+function ActionButtons({ actions, audience, onFollow }: { actions: SuggestedAction[]; audience: Audience; onFollow?: () => void }) {
+  return (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Suggested actions">
+      {actions.map((a) => (
+        <Link
+          key={`${a.type}:${a.type === 'book' ? a.service_id : a.slug}`}
+          to={actionHref(a, audience)}
+          onClick={onFollow}
+          className="rounded-lg border border-brand-500 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-100 dark:hover:bg-slate-800"
+        >
+          {a.label}
+        </Link>
+      ))}
     </div>
   );
 }

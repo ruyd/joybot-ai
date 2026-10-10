@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
-import { useApi } from '../../lib/api';
+import { ApiError, useApi } from '../../lib/api';
 import { dateTime, fullName } from '../../lib/format';
+import { useMe } from '../../lib/me';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 
 interface Summary extends Customer {
@@ -63,14 +64,118 @@ const FIELD: Record<string, string> = {
 
 /** Admin worklist: sign-ups waiting to be linked, and likely duplicate customers. */
 export function Review() {
+  const { can } = useMe();
   return (
     <Page>
-      <PageHeader title="Review" description="Portal sign-ups that need a decision, and customers that may be the same person." />
+      <PageHeader title="Review" description="Booking requests from customers, portal sign-ups that need a decision, and customers that may be the same person." />
       <div className="grid gap-4">
-        <LinkReviews />
-        <Duplicates />
+        {can('update', 'appointments') && <BookingRequests />}
+        {can('merge', 'customers') && (
+          <>
+            <LinkReviews />
+            <Duplicates />
+          </>
+        )}
       </div>
     </Page>
+  );
+}
+
+interface BookingRequest {
+  id: string;
+  appointment_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  customer_number: string | null;
+  service_name: string;
+  location_id: string;
+  location_name: string;
+  time_zone: string;
+  scheduled_start: string;
+  notes_customer: string | null;
+  created_at: string;
+}
+
+interface StaffMember {
+  id: string;
+  first_name: string;
+  last_name: string;
+}
+
+/** Appointments customers requested online: confirm (optionally assigning staff) or decline. */
+function BookingRequests() {
+  const api = useApi();
+  const q = useQuery({ queryKey: ['appointments', 'requests'], queryFn: () => api.get<BookingRequest[]>('/appointments/requests'), refetchInterval: 60_000 });
+  return (
+    <Card title={`Booking requests${q.data?.length ? ` · ${q.data.length}` : ''}`}>
+      {q.isLoading ? (
+        <Spinner />
+      ) : q.error ? (
+        <ErrorBanner error={q.error} />
+      ) : !q.data?.length ? (
+        <EmptyState>No booking requests waiting.</EmptyState>
+      ) : (
+        <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+          {q.data.map((r) => (
+            <BookingRequestRow key={r.id} r={r} />
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function BookingRequestRow({ r }: { r: BookingRequest }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const staff = useQuery({ queryKey: ['location-staff', r.location_id], queryFn: () => api.get<StaffMember[]>(`/locations/${r.location_id}/staff`) });
+  const [employeeId, setEmployeeId] = useState('');
+  const [clash, setClash] = useState<string | null>(null);
+  const review = useMutation({
+    mutationFn: (v: { decision: 'confirm' | 'decline'; confirm_overlap?: boolean }) =>
+      api.post(`/appointments/${r.id}/review`, { ...v, employee_id: v.decision === 'confirm' ? employeeId || null : undefined }),
+    onSuccess: () => {
+      setClash(null);
+      void queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.body.code === 'employee_double_booked') {
+        setClash((err.body.conflicts as { appointment_number: string }[]).map((c) => c.appointment_number).join(', '));
+      }
+    },
+  });
+  return (
+    <li className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+      <div className="min-w-0 text-sm">
+        <p>
+          <span className="font-medium">{r.service_name}</span> · {dateTime(r.scheduled_start, r.time_zone)} · {r.location_name}
+        </p>
+        <p className="text-slate-500">
+          <Link to={`/staff/customers/${r.customer_id}`} className="text-brand-600 hover:underline">
+            {r.customer_name ?? r.customer_number}
+          </Link>{' '}
+          · requested {dateTime(r.created_at)}
+        </p>
+        {r.notes_customer && <p className="mt-1 whitespace-pre-wrap">“{r.notes_customer}”</p>}
+        {clash && (
+          <div role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950">
+            That staff member is already booked then ({clash}).{' '}
+            <Button size="sm" onClick={() => review.mutate({ decision: 'confirm', confirm_overlap: true })}>Confirm anyway</Button>
+          </div>
+        )}
+        {review.error && !clash && <div className="mt-2"><ErrorBanner error={review.error} /></div>}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Select aria-label="Staff member" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+          <option value="">Unassigned</option>
+          {staff.data?.map((s) => (
+            <option key={s.id} value={s.id}>{s.first_name} {s.last_name}</option>
+          ))}
+        </Select>
+        <Button size="sm" disabled={review.isPending} onClick={() => review.mutate({ decision: 'confirm' })}>Confirm</Button>
+        <Button size="sm" variant="secondary" disabled={review.isPending} onClick={() => review.mutate({ decision: 'decline' })}>Decline</Button>
+      </div>
+    </li>
   );
 }
 

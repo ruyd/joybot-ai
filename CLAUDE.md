@@ -54,6 +54,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
   - The model never supplies IDs. Tools take the IDs that were already resolved and are allowed.
   - Record text goes into the prompt as delimited data.
   - Every lookup is written to `app.retrieval_traces`.
+  - Saved answers and article passages (`knowledge/`) are searched for every question and cited like records. Buttons (book, read an article) come only from them, never from the model.
 - **Secrets and contact codes:** store only hashes (sha256) of tokens and codes, mask contacts in responses, and never log codes.
 - **External services:**
   - Clients are injectable tokens (`JWT_VERIFIERS`, `EMPLOYEE_LOGINS`, `CUSTOMER_LOGINS`, `LLM_PROVIDER`, `MESSAGE_SENDER`), so tests can override them.

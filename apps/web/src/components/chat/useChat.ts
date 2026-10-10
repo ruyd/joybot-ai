@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useReducer, useRef, useState } from 'react';
 import { useApi } from '../../lib/api';
 import type { Audience } from '../../lib/auth';
-import { chatReducer, initialChat, type Candidate, type Citation, type ScopeCard } from '../../lib/chat-state';
+import { chatReducer, initialChat, type Candidate, type Citation, type ScopeCard, type SuggestedAction } from '../../lib/chat-state';
 import { readSse } from '../../lib/sse';
 
 export interface Conversation {
@@ -37,11 +37,11 @@ export function useChat(audience: Audience) {
       }
       // Employees: also restore the customer or organization the conversation is pinned to.
       const [rows, pinned] = await Promise.all([
-        api.get<{ id: string; role: 'user' | 'assistant'; content: string; citations: Citation[] }[]>(`/conversations/${id}/messages`),
+        api.get<{ id: string; role: 'user' | 'assistant'; content: string; citations: Citation[]; actions?: SuggestedAction[] }[]>(`/conversations/${id}/messages`),
         audience === 'employee' ? api.get<{ scope: ScopeCard | null }>(`/conversations/${id}/scope`) : Promise.resolve({ scope: null }),
       ]);
       if (seq !== openSeq.current) return;
-      dispatch({ type: 'load', messages: rows.map((r) => ({ ...r, citations: r.citations ?? [] })) });
+      dispatch({ type: 'load', messages: rows.map((r) => ({ ...r, citations: r.citations ?? [], actions: r.actions ?? [] })) });
       dispatch({ type: 'scope', scope: pinned.scope ?? undefined });
     },
     [api, audience],

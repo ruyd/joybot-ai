@@ -176,9 +176,13 @@ export class EvidenceOnlyProvider implements LlmProvider {
       yield "I couldn't find any records that answer that.";
       return;
     }
-    yield 'Here is what I found:\n';
-    for (const [i, e] of input.evidence.entries()) {
-      yield `- ${e.title} [${i + 1}]\n`;
+    // An approved answer is the reply; other records are listed after it.
+    const answer = input.evidence.findIndex((e) => e.type === 'answer');
+    if (answer >= 0) yield `${String(input.evidence[answer].fields.approved_answer)} [${answer + 1}]\n`;
+    const rest = input.evidence.map((e, i) => ({ e, n: i + 1 })).filter(({ n }) => n !== answer + 1);
+    if (rest.length) yield answer >= 0 ? '\nAlso relevant:\n' : 'Here is what I found:\n';
+    for (const { e, n } of rest) {
+      yield `- ${e.title} [${n}]\n`;
     }
   }
 }
