@@ -50,6 +50,18 @@ function todayRange(zone: string) {
   return { from: zonedToIso(day, '00:00', zone), to: zonedToIso(next, '00:00', zone) };
 }
 
+/** Time of day without the zone name (the list header names the zone). */
+function clock(iso: string, zone: string) {
+  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZone: zone }).format(new Date(iso));
+}
+
+/** "EDT (New York)": the zone's short name and city, for the list header. */
+function zoneLabel(zone: string) {
+  const abbr = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value;
+  const city = zone.split('/').pop()?.replaceAll('_', ' ');
+  return abbr && city && abbr !== city ? `${abbr} (${city})` : (abbr ?? zone);
+}
+
 function TodayAppointments({ zone }: { zone: string }) {
   const api = useApi();
   const { me } = useMe();
@@ -66,7 +78,12 @@ function TodayAppointments({ zone }: { zone: string }) {
 
   return (
     <Card
-      title={`Today's appointments${q.data ? ` · ${q.data.length}` : ''}`}
+      title={
+        <span>
+          Today's appointments{q.data ? ` · ${q.data.length}` : ''}
+          <span className="ml-2 font-normal text-slate-500">times in {zoneLabel(zone)}</span>
+        </span>
+      }
       actions={
         me?.type === 'employee' && (
           <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -88,8 +105,14 @@ function TodayAppointments({ zone }: { zone: string }) {
             const inactive = a.status === 'cancelled' || a.status === 'no_show';
             return (
               <li key={a.id} className={`flex gap-4 py-3 ${over || inactive ? 'opacity-60' : ''}`}>
-                <div className="w-24 shrink-0 text-sm font-medium tabular-nums">
-                  {time(a.scheduled_start, a.time_zone)}
+                <div className="w-32 shrink-0 text-sm tabular-nums">
+                  {/* In the viewer's zone so the list reads in order; the location's own time when it differs. */}
+                  <span className="font-medium">{clock(a.scheduled_start, zone)}</span>
+                  {time(a.scheduled_start, a.time_zone) !== time(a.scheduled_start, zone) && (
+                    <span className="block text-xs text-slate-500" title={`Local time at ${a.location_name}`}>
+                      {time(a.scheduled_start, a.time_zone)} there
+                    </span>
+                  )}
                   {a.id === nextId && <div className="mt-1"><Badge tone="brand">next</Badge></div>}
                 </div>
                 <div className="min-w-0 flex-1">
