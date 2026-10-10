@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EvidenceOnlyProvider, LLM_PROVIDER, type AnswerInput, type LlmProvider, type PlanInput, type PlannedToolCall } from '../src/chat/llm/llm.provider';
 import { api, createApp, customer, employee } from './app';
 
-const { customers: C, users: U } = SAMPLE;
+const { customers: C, users: U, orgs: O } = SAMPLE;
 
 interface Sse {
   events: { event: string; data: any }[];
@@ -200,6 +200,37 @@ describe('chat (evidence-only model)', () => {
     await api(app, employee(U.sam)).put(`/api/conversations/${id}/scope`, { customer_id: C.john }).expect(404);
     await api(app, employee(U.sam)).put(`/api/conversations/${id}/scope`, { customer_id: C.jane }).expect(200);
     await api(app, customer(C.maria)).put(`/api/conversations/${id}/scope`, { customer_id: C.maria }).expect(403);
+  });
+
+  it('reopened conversations get back the scope card the chat streamed', async () => {
+    const id = await newConversation(app, employee(U.sam));
+    await api(app, employee(U.sam)).get(`/api/conversations/${id}/scope`).expect(200, { scope: null });
+
+    const sse = await chat(app, employee(U.sam), id, "Show me Maria Lopez's appointments");
+    const streamed = sse.of('customer')[0];
+    expect(streamed).toMatchObject({ id: C.maria });
+    const card = (await api(app, employee(U.sam)).get(`/api/conversations/${id}/scope`).expect(200)).body.scope;
+    expect(card).toEqual({ kind: 'customer', ...streamed });
+
+    await api(app, employee(U.ada)).put(`/api/conversations/${id}/scope`, {}).expect(404); // not Ada's conversation
+    const adaConv = await newConversation(app, employee(U.ada));
+    await api(app, employee(U.ada)).put(`/api/conversations/${adaConv}/scope`, { organization_id: O.acme }).expect(200);
+    expect((await api(app, employee(U.ada)).get(`/api/conversations/${adaConv}/scope`).expect(200)).body.scope).toEqual({
+      kind: 'organization',
+      id: O.acme,
+      number: expect.any(String),
+      name: 'Acme Corp',
+      detail: 'billing@acme.example',
+    });
+
+    // Cleared, or pinned to a customer the employee can no longer see: no card.
+    await api(app, employee(U.sam)).put(`/api/conversations/${id}/scope`, { customer_id: null }).expect(200);
+    await api(app, employee(U.sam)).get(`/api/conversations/${id}/scope`).expect(200, { scope: null });
+    await migrator.query('UPDATE app.conversations SET active_customer_id = $2 WHERE id = $1', [id, C.john]);
+    await api(app, employee(U.sam)).get(`/api/conversations/${id}/scope`).expect(200, { scope: null });
+
+    await api(app, employee(U.ada)).get(`/api/conversations/${id}/scope`).expect(404);
+    await api(app, customer(C.maria)).get(`/api/conversations/${id}/scope`).expect(403);
   });
 });
 

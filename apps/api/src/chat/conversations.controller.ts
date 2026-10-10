@@ -55,6 +55,14 @@ export class ConversationsController {
     if (!deleted) throw new NotFoundException();
   }
 
+  /** The pinned customer or organization as a scope card (null when none), for reopened conversations. */
+  @Get(':id/scope')
+  @EmployeesOnly()
+  async scopeCard(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    await this.chat.assertConversation(p, id);
+    return { scope: await this.chat.scopeCard(p, id) };
+  }
+
   /** Employees pin (or clear) the customer or organization a conversation is about. */
   @Put(':id/scope')
   @EmployeesOnly()

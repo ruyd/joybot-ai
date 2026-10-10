@@ -30,7 +30,7 @@ function remember(audience: Audience, conversationId: string | null) {
  * It stays mounted across pages, so the conversation carries on while navigating.
  */
 export function AssistantDock({ audience, fullView, hidden }: { audience: Audience; fullView: string; hidden: boolean }) {
-  const { conversationId, state, open, send, choose, clearScope, stop } = useChat();
+  const { conversationId, state, open, send, choose, clearScope, stop } = useChat(audience);
   const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);

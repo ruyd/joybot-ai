@@ -341,6 +341,45 @@ export class ChatService {
     });
   }
 
+  /**
+   * The customer or organization a conversation is pinned to, as the scope card the chat streams
+   * (same shape as the `customer`/`organization` events), so a reopened conversation can show it.
+   * Read under RLS: a record the employee can no longer see comes back as null.
+   */
+  async scopeCard(p: Principal, conversationId: string) {
+    return this.db.read(p, async (db) => {
+      const conv = (
+        await db.query<{ active_customer_id: string | null; active_organization_id: string | null }>(
+          'SELECT active_customer_id, active_organization_id FROM app.conversations WHERE id = $1',
+          [conversationId],
+        )
+      ).rows[0];
+      if (conv?.active_customer_id) {
+        const r = (
+          await db.query(
+            `SELECT c.id, c.customer_number, c.first_name, c.last_name, c.email, o.name AS org
+               FROM core.customers c LEFT JOIN core.organizations o ON o.id = c.organization_id WHERE c.id = $1`,
+            [conv.active_customer_id],
+          )
+        ).rows[0];
+        if (!r) return null;
+        return {
+          kind: 'customer' as const,
+          id: r.id,
+          number: r.customer_number,
+          name: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.customer_number,
+          detail: [r.email, r.org].filter(Boolean).join(' · ') || null,
+        };
+      }
+      if (conv?.active_organization_id) {
+        const o = (await db.query('SELECT id, org_number, name, email FROM core.organizations WHERE id = $1', [conv.active_organization_id])).rows[0];
+        if (!o) return null;
+        return { kind: 'organization' as const, id: o.id, number: o.org_number, name: o.name, detail: o.email ?? null };
+      }
+      return null;
+    });
+  }
+
   private async setConversationScope(p: Principal, conversationId: string, scope: ChatScope) {
     await this.db.as(p, (db) =>
       db.query('UPDATE app.conversations SET active_customer_id = $2, active_organization_id = $3 WHERE id = $1', [
