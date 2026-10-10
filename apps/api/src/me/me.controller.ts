@@ -1,7 +1,19 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, Put } from '@nestjs/common';
 import { packRules } from '@joybot/access';
-import { CurrentPrincipal, type Principal } from '../auth/principal';
+import { z } from 'zod';
+import { CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
+import { ZodPipe } from '../common/zod.pipe';
 import { DbService } from '../db/db.module';
+
+const employeeProfileSchema = z
+  .object({
+    first_name: z.string().trim().min(1).max(100),
+    last_name: z.string().trim().min(1).max(100),
+    /** IANA name, or null to use the location or business default. */
+    time_zone: z.string().min(1).max(64).nullable(),
+  })
+  .partial()
+  .strict();
 
 @Controller('me')
 export class MeController {
@@ -26,5 +38,13 @@ export class MeController {
             )).rows[0];
       return { type: p.type, role: p.role, profile, rules: packRules(p.access) };
     });
+  }
+
+  /** Employees edit their own name and time zone (customers use PUT /me in ProfileController). */
+  @Put('employee')
+  @EmployeesOnly()
+  async updateEmployee(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(employeeProfileSchema)) body: z.infer<typeof employeeProfileSchema>) {
+    await this.db.as(p, (db) => db.query('SELECT authz.update_own_employee_profile($1)', [JSON.stringify(body)]));
+    return this.me(p);
   }
 }

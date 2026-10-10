@@ -18,6 +18,16 @@ export function dateTime(iso: string | null | undefined, timeZone?: string): str
   }).format(new Date(iso));
 }
 
+/** IANA time zones the browser knows, for pickers. */
+export const TIME_ZONES: string[] =
+  (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ??
+  ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'UTC'];
+
+/** The viewer's time zone: their saved preference, else this browser's. */
+export function preferredTimeZone(saved: unknown): string {
+  return typeof saved === 'string' && saved ? saved : Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 /** Time of day in a given IANA zone with the zone shown, e.g. "9:30 AM EDT". */
 export function time(iso: string | null | undefined, timeZone?: string): string {
   if (!iso) return '—';

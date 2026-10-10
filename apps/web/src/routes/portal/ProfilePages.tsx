@@ -7,15 +7,14 @@ import { Badge, Button, Card, ErrorBanner, Field, Input, PageHeader, Select, Spi
 import { useApi } from '../../lib/api';
 import { appConfig } from '../../lib/config';
 import { useMe } from '../../lib/me';
+import { PreferenceCards } from '../AccountPages';
 
 interface Location {
   id: string;
   name: string;
 }
 
-const TIME_ZONES: string[] = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.('timeZone') ?? ['America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'UTC'];
-
-/** Customer profile: name, time zone, preferred location, WhatsApp consent; contacts via codes. */
+/** Customer "Profile & preferences": name, preferred location, WhatsApp consent, contacts via codes, time zone and theme. */
 export function Profile() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -34,8 +33,8 @@ export function Profile() {
   if (!me) return <Page><Spinner /></Page>;
   return (
     <Page>
-      <PageHeader title="Profile" description={p.profile_completed_at ? undefined : 'Please complete your name and add a verified contact.'} />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <PageHeader title="Profile & preferences" description={p.profile_completed_at ? undefined : 'Please complete your name and add a verified contact.'} />
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Card title="Your details">
           <form
             className="grid gap-3"
@@ -48,12 +47,6 @@ export function Profile() {
               <Field label="First name"><Input value={v.first_name ?? ''} onChange={(e) => setDraft({ ...draft, first_name: e.target.value })} /></Field>
               <Field label="Last name"><Input value={v.last_name ?? ''} onChange={(e) => setDraft({ ...draft, last_name: e.target.value })} /></Field>
             </div>
-            <Field label="Time zone" hint="Used for “today”, “tomorrow” and reminders.">
-              <Select value={v.time_zone ?? ''} onChange={(e) => setDraft({ ...draft, time_zone: e.target.value || null })}>
-                <option value="">Use the business default</option>
-                {TIME_ZONES.map((tz) => <option key={tz} value={tz}>{tz.replaceAll('_', ' ')}</option>)}
-              </Select>
-            </Field>
             <Field label="Preferred location">
               <Select value={v.preferred_location_id ?? ''} onChange={(e) => setDraft({ ...draft, preferred_location_id: e.target.value || null })}>
                 <option value="">No preference</option>
@@ -81,6 +74,7 @@ export function Profile() {
             <ContactRow type="phone" label="Phone (WhatsApp)" value={p.phone} verified={p.phone_verified} />
           </div>
         </Card>
+        <PreferenceCards />
       </div>
     </Page>
   );
