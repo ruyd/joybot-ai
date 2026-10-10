@@ -457,7 +457,7 @@ export function linkFor(p: Principal, e: Evidence): string | null {
       case 'article':
         return `/staff/help/${e.id}`;
       case 'answer':
-        return p.access.can('update', 'knowledge') ? '/staff/knowledge' : null;
+        return p.access.can('update', 'knowledge') ? `/staff/knowledge?answer=${e.id}` : null;
       default:
         return null; // services, locations, organizations: no staff page
     }

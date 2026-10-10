@@ -156,6 +156,13 @@ describe('chat (evidence-only model)', () => {
     expect(link(pay, 'payment')).toBe('/portal/payments');
     const help = await chat(app, customer(C.maria), conv, 'How do I reschedule my appointment?');
     expect(link(help, 'answer')).toBeNull(); // no page for saved answers
+    const editor = await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'How do I reschedule my appointment?');
+    const answerId = (editor.of('citations')[0] ?? []).find((c: { type: string }) => c.type === 'answer')?.id;
+    expect(link(editor, 'answer')).toBe(`/staff/knowledge?answer=${answerId}`);
+    expect((await api(app, employee(U.ada)).get(`/api/answers/${answerId}`).expect(200)).body.title).toBe('Rescheduling or cancelling');
+    await api(app, employee(U.sam)).get(`/api/answers/${answerId}`).expect(403);
+    const staff2 = await chat(app, employee(U.sam), await newConversation(app, employee(U.sam)), 'How do I reschedule my appointment?');
+    expect(link(staff2, 'answer')).toBeNull(); // staff who cannot edit answers
     const article = await chat(app, customer(C.maria), conv, 'how late can I cancel');
     expect(link(article, 'article')).toBe('/portal/help/reschedule-or-cancel');
 

@@ -105,4 +105,10 @@ describe('evidenceBlock', () => {
     expect(block).toContain('A-2026-000001');
     expect(block).not.toContain('40000000-0000-4000-8000-000000000001');
   });
+
+  it('keeps saved answers\' internal ids out of the prompt', () => {
+    const block = evidenceBlock([{ type: 'answer', id: 'b0000000-0000-4000-8000-000000000001', title: 'Rescheduling', fields: { approved_answer: 'Cancel 24 hours ahead.' } }]);
+    expect(block).toContain('type="answer"');
+    expect(block).not.toContain('b0000000-0000-4000-8000-000000000001');
+  });
 });
