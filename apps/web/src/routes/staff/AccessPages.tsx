@@ -475,6 +475,7 @@ const MATRIX: { resource: string; label: string; actions: string[]; scopes: read
   { resource: 'payments', label: 'Payments', actions: ['read', 'create', 'update'], scopes: [...RECORD_SCOPES, 'recorded'] },
   { resource: 'tickets', label: 'Support tickets', actions: ['read'], scopes: RECORD_SCOPES },
   { resource: 'notes_internal', label: 'Internal notes', actions: ['read', 'update'], scopes: RECORD_SCOPES },
+  { resource: 'tasks', label: 'To-dos', actions: ['read', 'create', 'update', 'delete'], scopes: ['all', 'own'] },
   { resource: 'services', label: 'Services', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
   { resource: 'locations', label: 'Locations', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
   { resource: 'users', label: 'Employees', actions: ['read'], scopes: ['all'] },

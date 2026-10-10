@@ -9,6 +9,7 @@ import { useMe } from '../../lib/me';
 import type { Appointment } from '../portal/PortalPages';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 import { RecordPayment } from './StaffPages';
+import { PendingTodos } from './TodoPages';
 
 /** Staff home: today's appointments on the left; customer lookup and payment capture on the right. */
 export function StaffHome() {
@@ -19,7 +20,10 @@ export function StaffHome() {
     <Page>
       <PageHeader title="Today" description={today} />
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        {can('read', 'appointments') && <TodayAppointments zone={zone} />}
+        <div className="grid gap-4">
+          {can('read', 'appointments') && <TodayAppointments zone={zone} />}
+          {can('read', 'tasks') && <PendingTodos />}
+        </div>
         <div className="grid gap-4">
           {can('read', 'customers') && <CustomerLookup />}
           {can('create', 'payments') && <RecordPayment title="Take a payment" />}

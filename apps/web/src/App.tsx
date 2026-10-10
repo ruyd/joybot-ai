@@ -55,6 +55,7 @@ const Organization = page(tickets, 'Organization');
 const account = () => import('./routes/AccountPages');
 const StaffProfile = page(account, 'StaffProfile');
 const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
+const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
@@ -81,6 +82,7 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff', label: 'Home', end: true },
   { to: '/staff/assistant', label: 'Assistant' },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
+  { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['merge', 'customers'] },
   { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
@@ -136,6 +138,7 @@ export function App() {
             <Route index element={<StaffHome />} />
             <Route path="assistant" element={<ChatPage audience="employee" />} />
             <Route path="customers" element={<Customers />} />
+            <Route path="todos" element={<Todos />} />
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="payments" element={<Payments />} />
             <Route path="tickets/:id" element={<TicketView back="/staff/customers" />} />

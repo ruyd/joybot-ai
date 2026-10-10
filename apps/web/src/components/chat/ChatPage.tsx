@@ -16,7 +16,7 @@ const SUGGESTIONS: Record<Audience, string[]> = {
 /** Chat for customers (portal) and employees (staff console); answers stream from the API (SSE). */
 export function ChatPage({ audience }: { audience: Audience }) {
   const api = useApi();
-  const { conversationId, state, open, send, choose, clearScope, remove, stop } = useChat();
+  const { conversationId, state, open, send, choose, clearScope, remove, stop } = useChat(audience);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [params, setParams] = useSearchParams();
 

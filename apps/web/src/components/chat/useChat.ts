@@ -1,7 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useReducer, useRef, useState } from 'react';
 import { useApi } from '../../lib/api';
-import { chatReducer, initialChat, type Candidate, type Citation } from '../../lib/chat-state';
+import type { Audience } from '../../lib/auth';
+import { chatReducer, initialChat, type Candidate, type Citation, type ScopeCard } from '../../lib/chat-state';
 import { readSse } from '../../lib/sse';
 
 export interface Conversation {
@@ -16,26 +17,34 @@ export interface Conversation {
  * One chat conversation: loading, sending (answers stream from the API as SSE), disambiguation and
  * scope. Shared by the Assistant page and the assistant dock at the bottom of every other page.
  */
-export function useChat() {
+export function useChat(audience: Audience) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [state, dispatch] = useReducer(chatReducer, initialChat);
   const abortRef = useRef<AbortController | null>(null);
+  const openSeq = useRef(0); // the latest open() wins when conversations are switched quickly
 
   const open = useCallback(
     async (id: string | null) => {
       abortRef.current?.abort();
+      const seq = ++openSeq.current;
       setConversationId(id);
       dispatch({ type: 'scope', scope: undefined });
       if (!id) {
         dispatch({ type: 'load', messages: [] });
         return;
       }
-      const rows = await api.get<{ id: string; role: 'user' | 'assistant'; content: string; citations: Citation[] }[]>(`/conversations/${id}/messages`);
+      // Employees: also restore the customer or organization the conversation is pinned to.
+      const [rows, pinned] = await Promise.all([
+        api.get<{ id: string; role: 'user' | 'assistant'; content: string; citations: Citation[] }[]>(`/conversations/${id}/messages`),
+        audience === 'employee' ? api.get<{ scope: ScopeCard | null }>(`/conversations/${id}/scope`) : Promise.resolve({ scope: null }),
+      ]);
+      if (seq !== openSeq.current) return;
       dispatch({ type: 'load', messages: rows.map((r) => ({ ...r, citations: r.citations ?? [] })) });
+      dispatch({ type: 'scope', scope: pinned.scope ?? undefined });
     },
-    [api],
+    [api, audience],
   );
 
   const send = useCallback(
