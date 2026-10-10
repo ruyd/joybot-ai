@@ -178,7 +178,7 @@ export function MessageView({
         </div>
       )}
       {message.actions && message.actions.length > 0 && !message.streaming && <ActionButtons actions={message.actions} audience={audience} onFollow={onAction} />}
-      {message.citations.length > 0 && <Sources citations={message.citations} />}
+      {message.citations.length > 0 && <Sources citations={message.citations} onFollow={onAction} />}
       {message.error && <ErrorBanner error={message.error} />}
     </div>
   );
@@ -209,7 +209,9 @@ function ActionButtons({ actions, audience, onFollow }: { actions: SuggestedActi
   );
 }
 
-function Sources({ citations }: { citations: Citation[] }) {
+const EXTERNAL_LABEL: Record<string, string> = { payment: 'receipt', ticket: 'Freshdesk' };
+
+function Sources({ citations, onFollow }: { citations: Citation[]; onFollow?: () => void }) {
   return (
     <details className="text-xs text-slate-500">
       <summary className="cursor-pointer select-none">
@@ -220,12 +222,19 @@ function Sources({ citations }: { citations: Citation[] }) {
           <li key={`${c.type}-${c.id}`} className="flex gap-2">
             <span className="font-mono text-slate-400">[{c.n}]</span>
             <span>
-              <span className="text-slate-700 dark:text-slate-300">{c.title}</span> <span className="text-slate-400">· {c.id}</span>
+              {c.link ? (
+                <Link to={c.link} onClick={onFollow} className="text-brand-600 hover:underline dark:text-brand-100">
+                  {c.title}
+                </Link>
+              ) : (
+                <span className="text-slate-700 dark:text-slate-300">{c.title}</span>
+              )}{' '}
+              <span className="text-slate-400">· {c.id}</span>
               {c.url && (
                 <>
                   {' · '}
                   <a href={c.url} target="_blank" rel="noreferrer" className="text-brand-600 underline">
-                    receipt
+                    {EXTERNAL_LABEL[c.type] ?? 'open'}
                   </a>
                 </>
               )}

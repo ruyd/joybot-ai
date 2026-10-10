@@ -128,6 +128,42 @@ describe('chat (evidence-only model)', () => {
     expect(citedIds(follow).every((n: string) => maria.payments.includes(n))).toBe(true);
   });
 
+  it('choosing from "which one?" answers the question instead of asking again', async () => {
+    const lookalike = (await api(app, employee(U.ada)).post('/api/customers', { first_name: 'Maria', last_name: 'Lopes', email: 'maria.lopes.chat@example.com' }).expect(201)).body;
+    try {
+      const id = await newConversation(app, employee(U.ada));
+      const first = await chat(app, employee(U.ada), id, "Show me Maria Lopez's appointments");
+      expect(first.of('disambiguation')[0].candidates.map((c: { id: string }) => c.id)).toEqual(expect.arrayContaining([C.maria, lookalike.id]));
+      await api(app, employee(U.ada)).put(`/api/conversations/${id}/scope`, { customer_id: C.maria }).expect(200);
+      const again = await chat(app, employee(U.ada), id, "Show me Maria Lopez's appointments");
+      expect(again.of('disambiguation')).toEqual([]);
+      expect(citedIds(again).some((n: string) => maria.appointments.includes(n))).toBe(true);
+    } finally {
+      // Other tests count the Marias: leave the look-alike merged away (tombstones are hidden).
+      await api(app, employee(U.ada)).post(`/api/customers/${lookalike.id}/merge`, { into: C.maria, reason: 'test cleanup' }).expect(200);
+    }
+  });
+
+  it('sources link to the record in the app, for whoever asked', async () => {
+    const link = (sse: Sse, type: string) => (sse.of('citations')[0] ?? []).find((c: { type: string }) => c.type === type)?.link;
+    const staff = await chat(app, employee(U.sam), await newConversation(app, employee(U.sam)), "Show me Maria Lopez's appointments");
+    expect(link(staff, 'appointment')).toBe(`/staff/customers/${C.maria}`);
+
+    const conv = await newConversation(app, customer(C.maria));
+    const own = await chat(app, customer(C.maria), conv, 'Show my appointments');
+    expect(link(own, 'appointment')).toBe('/portal/appointments');
+    const pay = await chat(app, customer(C.maria), conv, 'Show my payments');
+    expect(link(pay, 'payment')).toBe('/portal/payments');
+    const help = await chat(app, customer(C.maria), conv, 'How do I reschedule my appointment?');
+    expect(link(help, 'answer')).toBeNull(); // no page for saved answers
+    const article = await chat(app, customer(C.maria), conv, 'how late can I cancel');
+    expect(link(article, 'article')).toBe('/portal/help/reschedule-or-cancel');
+
+    // Kept with the message for reopened conversations.
+    const saved = (await api(app, customer(C.maria)).get(`/api/conversations/${conv}/messages`).expect(200)).body;
+    expect(saved[1].citations[0]).toMatchObject({ link: '/portal/appointments' });
+  });
+
   it('employees cannot reach customers outside their access, even by exact email', async () => {
     const id = await newConversation(app, employee(U.sam));
     const sse = await chat(app, employee(U.sam), id, 'What does rita@example.com owe?');

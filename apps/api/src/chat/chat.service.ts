@@ -110,7 +110,10 @@ export class ChatService {
       const ids = extractIdentifiers(question);
       if (hasIdentifiers(ids)) {
         sink.event('status', { message: 'Looking up the customer…' });
-        const candidates = await this.resolve(p, ids);
+        let candidates = await this.resolve(p, ids);
+        // Already chose one of these (e.g. picked from a "which one?" list): keep it instead of asking again.
+        const pinned = candidates.find((c) => c.id === (scope.customerId ?? scope.organizationId));
+        if (candidates.length > 1 && pinned) candidates = [pinned];
         const exact = ids.emails.length + ids.phones.length + ids.customerNumbers.length + ids.orgNumbers.length +
           ids.appointmentNumbers.length + ids.paymentNumbers.length > 0;
         if (candidates.length > 1) {
@@ -195,7 +198,7 @@ export class ChatService {
       }
     }
     sink.event('sources', results.map(({ call, result }) => ({ tool: call.tool, status: result.status, records: result.evidence.length })));
-    sink.event('citations', evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null })));
+    sink.event('citations', citationsFor(p, evidence));
     const actions = uniqueActions(results.flatMap(({ result }) => result.actions ?? []));
     if (actions.length) sink.event('actions', actions);
 
@@ -236,7 +239,7 @@ export class ChatService {
     // Fixed replies (disambiguation, not found) are sent as one token.
     if (!streamed && !sink.signal.aborted) sink.event('token', { text: answer });
     const messageId = await this.db.as(p, async (db) => {
-      const citations = evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null }));
+      const citations = citationsFor(p, evidence);
       const id = (
         await db.query<{ id: string }>(
           `INSERT INTO app.messages (conversation_id, role, content, citations, actions, latency_ms)
@@ -433,4 +436,51 @@ function uniqueActions(actions: ChatAction[]): ChatAction[] {
     seen.add(key);
     return true;
   }).slice(0, 4);
+}
+
+/** Numbered sources with an in-app link to each record, for this principal (and the external URL, if any). */
+function citationsFor(p: Principal, evidence: Evidence[]) {
+  return evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null, link: linkFor(p, e) }));
+}
+
+/** Where a source opens in the app: the customer's page for staff, the matching portal page for customers. */
+export function linkFor(p: Principal, e: Evidence): string | null {
+  if (p.type === 'employee') {
+    switch (e.type) {
+      case 'customer':
+      case 'appointment':
+      case 'payment':
+      case 'balance':
+        return e.customerId ? `/staff/customers/${e.customerId}` : null;
+      case 'ticket':
+        return `/staff/tickets/${e.id.replace(/^#/, '')}`;
+      case 'article':
+        return `/staff/help/${e.id}`;
+      case 'answer':
+        return p.access.can('update', 'knowledge') ? '/staff/knowledge' : null;
+      default:
+        return null; // services, locations, organizations: no staff page
+    }
+  }
+  switch (e.type) {
+    case 'customer':
+      return e.customerId === p.id ? '/portal/profile' : '/portal/organization';
+    case 'appointment':
+      return '/portal/appointments';
+    case 'payment':
+    case 'balance':
+      return '/portal/payments';
+    case 'organization':
+      return p.role === 'org_admin' ? '/portal/organization' : null;
+    case 'ticket':
+      return `/portal/tickets/${e.id.replace(/^#/, '')}`;
+    case 'service':
+      return '/portal/services';
+    case 'location':
+      return '/portal/locations';
+    case 'article':
+      return `/portal/help/${e.id}`;
+    default:
+      return null; // saved answers have no page for customers
+  }
 }
