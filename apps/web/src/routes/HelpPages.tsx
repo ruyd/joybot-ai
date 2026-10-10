@@ -33,9 +33,12 @@ export function HelpList() {
   });
   return (
     <Page>
-      <PageHeader title="Help" description="How-to guides and policies. You can also ask the assistant." />
+      <PageHeader
+        title={audience === 'customer' ? 'Help' : 'Knowledge'}
+        description="How-to guides and policies. You can also ask the assistant."
+      />
       <div className="max-w-3xl space-y-4">
-        <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search help" aria-label="Search help" />
+        <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search articles" aria-label="Search articles" />
         <Card>
           {list.isLoading ? (
             <Spinner />
@@ -69,7 +72,7 @@ export function ArticleView() {
   const q = useQuery({ queryKey: ['article', slug], queryFn: () => api.get<Article>(`/articles/${slug}`) });
   return (
     <Page>
-      <Link to={helpBase(audience)} className="text-sm text-brand-600 hover:underline">← All help</Link>
+      <Link to={helpBase(audience)} className="text-sm text-brand-600 hover:underline">← All articles</Link>
       {q.isLoading ? (
         <Spinner />
       ) : q.error ? (

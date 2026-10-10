@@ -92,12 +92,12 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
-  { to: '/staff/help', label: 'Help', can: ['read', 'knowledge'] },
+  { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
   {
     label: 'Admin',
     items: [
       { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
-      { to: '/staff/knowledge', label: 'Knowledge', can: ['update', 'knowledge'] },
+      { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
       { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
     ],
   },

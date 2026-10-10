@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Link } from 'react-router-dom';
 import { Page } from '../../components/Layout';
@@ -40,6 +40,26 @@ interface Service {
   name: string;
 }
 
+/** Full-width list row: hover, pressed and selected states, and a keyboard focus ring. */
+const rowClass = (selected: boolean) =>
+  `block w-full px-4 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
+    selected
+      ? 'bg-brand-50 shadow-[inset_3px_0_0] shadow-brand-600 dark:bg-slate-800'
+      : 'hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-slate-800/70 dark:active:bg-slate-700'
+  }`;
+
+const PAGE_SIZE = 50;
+
+/** The value after it has stopped changing for `ms` (search as you type without a request per key). */
+function useDebounced<T>(value: T, ms = 250): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
 const textarea =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900';
 
@@ -55,8 +75,8 @@ export function Knowledge() {
   return (
     <Page>
       <PageHeader
-        title="Knowledge"
-        description="Saved answers and help articles the assistant uses. It cites them and offers their buttons (book, read an article)."
+        title="Answers"
+        description="Saved answers and articles the assistant uses. It cites them and offers their buttons (book, read an article)."
       />
       <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto">
         {TABS.map(([key, label]) => (
@@ -82,36 +102,105 @@ export function Knowledge() {
 
 function Answers() {
   const api = useApi();
-  const list = useQuery({ queryKey: ['answers'], queryFn: () => api.get<Answer[]>('/answers') });
+  const [q, setQ] = useState('');
+  const [audience, setAudience] = useState<'' | Audience>('');
+  const [active, setActive] = useState<'' | 'true' | 'false'>('');
+  const [sort, setSort] = useState<'title' | 'updated'>('title');
+  const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState<Answer | 'new' | null>(null);
+  const term = useDebounced(q.trim());
+
+  // A new search or filter starts from the first page.
+  useEffect(() => setOffset(0), [term, audience, active, sort]);
+
+  const params = new URLSearchParams({ sort, limit: String(PAGE_SIZE), offset: String(offset) });
+  if (term) params.set('q', term);
+  if (audience) params.set('audience', audience);
+  if (active) params.set('active', active);
+  const list = useQuery({
+    queryKey: ['answers', params.toString()],
+    queryFn: () => api.get<{ items: Answer[]; total: number }>(`/answers?${params}`),
+    placeholderData: keepPreviousData,
+  });
+  const total = list.data?.total ?? 0;
+  const items = list.data?.items ?? [];
+  const filtered = Boolean(term || audience || active);
+
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_32rem]">
+    <div className={`grid items-start gap-4 ${editing ? 'lg:grid-cols-[minmax(0,1fr)_32rem] xl:grid-cols-[minmax(0,1fr)_38rem]' : ''}`}>
       <Card title="Saved answers" actions={<Button size="sm" onClick={() => setEditing('new')}>New answer</Button>}>
+        <div className="mb-3 grid gap-2">
+          <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search titles, questions and text" aria-label="Search answers" />
+          <div className="flex flex-wrap gap-2 [&>select]:min-w-36 [&>select]:flex-1">
+            <Select aria-label="Shown to" value={audience} onChange={(e) => setAudience(e.target.value as '' | Audience)}>
+              <option value="">Any audience</option>
+              {(Object.keys(AUDIENCE_LABEL) as Audience[]).map((k) => (
+                <option key={k} value={k}>{AUDIENCE_LABEL[k]}</option>
+              ))}
+            </Select>
+            <Select aria-label="Status" value={active} onChange={(e) => setActive(e.target.value as '' | 'true' | 'false')}>
+              <option value="">On and off</option>
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </Select>
+            <Select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as 'title' | 'updated')}>
+              <option value="title">A–Z</option>
+              <option value="updated">Recently edited</option>
+            </Select>
+          </div>
+        </div>
         {list.isLoading ? (
           <Spinner />
         ) : list.error ? (
           <ErrorBanner error={list.error} />
-        ) : !list.data?.length ? (
-          <EmptyState>No saved answers yet.</EmptyState>
+        ) : !items.length ? (
+          <EmptyState>{filtered ? 'No answers match.' : 'No saved answers yet.'}</EmptyState>
         ) : (
-          <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
-            {list.data.map((a) => (
-              <li key={a.id}>
-                <button type="button" onClick={() => setEditing(a)} className="w-full py-2.5 text-left">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{a.title}</span>
-                    <Badge>{AUDIENCE_LABEL[a.audience]}</Badge>
-                    {!a.active && <Badge tone="amber">off</Badge>}
-                    {a.actions.length > 0 && <Badge tone="brand">{a.actions.length} button{a.actions.length === 1 ? '' : 's'}</Badge>}
-                  </span>
-                  <span className="block truncate text-sm text-slate-500">{a.questions.join(' · ') || 'No example questions'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className={`-mx-4 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-800 dark:border-slate-800 ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
+              {items.map((a) => (
+                <li key={a.id}>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(a)}
+                    aria-current={editing !== 'new' && editing?.id === a.id ? 'true' : undefined}
+                    className={rowClass(editing !== 'new' && editing?.id === a.id)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 truncate font-medium">{a.title}</span>
+                      <span className="flex shrink-0 gap-1 whitespace-nowrap">
+                        <Badge>{AUDIENCE_LABEL[a.audience]}</Badge>
+                        {!a.active && <Badge tone="amber">off</Badge>}
+                        {a.actions.length > 0 && <Badge tone="brand">{a.actions.length} button{a.actions.length === 1 ? '' : 's'}</Badge>}
+                      </span>
+                      <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-slate-400">{date(a.updated_at)}</span>
+                    </span>
+                    <span className="block truncate text-sm text-slate-500">{a.questions.join(' · ') || 'No example questions'}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 flex items-center justify-between gap-2 text-sm text-slate-500">
+              <span aria-live="polite">
+                {offset + 1}–{offset + items.length} of {total}
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" disabled={offset === 0 || list.isFetching} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                  Previous
+                </Button>
+                <Button size="sm" variant="secondary" disabled={offset + PAGE_SIZE >= total || list.isFetching} onClick={() => setOffset(offset + PAGE_SIZE)}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
         )}
       </Card>
-      {editing && <AnswerEditor key={editing === 'new' ? 'new' : editing.id} answer={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />}
+      {editing && (
+        <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-10rem)] lg:overflow-y-auto">
+          <AnswerEditor key={editing === 'new' ? 'new' : editing.id} answer={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -170,7 +259,15 @@ function AnswerEditor({ answer, onDone }: { answer?: Answer; onDone: () => void 
           <textarea rows={4} className={textarea} value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder={'How do I reschedule?\nCan I move my booking?'} />
         </Field>
         <Field label="Answer" hint="What the assistant should say. It may adapt the wording but keeps the meaning.">
-          <textarea required rows={4} maxLength={5000} className={textarea} value={body} onChange={(e) => setBody(e.target.value)} />
+          <textarea
+            required
+            rows={14}
+            maxLength={5000}
+            className={`${textarea} min-h-72 resize-y leading-relaxed`}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+          <span className={`block text-right text-xs ${body.length > 4500 ? 'text-amber-700' : 'text-slate-400'}`}>{body.length.toLocaleString()} / 5,000</span>
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Shown to">
@@ -250,17 +347,22 @@ function Articles() {
   const list = useQuery({ queryKey: ['articles', ''], queryFn: () => api.get<Article[]>('/articles') });
   const [editing, setEditing] = useState<string | 'new' | null>(null);
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_40rem]">
+    <div className={`grid items-start gap-4 ${editing ? 'lg:grid-cols-[minmax(0,1fr)_40rem]' : ''}`}>
       <Card title="Articles" actions={<Button size="sm" onClick={() => setEditing('new')}>New article</Button>}>
         {list.isLoading ? (
           <Spinner />
         ) : !list.data?.length ? (
           <EmptyState>No articles yet.</EmptyState>
         ) : (
-          <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+          <ul className="-mx-4 -my-4 divide-y divide-slate-100 dark:divide-slate-800">
             {list.data.map((a) => (
               <li key={a.id}>
-                <button type="button" onClick={() => setEditing(a.slug)} className="w-full py-2.5 text-left">
+                <button
+                  type="button"
+                  onClick={() => setEditing(a.slug)}
+                  aria-current={editing === a.slug ? 'true' : undefined}
+                  className={rowClass(editing === a.slug)}
+                >
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{a.title}</span>
                     <Badge>{AUDIENCE_LABEL[a.audience]}</Badge>
@@ -273,8 +375,15 @@ function Articles() {
           </ul>
         )}
       </Card>
-      {editing === 'new' && <ArticleEditor key="new" onDone={() => setEditing(null)} />}
-      {editing && editing !== 'new' && <LoadedArticleEditor key={editing} slug={editing} onDone={() => setEditing(null)} />}
+      {editing && (
+        <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-10rem)] lg:overflow-y-auto">
+          {editing === 'new' ? (
+            <ArticleEditor key="new" onDone={() => setEditing(null)} />
+          ) : (
+            <LoadedArticleEditor key={editing} slug={editing} onDone={() => setEditing(null)} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

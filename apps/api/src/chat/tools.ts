@@ -46,7 +46,10 @@ export interface Evidence {
   id: string;
   title: string;
   fields: Record<string, string | number | boolean | null>;
+  /** External link (Stripe receipt, Freshdesk ticket). */
   url?: string;
+  /** The record's customer (never shown to the model): used to link staff to the customer's page. */
+  customerId?: string;
 }
 
 export interface ToolResult {
@@ -401,6 +404,7 @@ export class ChatToolsService {
         return rows.map((r) => ({
           type: 'customer' as const,
           id: r.customer_number,
+          customerId: r.id,
           title: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.customer_number,
           fields: {
             customer_number: r.customer_number,
@@ -445,7 +449,7 @@ export class ChatToolsService {
         const notes = staff && p.access.can('read', 'notes_internal') ? ', a.notes_internal' : '';
         const rows = (
           await db.query(
-            `SELECT a.appointment_number, a.scheduled_start, a.status, a.price_quoted, a.currency, a.notes_customer,
+            `SELECT a.appointment_number, a.customer_id, a.scheduled_start, a.status, a.price_quoted, a.currency, a.notes_customer,
                     s.name AS service, l.name AS location, l.time_zone,
                     nullif(concat_ws(' ', st.first_name, st.last_name), '') AS employee,
                     nullif(concat_ws(' ', c.first_name, c.last_name), '') AS customer ${notes}
@@ -463,6 +467,7 @@ export class ChatToolsService {
         return rows.map((r) => ({
           type: 'appointment' as const,
           id: r.appointment_number,
+          customerId: r.customer_id,
           title: `${r.service} — ${formatLocal(r.scheduled_start.toISOString(), r.time_zone)}`,
           fields: {
             appointment_number: r.appointment_number,
@@ -499,7 +504,7 @@ export class ChatToolsService {
         if (a.to) add('coalesce(p.paid_at, p.created_at) < ?', a.to);
         const rows = (
           await db.query(
-            `SELECT p.payment_number, p.source, p.method, p.status, p.amount, p.amount_refunded, p.currency, p.paid_at,
+            `SELECT p.payment_number, p.customer_id, p.source, p.method, p.status, p.amount, p.amount_refunded, p.currency, p.paid_at,
                     to_char(p.expected_at, 'YYYY-MM-DD') AS expected_at, p.created_at, p.receipt_url, p.failure_reason, p.card_brand, p.card_last4,
                     p.pos_reference, p.bank_reference, a.appointment_number,
                     nullif(concat_ws(' ', c.first_name, c.last_name), '') AS customer,
@@ -523,6 +528,7 @@ export class ChatToolsService {
           return {
             type: 'payment' as const,
             id: r.payment_number,
+            customerId: r.customer_id ?? undefined,
             title: `${money(r.amount, r.currency)} by ${METHOD_LABEL[r.method] ?? r.method} — ${transferState ?? r.status}`,
             url: r.receipt_url ?? undefined,
             fields: {
@@ -552,6 +558,7 @@ export class ChatToolsService {
           {
             type: 'balance',
             id: 'balance',
+            customerId: scope.customerId,
             title: Number(r.balance) > 0 ? `${money(r.balance, currency)} owed` : 'Nothing owed',
             fields: { billed: money(r.billed, currency), paid: money(r.paid, currency), balance: money(r.balance, currency) },
           },
@@ -614,7 +621,7 @@ export class ChatToolsService {
       case 'list_organization_members': {
         const rows = (
           await db.query(
-            `SELECT customer_number, first_name, last_name, email, org_role, status
+            `SELECT id, customer_number, first_name, last_name, email, org_role, status
                FROM core.customers WHERE organization_id = $1 ORDER BY org_role = 'org_admin' DESC, last_name LIMIT 50`,
             [scope.organizationId],
           )
@@ -623,6 +630,7 @@ export class ChatToolsService {
           type: 'customer' as const,
           id: r.customer_number,
           title: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.customer_number,
+          customerId: r.id,
           fields: { customer_number: r.customer_number, email: r.email, role: r.org_role, status: r.status },
         }));
       }
@@ -637,7 +645,7 @@ export class ChatToolsService {
       case 'search_customers': {
         const rows = (
           await db.query(
-            `SELECT customer_number, first_name, last_name, email, phone, status
+            `SELECT id, customer_number, first_name, last_name, email, phone, status
                FROM core.customers
               WHERE customer_number = upper($1) OR email = $1 OR phone = $1
                  OR (coalesce(first_name, '') || ' ' || coalesce(last_name, '')) % $1
@@ -650,6 +658,7 @@ export class ChatToolsService {
           type: 'customer' as const,
           id: r.customer_number,
           title: [r.first_name, r.last_name].filter(Boolean).join(' ') || r.customer_number,
+          customerId: r.id,
           fields: { customer_number: r.customer_number, email: r.email, phone: r.phone, status: r.status },
         }));
       }

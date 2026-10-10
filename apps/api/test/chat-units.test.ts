@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractIdentifiers, normalizePhone } from '../src/chat/extraction';
 import { planByRules } from '../src/chat/intents';
 import { formatLocal, offsetMinutes, parseRelativeRange, zonedMidnight } from '../src/chat/time';
+import { evidenceBlock } from '../src/chat/prompts';
 import { validateArgs } from '../src/chat/tools';
 
 describe('time zones', () => {
@@ -93,5 +94,15 @@ describe('tool argument validation', () => {
     expect(() => validateArgs('get_appointment', { appointment_number: 'DROP TABLE' })).toThrow(/invalid format/);
     expect(() => validateArgs('list_payments', { from: 'yesterday-ish' })).toThrow(/date/);
     expect(validateArgs('list_appointments', { upcoming_only: true })).toEqual({ upcoming_only: true });
+  });
+});
+
+describe('evidenceBlock', () => {
+  it('never puts internal customer ids in the prompt', () => {
+    const block = evidenceBlock([
+      { type: 'appointment', id: 'A-2026-000001', title: 'Haircut', customerId: '40000000-0000-4000-8000-000000000001', fields: { status: 'scheduled' } },
+    ]);
+    expect(block).toContain('A-2026-000001');
+    expect(block).not.toContain('40000000-0000-4000-8000-000000000001');
   });
 });
