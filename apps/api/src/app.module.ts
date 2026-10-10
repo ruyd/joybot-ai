@@ -22,6 +22,7 @@ import { FreshdeskService } from './freshdesk/freshdesk.service';
 import { TicketsController } from './freshdesk/tickets.controller';
 import { HealthController } from './health/health.controller';
 import { MeController } from './me/me.controller';
+import { TasksController } from './tasks/tasks.controller';
 import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
 import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
 import { InvitesController } from './profile/invites.controller';
@@ -59,6 +60,7 @@ export class AppModule {
         CustomersController,
         MergeController,
         AppointmentsController,
+        TasksController,
         PaymentsController,
         UsersController,
         AccessController,
