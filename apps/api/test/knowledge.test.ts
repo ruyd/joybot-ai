@@ -83,7 +83,8 @@ describe('saved answers', () => {
   it('admins manage answers; actions must point at real services and articles', async () => {
     await api(app, employee(U.sam)).get('/api/answers').expect(403);
     const list = (await api(app, employee(U.ada)).get('/api/answers').expect(200)).body;
-    expect(list.map((a: { id: string }) => a.id).sort()).toEqual(Object.values(ANS).sort());
+    expect(list.total).toBe(3);
+    expect(list.items.map((a: { id: string }) => a.id).sort()).toEqual(Object.values(ANS).sort());
 
     const bad = { title: 'x', body: 'y', actions: [{ type: 'book', service_id: C.maria }] };
     await api(app, employee(U.ada)).post('/api/answers', bad).expect(400);
@@ -110,6 +111,31 @@ describe('saved answers', () => {
       .expect(200);
     expect((await api(app, employee(U.ada)).get('/api/knowledge/match?as=customer&q=how long does a deep clean take').expect(200)).body.answers).toEqual([]);
     await api(app, employee(U.ada)).delete(`/api/answers/${created.id}`).expect(204);
+  });
+
+  it('the editor list searches, filters, sorts and pages', async () => {
+    const ids: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const body = { title: `Policy ${String(i).padStart(2, '0')}`, questions: [`policy question ${i}`], body: i % 2 ? 'Odd text' : 'Even text', audience: i % 3 ? 'all' : 'employee', active: i !== 5 };
+      ids.push((await api(app, employee(U.ada)).post('/api/answers', body).expect(201)).body.id);
+    }
+    const page = async (qs: string) => (await api(app, employee(U.ada)).get(`/api/answers?${qs}`).expect(200)).body;
+    const titles = (r: { items: { title: string }[] }) => r.items.map((a) => a.title);
+
+    const first = await page('q=policy&limit=5');
+    expect(first.total).toBe(12);
+    expect(titles(first)).toEqual(['Policy 01', 'Policy 02', 'Policy 03', 'Policy 04', 'Policy 05']);
+    expect(titles(await page('q=policy&limit=5&offset=10'))).toEqual(['Policy 11', 'Policy 12']);
+    expect(await page('q=policy&limit=5&offset=50')).toEqual({ items: [], total: 12 });
+
+    expect((await page('q=even text')).total).toBe(6); // answer text
+    expect((await page('q=POLICY QUESTION 7')).items.map((a: { id: string }) => a.id)).toEqual([ids[6]]); // example questions
+    expect((await page('q=policy&audience=employee')).total).toBe(4);
+    expect(titles(await page('q=policy&active=false'))).toEqual(['Policy 05']);
+    expect(titles(await page('sort=updated&limit=1'))).toEqual(['Policy 12']);
+    expect((await page('q=%')).total).toBe(0); // wildcards are literal
+    await api(app, employee(U.ada)).get('/api/answers?limit=500').expect(400);
+    for (const id of ids) await api(app, employee(U.ada)).delete(`/api/answers/${id}`).expect(204);
   });
 
   it('chat cites the saved answer and offers its buttons, kept with the message', async () => {

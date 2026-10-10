@@ -36,6 +36,19 @@ const answerSchema = z
   })
   .strict();
 
+const listAnswersSchema = z
+  .object({
+    /** Matches title, example questions and answer text. */
+    q: z.string().trim().max(200).optional(),
+    audience,
+    active: z.enum(['true', 'false']).optional(),
+    sort: z.enum(['title', 'updated']).default('title'),
+    limit: z.coerce.number().int().min(1).max(200).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  })
+  .partial({ audience: true })
+  .strict();
+
 const ARTICLE_COLUMNS = 'id, slug, title, summary, audience, published, created_at, updated_at';
 const ANSWER_COLUMNS = 'id, title, questions, body, actions, audience, active, created_at, updated_at';
 
@@ -126,11 +139,39 @@ export class KnowledgeController {
 
   // Saved answers --------------------------------------------------------------------------------
 
+  /** Editor list: searched, filtered, sorted and paged, with the total for "N of total". */
   @Get('answers')
   @EmployeesOnly()
   @Can('update', 'knowledge')
-  listAnswers(@CurrentPrincipal() p: Principal) {
-    return this.db.as(p, async (db) => (await db.query(`SELECT ${ANSWER_COLUMNS} FROM core.answers ORDER BY title`)).rows);
+  listAnswers(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(listAnswersSchema)) f: z.infer<typeof listAnswersSchema>) {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    const add = (sql: string, v: unknown) => {
+      args.push(v);
+      where.push(sql.replaceAll('?', `$${args.length}`));
+    };
+    if (f.q) {
+      add(`(title ILIKE '%' || ? || '%' OR questions_text ILIKE '%' || lower(?) || '%' OR body ILIKE '%' || ? || '%')`, f.q.replace(/[\\%_]/g, '\\$&'));
+    }
+    if (f.audience) add('audience = ?', f.audience);
+    if (f.active) add('active = ?', f.active === 'true');
+    args.push(f.limit, f.offset);
+    const order = f.sort === 'updated' ? 'updated_at DESC, title' : 'lower(title), id';
+    return this.db.as(p, async (db) => {
+      const rows = (
+        await db.query(
+          `SELECT ${ANSWER_COLUMNS}, count(*) OVER () AS total FROM core.answers
+            ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+            ORDER BY ${order} LIMIT $${args.length - 1} OFFSET $${args.length}`,
+          args,
+        )
+      ).rows;
+      // Past the last page there are no rows to carry the total: count separately.
+      const total = rows.length
+        ? Number(rows[0].total)
+        : Number((await db.query(`SELECT count(*) FROM core.answers ${where.length ? `WHERE ${where.join(' AND ')}` : ''}`, args.slice(0, -2))).rows[0].count);
+      return { items: rows.map(({ total: _t, ...r }) => r), total };
+    });
   }
 
   @Post('answers')
