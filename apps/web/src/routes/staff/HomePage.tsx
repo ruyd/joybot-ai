@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
-import { dateTime, fullName, money, time, todayIn, zonedToIso } from '../../lib/format';
+import { dateTime, fullName, money, preferredTimeZone, time, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import type { Appointment } from '../portal/PortalPages';
 import { CustomerPicker, type Customer } from './CustomerPicker';
@@ -12,13 +12,14 @@ import { RecordPayment } from './StaffPages';
 
 /** Staff home: today's appointments on the left; customer lookup and payment capture on the right. */
 export function StaffHome() {
-  const { can } = useMe();
-  const today = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
+  const { can, me } = useMe();
+  const zone = preferredTimeZone(me?.profile.time_zone);
+  const today = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: zone }).format(new Date());
   return (
     <Page>
       <PageHeader title="Today" description={today} />
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        {can('read', 'appointments') && <TodayAppointments />}
+        {can('read', 'appointments') && <TodayAppointments zone={zone} />}
         <div className="grid gap-4">
           {can('read', 'customers') && <CustomerLookup />}
           {can('create', 'payments') && <RecordPayment title="Take a payment" />}
@@ -37,20 +38,19 @@ type StaffAppointment = Appointment & {
   scheduled_end: string | null;
 };
 
-/** The viewer's calendar day, as an ISO range for `from`/`to`. */
-function todayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
+/** Today in the viewer's time zone, as an ISO range for `from`/`to`. */
+function todayRange(zone: string) {
+  const day = todayIn(zone);
+  const [y, m, d] = day.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  return { from: zonedToIso(day, '00:00', zone), to: zonedToIso(next, '00:00', zone) };
 }
 
-function TodayAppointments() {
+function TodayAppointments({ zone }: { zone: string }) {
   const api = useApi();
   const { me } = useMe();
   const [mine, setMine] = useState(false);
-  const { from, to } = todayRange();
+  const { from, to } = todayRange(zone);
   const q = useQuery({
     queryKey: ['appointments', 'today', from, mine],
     queryFn: () =>

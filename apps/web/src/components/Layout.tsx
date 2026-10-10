@@ -2,7 +2,7 @@ import { lazy, Suspense } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useSession, type Audience } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
-import { fullName } from '../lib/format';
+import { ThemeToggle, UserMenu } from './HeaderControls';
 import { useMe } from '../lib/me';
 import { Button, ErrorBanner, Spinner } from './ui';
 
@@ -19,7 +19,18 @@ export interface NavItem {
 // Loaded after the page itself, so the markdown renderer stays out of the first bundle.
 const AssistantDock = lazy(() => import('./chat/AssistantDock').then((m) => ({ default: m.AssistantDock })));
 
-export function Layout({ title, nav, assistant }: { title: string; nav: NavItem[]; assistant?: { audience: Audience; path: string } }) {
+export function Layout({
+  title,
+  nav,
+  base,
+  assistant,
+}: {
+  title: string;
+  nav: NavItem[];
+  /** Section root, e.g. /staff: the user menu links to `${base}/profile`. */
+  base: string;
+  assistant?: { audience: Audience; path: string };
+}) {
   const session = useSession();
   const location = useLocation();
   const { me, can, isLoading, error } = useMe();
@@ -59,13 +70,9 @@ export function Layout({ title, nav, assistant }: { title: string; nav: NavItem[
               </NavLink>
             ))}
         </nav>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-sm text-slate-500 sm:inline">
-            {me ? fullName(me.profile) : ''} {me && me.type === 'employee' ? `· ${me.role}` : me?.role === 'org_admin' ? '· organization admin' : ''}
-          </span>
-          <Button size="sm" variant="secondary" onClick={() => void session.signOut()}>
-            Sign out
-          </Button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          {me && <UserMenu me={me} base={base} />}
         </div>
       </header>
       <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined}>

@@ -43,7 +43,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 
 ### Non-goals (v1)
 - Subscriptions / packages; organization billing.
-- Taking payments *inside* JoyBot. Customers pay through Stripe flows you already use, or at the POS / by bank transfer. Stripe Checkout "pay now" links from JoyBot are planned for Phase 5.
+- Taking payments *inside* JoyBot. Customers pay through Stripe flows you already use, or at the POS / by bank transfer. Stripe Checkout "pay now" links from JoyBot are a later option (Phase 6).
 - Write actions through chat (booking, cancelling, creating tickets).
 - SMS; other support systems than Freshdesk; Jira.
 - Regulatory compliance programs; data migration / bulk import; LLM-generated SQL; fine-tuning; voice / multimodal.
@@ -128,7 +128,7 @@ joybot-ai/
 │   ├── stacks/              # network, data, messaging, auth, compute, model, backend, frontend, observability
 │   ├── bootstrap/           # artifacts.yaml: private artifacts bucket + ECR, optional GitHub OIDC release role
 │   ├── functions/           # DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets
-│   ├── parameters/          # dev.json (staging/prod to add in Phase 4)
+│   ├── parameters/          # dev.json (staging/prod to add in Phase 6)
 │   └── scripts/             # publish.sh, quickcreate-link.mjs, check_nested.py
 ├── tools/fake-freshdesk.mjs # local Freshdesk stub
 ├── .github/workflows/       # ci.yml, release.yml
@@ -690,7 +690,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 - **Done:** `cfn-lint` plus `check_nested.py`, which checks that every nested-stack parameter is passed.
 - **Done (Phase 4):** `cfn-guard` rules in `cloudformation/guard/joybot.guard`, with unit tests for each rule (`tests/joybot_tests.yaml`), run in CI and in `pnpm lint:cfn`. They check: region rule; private, encrypted, TLS-only S3; organization-only sharing; scanned ECR; no wildcard IAM actions or admin policies; encrypted, protected RDS; KMS rotation; SNS encryption; log retention; internal ALB; no open ingress; HTTPS plus WAF on CloudFront; IMDSv2; no privileged containers; no public Lambda.
 - **Original list:** `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
-- **Planned (Phase 4):** `taskcat` in us-east-1 from a member account. Smoke tests:
+- **Planned (Phase 6):** `taskcat` in us-east-1 from a member account. Smoke tests:
   - Customer email sign-up → appointment question.
   - Org admin → org tickets (stubbed Freshdesk).
   - Staff allowed vs denied lookups.
@@ -768,7 +768,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 ## 11. Phased Roadmap
 
-Status as of 2026-10-09 (`main` after PR #2): ✅ done · 🟡 partly done · ⬜ not started.
+Status as of 2026-10-09 (`main` after PR #5): ✅ done · 🟡 in progress · ⬜ not started.
 
 | Phase | Status | Deliverables |
 |---|---|---|
@@ -776,28 +776,30 @@ Status as of 2026-10-09 (`main` after PR #2): ✅ done · 🟡 partly done · �
 | **1 — Foundations, data & access** | ✅ | Monorepo; `packages/db` (core tables, admin/staff permissions, assignments, grants, RLS functions, matrix tests); CASL; settings and locations admin; back-office CRUD; **manual payments** (validation, duplicates, same-day edit, void/refund, pending transfers); employee logins kept in sync with Cognito. All nine stacks, private artifacts bootstrap and CI |
 | **2 — Chat MVP + Stripe** | ✅ | Streaming chat for customers, org admins and employees: access-filtered resolution, 16 read-only tools, local times, citations, retrieval traces. **Stripe webhooks, the worker, reconciliation and the unmatched queue**, with combined balances. Web portal and staff console |
 | **3 — Accounts, WhatsApp, Freshdesk** | ✅ | ✅ Identity linking at sign-up. ✅ Profile completion and contact changes with codes over email or WhatsApp. ✅ Invites. ✅ Org admin area. ✅ **Freshdesk** (lookup, ticket pages, filters, chat tools). ✅ "Who can access" (API and UI). ✅ Duplicate detection, customer merge (tombstones) and link-review queue (API and UI). ✅ Access admin UI: assignments, temporary access (grants), restricted flags, staff permission matrix. ✅ Eval set v1 (110 cases, access gate in CI) |
-| **4 — Hardening** | 🟡 | ✅ Row-level security on the remaining `app` tables (invites accepted through a single-use function; Stripe events stored append-only). ✅ Per-person chat limits. ✅ `cfn-guard` rules with tests, in CI. ⬜ First real AWS dev deploy. ⬜ WAF tuning, Cognito advanced security. ⬜ WhatsApp throttles and cost alarms. ⬜ Red-team and injection suite beyond eval v1. ⬜ Observability review. ⬜ Load tests. ⬜ Staging and prod parameters. ⬜ `taskcat`. ⬜ Playwright. ⬜ First private Quick-Create release |
-| **5 — Launch & beyond** | ⬜ | Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
+| **4 — Hardening & staff workspace** | ✅ | ✅ Row-level security on the remaining `app` tables (invites accepted through a single-use function; Stripe events stored append-only). ✅ Per-person chat limits. ✅ `cfn-guard` rules with tests, in CI. ✅ Local Gemma 4 through Ollama in `pnpm dev`, with full model-call logging (`MODEL_DEBUG`, dev only). ✅ Staff home page: today's appointments, customer lookup, payment capture and booking (time entered at the location's zone, double-booking confirmation). ✅ Assistant dock: a prompt bar on every page that opens the conversation in a panel without leaving the page. Open items moved to Phase 5 |
+| **5 — Feature refinements** | 🟡 | ⬜ Reopened conversations restore the customer or organization the chat is about (scope card), in full view and the dock. ⬜ Customer search matches short name prefixes (today about four letters are needed). ⬜ Today's appointments across locations in several time zones read in order (show the viewer's time too, or group by location). ⬜ Answer wording and model-only eval cases reviewed against Gemma 4 E2B |
+| **6 — Pre-launch** | ⬜ | ⬜ Full eval run against Gemma 4 E2B (a 5-case sample passed 4/5). ⬜ First real AWS dev deploy. ⬜ WAF tuning, Cognito advanced security. ⬜ WhatsApp throttles and cost alarms. ⬜ Red-team and injection suite beyond eval v1. ⬜ Observability review. ⬜ Load tests. ⬜ Staging and prod parameters. ⬜ `taskcat`. ⬜ Playwright. ⬜ First private Quick-Create release. ⬜ Prod launch. Later options: Stripe Checkout "pay now" links from JoyBot; guarded write tools in chat (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
 
 ### Next steps
 
-1. **Run the eval against Gemma 4 E2B.** Use Ollama or vLLM with `pnpm --filter @joybot/api eval:model`:
+1. **Phase 5 feature refinements:** the items in the Phase 5 row, plus refinements found while using the staff home page and the assistant dock.
+2. **Run the full eval against Gemma 4 E2B.** Ollama is set up for local runs (`pnpm dev`; `MODEL_DEBUG=true` logs each prompt and answer). Run `pnpm --filter @joybot/api eval:model` (a 5-case sample passed 4/5 so far):
    - Fix any gate failures.
    - Review the model-only cases and answer wording.
    - Grow the set toward 200–300 cases, adding cases from real questions once in use.
-2. **Check the real integrations locally:**
+3. **Check the real integrations locally:**
    - Stripe test mode with `stripe listen`.
    - A Freshdesk trial account.
-   - Cognito hosted sign-in (needs the first deploy, step 4).
-3. **Phase 0 items with long lead times.** Start these now:
+   - Cognito hosted sign-in (needs the first deploy, step 5).
+4. **Phase 0 items with long lead times.** Start these now:
    - Meta Business verification and WhatsApp template approval (OTP, invite).
    - The SES domain and leaving the SES sandbox.
    - The Freshdesk API key.
-4. **First AWS deploy (dev):**
+5. **First AWS deploy (dev):**
    - Run `bootstrap/artifacts.yaml`, `publish.sh` and the Quick-Create link in a member account.
    - Work through "Things to verify on the first real deployment" in `cloudformation/README.md`: Cognito `SMS_OTP` with a custom sender only, the KMS key policy, DB bootstrap reaching Secrets Manager, the Aurora version, the GPU AMI parameter, and `Authorization` forwarding through the VPC origin.
    - Also check that SSE streams through CloudFront without buffering.
-5. **Rest of Phase 4 hardening:**
+6. **Phase 6 pre-launch hardening:**
    - Playwright E2E per role (customer, org admin, staff, admin).
    - Prompt-injection and red-team suite beyond the eval's 7 injection cases.
    - WAF rule tuning and Cognito advanced security.

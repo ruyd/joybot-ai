@@ -52,6 +52,8 @@ const tickets = () => import('./routes/portal/TicketPages');
 const MyTickets = page(tickets, 'MyTickets');
 const TicketView = page(tickets, 'TicketView');
 const Organization = page(tickets, 'Organization');
+const account = () => import('./routes/AccountPages');
+const StaffProfile = page(account, 'StaffProfile');
 const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
@@ -105,7 +107,7 @@ export function App() {
             element={
               <SessionProvider audience="customer">
                 <RequireSession>
-                  <Layout title="JoyBot" nav={PORTAL_NAV} assistant={{ audience: 'customer', path: '/portal' }} />
+                  <Layout title="JoyBot" nav={PORTAL_NAV} base="/portal" assistant={{ audience: 'customer', path: '/portal' }} />
                 </RequireSession>
               </SessionProvider>
             }
@@ -119,13 +121,14 @@ export function App() {
             <Route path="services" element={<Services />} />
             <Route path="locations" element={<Locations />} />
             <Route path="profile" element={<Profile />} />
+            <Route path="preferences" element={<Navigate to="/portal/profile" replace />} />
           </Route>
           <Route
             path="/staff"
             element={
               <SessionProvider audience="employee">
                 <RequireSession>
-                  <Layout title="JoyBot Staff" nav={STAFF_NAV} assistant={{ audience: 'employee', path: '/staff/assistant' }} />
+                  <Layout title="JoyBot Staff" nav={STAFF_NAV} base="/staff" assistant={{ audience: 'employee', path: '/staff/assistant' }} />
                 </RequireSession>
               </SessionProvider>
             }
@@ -139,6 +142,8 @@ export function App() {
             <Route path="admin" element={<Admin />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
+            <Route path="profile" element={<StaffProfile />} />
+            <Route path="preferences" element={<Navigate to="/staff/profile" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

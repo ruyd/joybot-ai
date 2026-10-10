@@ -29,8 +29,8 @@ Phases 1–3 are done; see [plan.md §11](plan.md#11-phased-roadmap) for the rem
 | CI | Every PR runs typecheck, tests against Postgres, cfn-lint, the nested-parameter check, a Lambda build and image builds. Pushing a `v*.*.*` tag publishes a private release | [.github/workflows](.github/workflows) |
 
 **Not yet:**
-- An eval run against a real Gemma 4 model (only evidence-only mode has run so far).
-- Phase 4 hardening.
+- A full eval run against a real Gemma 4 model (only a 5-case sample on local Gemma 4 E2B so far).
+- Phase 5 feature refinements, then Phase 6 pre-launch: hardening, Playwright, load tests.
 - A first real AWS deployment.
 
 ## Local development
