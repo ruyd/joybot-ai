@@ -16,6 +16,8 @@ export interface Observation {
   evidence: Evidence[];
   customerEvent: { id: string } | null;
   disambiguation: boolean;
+  /** Buttons offered with the answer (from saved answers and articles). */
+  actions: { type: string; label: string }[];
   latencyMs: number;
   error: string | null;
 }
@@ -92,7 +94,10 @@ export function score(c: EvalCase, world: World, question: string, o: Observatio
   };
   const ref = (r: Ref) => world.refs[r] ?? `?${r}`;
   const cited = o.citations.map((x) => x.id);
-  const called = o.tools.map((t) => t.tool);
+  // The knowledge search runs for every question, so it says nothing about tool choice; and saved
+  // answers and articles are not customer records, so record-citation limits ignore them.
+  const called = o.tools.map((t) => t.tool).filter((t) => t !== 'search_knowledge');
+  const recordCitations = o.citations.filter((x) => x.type !== 'answer' && x.type !== 'article');
 
   add('no error', !o.error, o.error ?? undefined, false);
 
@@ -107,7 +112,8 @@ export function score(c: EvalCase, world: World, question: string, o: Observatio
 
   const e = c.expect;
   if (e.tools) {
-    const missing = e.tools.filter((t) => !called.includes(t));
+    const ran = o.tools.map((t) => t.tool);
+    const missing = e.tools.filter((t) => !ran.includes(t));
     add('tools', missing.length === 0, missing.length ? `missing ${missing.join(', ')}; called ${called.join(', ') || 'none'}` : undefined);
   }
   if (e.noTools) add('no tools', called.length === 0, called.join(', '));
@@ -117,12 +123,22 @@ export function score(c: EvalCase, world: World, question: string, o: Observatio
   }
   if (e.citesOnly) {
     const allowed = new Set([...e.citesOnly, ...(e.cites ?? [])].map(ref));
-    const extra = cited.filter((id) => !allowed.has(id));
+    const extra = recordCitations.map((x) => x.id).filter((id) => !allowed.has(id));
     add('cites only allowed records', extra.length === 0, extra.length ? `unexpected ${extra.join(', ')}` : undefined);
   }
-  if (e.noCitations) add('no citations', cited.length === 0, cited.join(', ') || undefined);
+  if (e.noCitations) add('no citations', recordCitations.length === 0, recordCitations.map((x) => x.id).join(', ') || undefined);
+  if (e.notCites) {
+    const found = e.notCites.filter((r) => cited.includes(ref(r)));
+    add('does not cite', found.length === 0, found.join(', ') || undefined);
+  }
+  if (e.actions) {
+    const labels = o.actions.map((a) => a.label);
+    const missing = e.actions.filter((want) => !labels.some((l) => (typeof want === 'string' ? l === want : want.test(l))));
+    add('offers buttons', missing.length === 0, missing.length ? `missing ${missing.map(String).join(', ')}; got ${labels.join(', ') || 'none'}` : undefined);
+  }
+  if (e.noActions) add('no buttons', o.actions.length === 0, o.actions.map((a) => a.label).join(', ') || undefined);
   if (e.citeTypes) {
-    const wrong = o.citations.filter((x) => !e.citeTypes!.includes(x.type as never));
+    const wrong = recordCitations.filter((x) => !e.citeTypes!.includes(x.type as never));
     add('citation types', wrong.length === 0, wrong.map((w) => `${w.type}:${w.id}`).join(', ') || undefined);
   }
   if (e.resolves) {
@@ -188,7 +204,7 @@ export function summarize(results: CaseResult[], mode: string, model: string): S
   let resolved = 0, resolvable = 0;
   for (const r of scored) {
     if (r.expectedTools.length) {
-      const called = new Set(r.observation.tools.map((t) => t.tool));
+      const called = new Set<ToolName>(r.observation.tools.map((t) => t.tool).filter((t) => t !== 'search_knowledge'));
       tp += r.expectedTools.filter((t) => called.has(t)).length;
       expected += r.expectedTools.length;
       calledRelevant += called.size;

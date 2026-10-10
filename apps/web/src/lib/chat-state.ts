@@ -24,6 +24,11 @@ export interface ScopeCard {
   detail: string | null;
 }
 
+/** Buttons offered with an answer (from saved answers and help articles; never written by the model). */
+export type SuggestedAction =
+  | { type: 'book'; label: string; service_id: string | null }
+  | { type: 'article'; label: string; slug: string };
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -33,6 +38,7 @@ export interface Message {
   streaming?: boolean;
   error?: string;
   candidates?: Candidate[];
+  actions?: SuggestedAction[];
 }
 
 export interface ChatState {
@@ -91,6 +97,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           return updateLast(state, (m) => ({ ...m, candidates: d.candidates }));
         case 'citations':
           return updateLast(state, (m) => ({ ...m, citations: d }));
+        case 'actions':
+          return updateLast(state, (m) => ({ ...m, actions: d }));
         case 'token':
           return updateLast(state, (m) => ({ ...m, content: m.content + d.text, status: undefined }));
         case 'error':

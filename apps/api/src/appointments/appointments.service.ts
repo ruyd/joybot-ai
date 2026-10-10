@@ -54,7 +54,29 @@ export const listAppointmentsSchema = z
   })
   .strict();
 
+/** Customers ask for an appointment (staff confirm it on the Review page). */
+export const requestAppointmentSchema = z
+  .object({
+    service_id: z.string().uuid(),
+    location_id: z.string().uuid(),
+    scheduled_start: isoDateTime,
+    notes: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+
+export const reviewRequestSchema = z
+  .object({
+    decision: z.enum(['confirm', 'decline']),
+    /** Optional staff member to assign when confirming. */
+    employee_id: z.string().uuid().nullable().optional(),
+    /** Set after the API reported an employee double-booking and the user confirmed. */
+    confirm_overlap: z.boolean().optional(),
+  })
+  .strict();
+
 export type CreateAppointment = z.infer<typeof createAppointmentSchema>;
+export type RequestAppointment = z.infer<typeof requestAppointmentSchema>;
+export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 export type UpdateAppointment = z.infer<typeof updateAppointmentSchema>;
 export type ListAppointments = z.infer<typeof listAppointmentsSchema>;
 
@@ -72,7 +94,7 @@ const CUSTOMER_COLUMNS = `a.id, a.appointment_number, a.customer_id, a.service_i
   nullif(concat_ws(' ', st.first_name, st.last_name), '') AS employee_name,
   a.scheduled_start, a.scheduled_end,
   to_char(a.scheduled_start AT TIME ZONE l.time_zone, 'YYYY-MM-DD"T"HH24:MI') AS local_start,
-  a.status, a.price_quoted, a.currency, a.notes_customer, a.created_at, a.updated_at`;
+  a.status, a.price_quoted, a.currency, a.notes_customer, a.requested_by_customer, a.reviewed_at, a.created_at, a.updated_at`;
 // The customer subquery runs under RLS like the rest: a customer the employee cannot read comes back null.
 const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, a.created_by,
   (SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = a.customer_id) AS customer_name,
@@ -211,6 +233,68 @@ export class AppointmentsService {
         const res = await db.query(`UPDATE core.appointments SET ${set.sql} WHERE id = $1`, [id, ...set.values]);
         if (res.rowCount === 0) throw new ForbiddenException('Not allowed to update this appointment');
       }
+      return this.load(db, p, id);
+    });
+  }
+
+  /** Customer self-booking: checks and insert happen in authz.request_appointment. */
+  async request(p: Principal, input: RequestAppointment) {
+    return this.db.as(p, async (db) => {
+      const id = (
+        await db.query<{ id: string }>('SELECT authz.request_appointment($1, $2, $3, $4) AS id', [
+          input.service_id,
+          input.location_id,
+          input.scheduled_start,
+          input.notes ?? null,
+        ])
+      ).rows[0].id;
+      return this.load(db, p, id);
+    });
+  }
+
+  /** The customer withdraws a request staff have not reviewed yet. */
+  async withdraw(p: Principal, id: string) {
+    return this.db.as(p, async (db) => {
+      const ok = (await db.query<{ ok: boolean }>('SELECT authz.withdraw_appointment_request($1) AS ok', [id])).rows[0].ok;
+      if (!ok) throw new NotFoundException('No open request with that id');
+      return this.load(db, p, id);
+    });
+  }
+
+  /** Review page: customer requests waiting for confirmation, soonest first (RLS: those in scope). */
+  requests(p: Principal) {
+    return this.db.as(p, async (db) =>
+      (
+        await db.query(
+          `SELECT ${this.columns(p)} FROM ${FROM}
+            WHERE a.requested_by_customer AND a.reviewed_at IS NULL AND a.status = 'scheduled'
+            ORDER BY a.scheduled_start LIMIT 200`,
+        )
+      ).rows,
+    );
+  }
+
+  /** Confirm (optionally assigning staff) or decline a customer's request. */
+  async review(p: Principal, id: string, input: ReviewRequest) {
+    return this.db.as(p, async (db) => {
+      const current = await this.load(db, p, id);
+      if (!current) throw new NotFoundException();
+      if (!current.requested_by_customer || current.reviewed_at || current.status !== 'scheduled') {
+        throw new ConflictException('This request was already reviewed or withdrawn');
+      }
+      const employeeId = input.decision === 'confirm' ? (input.employee_id ?? current.employee_id ?? null) : current.employee_id;
+      if (input.decision === 'confirm' && employeeId) {
+        await this.employeeWorksAt(db, employeeId, current.location_id);
+        if (!input.confirm_overlap) {
+          await this.assertNoConflicts(db, employeeId, new Date(current.scheduled_start), new Date(current.scheduled_end), id);
+        }
+      }
+      const res = await db.query(
+        `UPDATE core.appointments SET status = $2, employee_id = $3, reviewed_at = now(), reviewed_by = $4
+          WHERE id = $1 AND reviewed_at IS NULL`,
+        [id, input.decision === 'confirm' ? 'confirmed' : 'cancelled', employeeId, p.id],
+      );
+      if (res.rowCount === 0) throw new ForbiddenException('Not allowed to review this request');
       return this.load(db, p, id);
     });
   }

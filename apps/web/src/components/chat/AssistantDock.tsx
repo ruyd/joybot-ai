@@ -90,7 +90,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
               <Welcome audience={audience} onPick={ask} />
             ) : (
               state.messages.map((m, i) => (
-                <MessageView key={m.id} message={m} onChoose={(c) => void choose(c, state.messages[i - 1]?.content ?? '')} />
+                <MessageView key={m.id} message={m} audience={audience} onChoose={(c) => void choose(c, state.messages[i - 1]?.content ?? '')} onAction={() => setExpanded(false)} />
               ))
             )}
             <div ref={bottomRef} />

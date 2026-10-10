@@ -55,6 +55,11 @@ const Organization = page(tickets, 'Organization');
 const account = () => import('./routes/AccountPages');
 const StaffProfile = page(account, 'StaffProfile');
 const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
+const help = () => import('./routes/HelpPages');
+const HelpList = page(help, 'HelpList');
+const ArticleView = page(help, 'ArticleView');
+const BookPage = page(() => import('./routes/portal/BookPage'), 'BookPage');
+const Knowledge = page(() => import('./routes/staff/KnowledgePages'), 'Knowledge');
 const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
@@ -70,11 +75,13 @@ const queryClient = new QueryClient({
 const PORTAL_NAV: NavItem[] = [
   { to: '/portal', label: 'Assistant', end: true },
   { to: '/portal/appointments', label: 'Appointments' },
+  { to: '/portal/book', label: 'Book' },
   { to: '/portal/payments', label: 'Payments' },
   { to: '/portal/tickets', label: 'Support' },
   { to: '/portal/organization', label: 'Organization', role: 'org_admin' },
   { to: '/portal/services', label: 'Services' },
   { to: '/portal/locations', label: 'Locations' },
+  { to: '/portal/help', label: 'Help' },
   { to: '/portal/profile', label: 'Profile' },
 ];
 
@@ -84,8 +91,10 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
-  { to: '/staff/review', label: 'Review', can: ['merge', 'customers'] },
+  { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
   { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
+  { to: '/staff/help', label: 'Help', can: ['read', 'knowledge'] },
+  { to: '/staff/knowledge', label: 'Knowledge', can: ['update', 'knowledge'] },
   { to: '/staff/admin', label: 'Admin', can: ['update', 'settings'] },
 ];
 
@@ -116,6 +125,9 @@ export function App() {
           >
             <Route index element={<ChatPage audience="customer" />} />
             <Route path="appointments" element={<MyAppointments />} />
+            <Route path="book" element={<BookPage />} />
+            <Route path="help" element={<HelpList />} />
+            <Route path="help/:slug" element={<ArticleView />} />
             <Route path="payments" element={<MyPayments />} />
             <Route path="tickets" element={<MyTickets />} />
             <Route path="tickets/:id" element={<TicketView back="/portal/tickets" />} />
@@ -139,6 +151,9 @@ export function App() {
             <Route path="assistant" element={<ChatPage audience="employee" />} />
             <Route path="customers" element={<Customers />} />
             <Route path="todos" element={<Todos />} />
+            <Route path="help" element={<HelpList />} />
+            <Route path="help/:slug" element={<ArticleView />} />
+            <Route path="knowledge" element={<Knowledge />} />
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="payments" element={<Payments />} />
             <Route path="tickets/:id" element={<TicketView back="/staff/customers" />} />

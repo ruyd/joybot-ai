@@ -2,6 +2,7 @@ import { HttpException, Inject, Injectable, Logger, NotFoundException } from '@n
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
+import type { ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
 import { planByRules, type PlannedCall } from './intents';
 import { LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
@@ -160,6 +161,10 @@ export class ChatService {
         this.logger.warn(`planner failed: ${(err as Error).message}`);
       }
     }
+    // Saved answers and help articles are searched for every question (first, so they are never cut).
+    if (allowed.includes('search_knowledge') && question.trim().length >= 3 && !calls.some((c) => c.tool === 'search_knowledge')) {
+      calls.unshift({ tool: 'search_knowledge', args: { query: question.trim().slice(0, 500) } });
+    }
     calls = calls.filter((c) => allowed.includes(c.tool)).slice(0, MAX_TOOL_CALLS);
 
     // 3. Retrieve ----------------------------------------------------------------------------------
@@ -191,6 +196,8 @@ export class ChatService {
     }
     sink.event('sources', results.map(({ call, result }) => ({ tool: call.tool, status: result.status, records: result.evidence.length })));
     sink.event('citations', evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null })));
+    const actions = uniqueActions(results.flatMap(({ result }) => result.actions ?? []));
+    if (actions.length) sink.event('actions', actions);
 
     // 4. Answer ------------------------------------------------------------------------------------
     let answer = '';
@@ -209,7 +216,7 @@ export class ChatService {
       if (!answer) return;
     }
 
-    await this.finish(p, conversationId, answer, evidence, results, started, sink, true, scope);
+    await this.finish(p, conversationId, answer, evidence, results, started, sink, true, scope, actions);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -224,6 +231,7 @@ export class ChatService {
     sink: ChatSink,
     streamed: boolean,
     scope?: ChatScope,
+    actions: ChatAction[] = [],
   ): Promise<void> {
     // Fixed replies (disambiguation, not found) are sent as one token.
     if (!streamed && !sink.signal.aborted) sink.event('token', { text: answer });
@@ -231,9 +239,9 @@ export class ChatService {
       const citations = evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null }));
       const id = (
         await db.query<{ id: string }>(
-          `INSERT INTO app.messages (conversation_id, role, content, citations, latency_ms)
-           VALUES ($1, 'assistant', $2, $3, $4) RETURNING id`,
-          [conversationId, answer, JSON.stringify(citations), Date.now() - started],
+          `INSERT INTO app.messages (conversation_id, role, content, citations, actions, latency_ms)
+           VALUES ($1, 'assistant', $2, $3, $4, $5) RETURNING id`,
+          [conversationId, answer, JSON.stringify(citations), JSON.stringify(actions), Date.now() - started],
         )
       ).rows[0].id;
       for (const { call, result, ms } of results) {
@@ -415,3 +423,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export type { ToolName };
+
+/** One button per destination, at most four. */
+function uniqueActions(actions: ChatAction[]): ChatAction[] {
+  const seen = new Set<string>();
+  return actions.filter((a) => {
+    const key = a.type === 'book' ? `book:${a.service_id ?? ''}` : `article:${a.slug}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 4);
+}

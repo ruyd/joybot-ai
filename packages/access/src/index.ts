@@ -4,7 +4,7 @@ import { createMongoAbility, type MongoAbility } from '@casl/ability';
  *  this ability answers "may this principal do X on resource Y at all, and in which scopes?". */
 export const RESOURCES = [
   'customers', 'organizations', 'appointments', 'payments', 'services', 'locations',
-  'tickets', 'users', 'settings', 'audit', 'notes_internal', 'access', 'tasks',
+  'tickets', 'users', 'settings', 'audit', 'notes_internal', 'access', 'tasks', 'knowledge',
 ] as const;
 export const ACTIONS = ['read', 'create', 'update', 'delete', 'void', 'refund', 'merge'] as const;
 export const SCOPES = [

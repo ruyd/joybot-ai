@@ -41,6 +41,16 @@ export const SAMPLE = {
     janeTransfer: '70000000-0000-4000-8000-000000000003',
     unmatchedStripe: '70000000-0000-4000-8000-000000000004',
   },
+  articles: {
+    reschedule: 'a0000000-0000-4000-8000-000000000001', // all
+    payments: 'a0000000-0000-4000-8000-000000000002', // customers
+    bookingRequests: 'a0000000-0000-4000-8000-000000000003', // staff
+  },
+  answers: {
+    reschedule: 'b0000000-0000-4000-8000-000000000001', // all; book + read buttons
+    bookHaircut: 'b0000000-0000-4000-8000-000000000002', // customers; book a haircut
+    waysToPay: 'b0000000-0000-4000-8000-000000000003', // all; read button
+  },
 } as const;
 
 export interface SettingsDefaults {
@@ -182,6 +192,63 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
          ('90000000-0000-4000-8000-000000000002', $2, 'customer', $4, '{read}', 'Old escalation', $5, now() - interval '1 day')
        ON CONFLICT (id) DO NOTHING`,
       [S.users.sam, S.users.lia, c.pat, c.maria, S.users.ada],
+    );
+
+    // Knowledge for the assistant: help articles (with their search sections) and saved answers.
+    const art = S.articles;
+    await client.query(
+      `INSERT INTO core.articles (id, slug, title, summary, body, audience, published, created_by, updated_by) VALUES
+         ($1, 'reschedule-or-cancel', 'Rescheduling or cancelling an appointment', 'How to move or cancel a booking, and our late policy.',
+          E'## Change the time\nReply to your confirmation or ask the assistant, and we will offer the next free times. You can also book a new time and we will cancel the old one.\n\n## Cancel\nCancel at least 24 hours ahead at no charge. Later cancellations may be charged half the service price.\n\n## Running late\nIf you are more than 15 minutes late we may need to shorten or move your appointment.',
+          'all', true, $4, $4),
+         ($2, 'payment-options', 'Ways to pay', 'Card, bank transfer or cash.',
+          E'## Card\nPay by card at the front desk, or online with the payment link we send.\n\n## Bank transfer\nUse your customer number as the reference. Transfers can take up to three working days to show.\n\n## Cash\nCash is accepted at every location; ask for a receipt.',
+          'customer', true, $4, $4),
+         ($3, 'handling-booking-requests', 'Handling booking requests', 'Confirming or declining appointments customers request online.',
+          E'## Where to find them\nOpen Review in the staff console. Booking requests waiting for confirmation are listed soonest first.\n\n## Confirming\nPick a staff member who works at the location, then Confirm. The customer sees it as confirmed.\n\n## Declining\nDecline when the time does not work, and call the customer to offer another.',
+          'employee', true, $4, $4)
+       ON CONFLICT (id) DO NOTHING`,
+      [art.reschedule, art.payments, art.bookingRequests, S.users.ada],
+    );
+    await client.query(
+      `INSERT INTO core.article_sections (article_id, position, heading, body) VALUES
+         ($1, 0, 'Change the time', 'Reply to your confirmation or ask the assistant, and we will offer the next free times. You can also book a new time and we will cancel the old one.'),
+         ($1, 1, 'Cancel', 'Cancel at least 24 hours ahead at no charge. Later cancellations may be charged half the service price.'),
+         ($1, 2, 'Running late', 'If you are more than 15 minutes late we may need to shorten or move your appointment.'),
+         ($2, 0, 'Card', 'Pay by card at the front desk, or online with the payment link we send.'),
+         ($2, 1, 'Bank transfer', 'Use your customer number as the reference. Transfers can take up to three working days to show.'),
+         ($2, 2, 'Cash', 'Cash is accepted at every location; ask for a receipt.'),
+         ($3, 0, 'Where to find them', 'Open Review in the staff console. Booking requests waiting for confirmation are listed soonest first.'),
+         ($3, 1, 'Confirming', 'Pick a staff member who works at the location, then Confirm. The customer sees it as confirmed.'),
+         ($3, 2, 'Declining', 'Decline when the time does not work, and call the customer to offer another.')
+       ON CONFLICT DO NOTHING`,
+      [art.reschedule, art.payments, art.bookingRequests],
+    );
+    const ans = S.answers;
+    await client.query(
+      `INSERT INTO core.answers (id, title, questions, body, actions, audience, created_by, updated_by) VALUES
+         ($1, 'Rescheduling or cancelling',
+          ARRAY['How do I reschedule my appointment?', 'Can I move my booking?', 'How do I cancel an appointment?', 'I need to change my appointment time'],
+          'You can cancel at no charge up to 24 hours before your appointment. To move it, book a new time and we will cancel the old one, or reply to your confirmation.',
+          $4, 'all', $6, $6),
+         ($2, 'Booking a haircut',
+          ARRAY['Can I book a haircut?', 'How do I make an appointment?', 'I want to book an appointment'],
+          'You can request a time online and we will confirm it shortly. Haircuts take about 45 minutes.',
+          $5, 'customer', $6, $6),
+         ($3, 'Ways to pay',
+          ARRAY['How can I pay?', 'What payment methods do you accept?', 'Can I pay by bank transfer?', 'Do you take cash?'],
+          'We accept card (at the front desk or with our online payment link), bank transfer with your customer number as the reference, and cash at every location.',
+          $7, 'all', $6, $6)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        ans.reschedule,
+        ans.bookHaircut,
+        ans.waysToPay,
+        JSON.stringify([{ type: 'book', service_id: null }, { type: 'article', article_id: art.reschedule }]),
+        JSON.stringify([{ type: 'book', service_id: S.services.haircut }]),
+        S.users.ada,
+        JSON.stringify([{ type: 'article', article_id: art.payments }]),
+      ],
     );
 
     await client.query('COMMIT');

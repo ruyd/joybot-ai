@@ -49,6 +49,8 @@ async function newConversation(app: INestApplication, who: { type: 'employee' | 
 }
 
 const citedIds = (sse: Sse) => (sse.of('citations')[0] ?? []).map((c: { id: string }) => c.id);
+/** Lookups the question chose (the knowledge search runs for every question). */
+const lookups = (sse: Sse) => (sse.of('sources')[0] ?? []).filter((s: { tool: string }) => s.tool !== 'search_knowledge');
 
 /** Model stand-in: plans whatever the test scripts, answers like the evidence-only provider. */
 class ScriptedProvider implements LlmProvider {
@@ -146,7 +148,7 @@ describe('chat (evidence-only model)', () => {
   it('employees get their own schedule and worklists', async () => {
     const id = await newConversation(app, employee(U.lia));
     const schedule = await chat(app, employee(U.lia), id, "What's on my schedule this week?");
-    expect(schedule.of('sources')[0]).toEqual([expect.objectContaining({ tool: 'get_my_schedule' })]);
+    expect(lookups(schedule)).toEqual([expect.objectContaining({ tool: 'get_my_schedule' })]);
     const transfers = await chat(app, employee(U.sam), await newConversation(app, employee(U.sam)), 'Any overdue bank transfers?');
     expect(transfers.of('citations')[0][0].title).toMatch(/bank transfer — pending \(overdue\)/);
   });
@@ -156,7 +158,13 @@ describe('chat (evidence-only model)', () => {
     const sse = await chat(app, customer(C.pat), id, 'How much is a haircut?');
     const messageId = sse.of('done')[0].messageId;
     const traces = (await migrator.query(`SELECT principal_id, tool, status FROM app.retrieval_traces WHERE message_id = $1`, [messageId])).rows;
-    expect(traces).toEqual([{ principal_id: C.pat, tool: 'list_services', status: 'ok' }]);
+    expect(traces).toEqual(
+      expect.arrayContaining([
+        { principal_id: C.pat, tool: 'list_services', status: 'ok' },
+        { principal_id: C.pat, tool: 'search_knowledge', status: expect.any(String) },
+      ]),
+    );
+    expect(traces).toHaveLength(2);
   });
 
   it('conversations are private to their owner', async () => {
@@ -262,7 +270,7 @@ describe('chat (model tool calling)', () => {
       { tool: 'list_services', args: {} },
     ];
     const sse = await chat(app, customer(C.maria), id, 'Tell me about John');
-    expect(sse.of('sources')[0]).toEqual([
+    expect(lookups(sse)).toEqual([
       { tool: 'list_payments', status: 'error', records: 0 },
       { tool: 'list_services', status: 'ok', records: expect.any(Number) },
     ]);

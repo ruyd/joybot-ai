@@ -1,13 +1,17 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
-import { Can, CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Can, CurrentPrincipal, CustomersOnly, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import {
   AppointmentsService,
   createAppointmentSchema,
   listAppointmentsSchema,
+  requestAppointmentSchema,
+  reviewRequestSchema,
   updateAppointmentSchema,
   type CreateAppointment,
   type ListAppointments,
+  type RequestAppointment,
+  type ReviewRequest,
   type UpdateAppointment,
 } from './appointments.service';
 
@@ -20,6 +24,36 @@ export class AppointmentsController {
   @Can('read', 'appointments')
   list(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(listAppointmentsSchema)) q: ListAppointments) {
     return this.appointments.list(p, q);
+  }
+
+  /** Review page: customer booking requests waiting for confirmation. */
+  @Get('requests')
+  @EmployeesOnly()
+  @Can('update', 'appointments')
+  requests(@CurrentPrincipal() p: Principal) {
+    return this.appointments.requests(p);
+  }
+
+  /** Customers request an appointment for themselves (self-booking page). */
+  @Post('requests')
+  @CustomersOnly()
+  request(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(requestAppointmentSchema)) body: RequestAppointment) {
+    return this.appointments.request(p, body);
+  }
+
+  @Post(':id/withdraw')
+  @HttpCode(200)
+  @CustomersOnly()
+  withdraw(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.appointments.withdraw(p, id);
+  }
+
+  @Post(':id/review')
+  @HttpCode(200)
+  @EmployeesOnly()
+  @Can('update', 'appointments')
+  review(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(reviewRequestSchema)) body: ReviewRequest) {
+    return this.appointments.review(p, id, body);
   }
 
   @Get(':id')
