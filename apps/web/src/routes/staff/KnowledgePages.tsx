@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
 import { useApi } from '../../lib/api';
@@ -72,6 +72,11 @@ const TABS = [
 /** Admin: what the assistant knows (saved answers, help articles) and a preview of what it finds. */
 export function Knowledge() {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>('answers');
+  const [params] = useSearchParams();
+  // ?answer=<id> (e.g. from a chat source) opens that answer.
+  useEffect(() => {
+    if (params.get('answer')) setTab('answers');
+  }, [params]);
   return (
     <Page>
       <PageHeader
@@ -102,6 +107,7 @@ export function Knowledge() {
 
 function Answers() {
   const api = useApi();
+  const [urlParams, setUrlParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [audience, setAudience] = useState<'' | Audience>('');
   const [active, setActive] = useState<'' | 'true' | 'false'>('');
@@ -109,6 +115,20 @@ function Answers() {
   const [offset, setOffset] = useState(0);
   const [editing, setEditing] = useState<Answer | 'new' | null>(null);
   const term = useDebounced(q.trim());
+
+  const requested = urlParams.get('answer');
+  useEffect(() => {
+    if (!requested) return;
+    let live = true;
+    api
+      .get<Answer>(`/answers/${requested}`)
+      .then((a) => live && setEditing(a))
+      .catch(() => undefined) // deleted since: just show the list
+      .finally(() => live && setUrlParams({}, { replace: true }));
+    return () => {
+      live = false;
+    };
+  }, [requested, api, setUrlParams]);
 
   // A new search or filter starts from the first page.
   useEffect(() => setOffset(0), [term, audience, active, sort]);

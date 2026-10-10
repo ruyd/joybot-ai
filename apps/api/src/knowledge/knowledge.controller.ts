@@ -174,6 +174,16 @@ export class KnowledgeController {
     });
   }
 
+  /** One answer for the editor (e.g. opened from a chat source). */
+  @Get('answers/:id')
+  @EmployeesOnly()
+  @Can('update', 'knowledge')
+  async answer(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    const row = await this.db.as(p, async (db) => (await db.query(`SELECT ${ANSWER_COLUMNS} FROM core.answers WHERE id = $1`, [id])).rows[0]);
+    if (!row) throw new NotFoundException();
+    return row;
+  }
+
   @Post('answers')
   @EmployeesOnly()
   @Can('create', 'knowledge')

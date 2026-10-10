@@ -40,7 +40,9 @@ export function evidenceBlock(evidence: Evidence[]): string {
       .filter(([, v]) => v !== null && v !== undefined && v !== '')
       .map(([k, v]) => `${k}: ${String(v).replace(/[<>]/g, '')}`)
       .join('; ');
-    return `<record n="${i + 1}" type="${e.type}" id="${e.id}">${e.title.replace(/[<>]/g, '')}. ${fields}</record>`;
+    // Saved answers are identified internally by UUID: not something to show or repeat.
+    const id = e.type === 'answer' ? '' : ` id="${e.id}"`;
+    return `<record n="${i + 1}" type="${e.type}"${id}>${e.title.replace(/[<>]/g, '')}. ${fields}</record>`;
   });
   return `<records>\n${lines.join('\n')}\n</records>`;
 }

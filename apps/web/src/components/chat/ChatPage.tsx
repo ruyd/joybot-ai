@@ -211,6 +211,14 @@ function ActionButtons({ actions, audience, onFollow }: { actions: SuggestedActi
 
 const EXTERNAL_LABEL: Record<string, string> = { payment: 'receipt', ticket: 'Freshdesk' };
 
+/** What to show after a source's title: its record number, or what kind of source it is. */
+function sourceLabel(c: Citation): string | null {
+  if (c.type === 'answer') return 'saved answer';
+  if (c.type === 'article') return 'help article';
+  if (c.type === 'balance') return null;
+  return c.id;
+}
+
 function Sources({ citations, onFollow }: { citations: Citation[]; onFollow?: () => void }) {
   return (
     <details className="text-xs text-slate-500">
@@ -229,7 +237,7 @@ function Sources({ citations, onFollow }: { citations: Citation[]; onFollow?: ()
               ) : (
                 <span className="text-slate-700 dark:text-slate-300">{c.title}</span>
               )}{' '}
-              <span className="text-slate-400">· {c.id}</span>
+              {sourceLabel(c) && <span className="text-slate-400">· {sourceLabel(c)}</span>}
               {c.url && (
                 <>
                   {' · '}
