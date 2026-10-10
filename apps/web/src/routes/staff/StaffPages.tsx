@@ -456,7 +456,7 @@ interface Settings {
 export function Admin() {
   return (
     <Page>
-      <PageHeader title="Admin" />
+      <PageHeader title="Settings" description="Business settings, Stripe sync and employees." />
       <div className="grid gap-4 lg:grid-cols-2">
         <SettingsCard />
         <StripeCard />

@@ -1,12 +1,12 @@
-import { lazy, Suspense } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
 import { useSession, type Audience } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ThemeToggle, UserMenu } from './HeaderControls';
 import { useMe } from '../lib/me';
 import { Button, ErrorBanner, Spinner } from './ui';
 
-export interface NavItem {
+export interface NavLinkItem {
   to: string;
   label: string;
   end?: boolean;
@@ -14,6 +14,89 @@ export interface NavItem {
   can?: [string, string];
   /** Only shown for this role. */
   role?: string;
+}
+
+/** A dropdown of links; shown when at least one of them is. */
+export interface NavGroup {
+  label: string;
+  items: NavLinkItem[];
+}
+
+export type NavItem = NavLinkItem | NavGroup;
+
+const navClass = (active: boolean) =>
+  `whitespace-nowrap rounded-lg px-3 py-1.5 text-sm ${
+    active ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900'
+  }`;
+
+/**
+ * Dropdown in the main nav. The nav scrolls sideways on narrow screens, which would clip an
+ * absolutely positioned menu, so the menu is fixed under the button instead.
+ */
+function NavMenu({ group }: { group: NavGroup }) {
+  const location = useLocation();
+  const [open, setOpen] = useState<{ top: number; left: number } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const active = group.items.some((i) => matchPath({ path: i.to, end: !!i.end }, location.pathname));
+
+  useEffect(() => setOpen(null), [location.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return;
+      if (e instanceof PointerEvent && (button.current?.contains(e.target as Node) || menu.current?.contains(e.target as Node))) return;
+      setOpen(null);
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (open) return setOpen(null);
+    const r = button.current!.getBoundingClientRect();
+    setOpen({ top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - 216)) });
+  };
+  return (
+    <>
+      <button ref={button} type="button" aria-haspopup="menu" aria-expanded={!!open} onClick={toggle} className={`${navClass(active)} inline-flex items-center gap-1`}>
+        {group.label}
+        <svg viewBox="0 0 20 20" className="size-4" fill="currentColor" aria-hidden>
+          <path d="M5.5 7.5 10 12l4.5-4.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          style={{ top: open.top, left: open.left }}
+          className="fixed z-40 w-52 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-800 dark:bg-slate-900"
+        >
+          {group.items.map((i) => (
+            <NavLink
+              key={i.to}
+              to={i.to}
+              end={i.end}
+              role="menuitem"
+              className={({ isActive }) =>
+                `block rounded-md px-3 py-2 text-sm ${isActive ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`
+              }
+            >
+              {i.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </>
+  );
 }
 
 // Loaded after the page itself, so the markdown renderer stays out of the first bundle.
@@ -53,22 +136,19 @@ export function Layout({
           <span className="font-semibold">{title}</span>
         </div>
         <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto">
-          {nav
-            .filter((n) => (!n.can || can(n.can[0], n.can[1])) && (!n.role || n.role === me?.role))
-            .map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.end}
-                className={({ isActive }) =>
-                  `whitespace-nowrap rounded-lg px-3 py-1.5 text-sm ${
-                    isActive ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900'
-                  }`
-                }
-              >
+          {nav.map((n) => {
+            const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role);
+            if ('items' in n) {
+              const items = n.items.filter(shown);
+              return items.length ? <NavMenu key={n.label} group={{ ...n, items }} /> : null;
+            }
+            if (!shown(n)) return null;
+            return (
+              <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => navClass(isActive)}>
                 {n.label}
               </NavLink>
-            ))}
+            );
+          })}
         </nav>
         <div className="flex items-center gap-1">
           <ThemeToggle />
