@@ -8,7 +8,7 @@ export interface DbPrincipal {
 }
 
 /** Where a write came from; recorded in core.change_log.changed_via. */
-export type ChangeVia = 'api' | 'chat' | 'worker' | 'stripe_webhook' | 'cognito' | 'seed' | 'test';
+export type ChangeVia = 'api' | 'chat' | 'mcp' | 'worker' | 'stripe_webhook' | 'cognito' | 'seed' | 'test';
 
 /**
  * Runs `fn` inside a transaction whose RLS context is the given principal.

@@ -39,6 +39,8 @@ import { StripeController } from './stripe/stripe.controller';
 import { StripeSecrets } from './stripe/stripe-secrets';
 import { INVOICE_CHECKOUT, StripeInvoiceCheckout } from './invoices/checkout';
 import { InvoicesController } from './invoices/invoices.controller';
+import { McpController } from './mcp/mcp.controller';
+import { TokensController } from './mcp/tokens.controller';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
 
 @Module({})
@@ -69,6 +71,8 @@ export class AppModule {
         SchedulesController,
         TeamController,
         InvoicesController,
+        TokensController,
+        McpController,
         KnowledgeController,
         PaymentsController,
         UsersController,

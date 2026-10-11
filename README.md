@@ -81,6 +81,18 @@ Sample principals (IDs are in [packages/db/src/seed.ts](packages/db/src/seed.ts)
 | Rita `customer:4…05` | customer | Restricted record |
 | Pat `customer:4…06` | customer, LA | Phone only (no email) |
 
+## Claude access (MCP)
+
+Admins can let Claude read their business's data through a read-only [Model Context Protocol](https://modelcontextprotocol.io) endpoint at `/api/mcp` (Streamable HTTP, stateless).
+
+1. **Settings → Claude access (MCP)** → create a token (7 days to 1 year). It is shown once; only its hash is stored.
+2. Connect Claude, using the commands the page shows:
+   - **Claude Code:** `claude mcp add --transport http joybot https://<your app>/api/mcp --header "Authorization: Bearer jbt_…"`
+   - **Claude Desktop:** an `mcp-remote` entry in `claude_desktop_config.json`.
+3. Ask, for example, "who has overdue invoices?" or "what's on Sam's calendar this week?".
+
+Tools: `whoami`, `find_customers`, `get_customer`, `list_appointments`, `get_calendar`, `list_payments`, `list_pending_bank_transfers`, `list_invoices`, `list_todos`, `get_staff_schedule`, `search_knowledge`, `get_business_info`. They are all read-only and run as the admin who made the token, under the same row-level security as the app. A token stops working when it expires, is revoked (any admin can revoke any token) or its owner is no longer an active admin. Requests are limited per token (`MCP_RATE_LIMIT_PER_MINUTE`, 120 by default). Write tools and OAuth sign-in (for claude.ai connectors) are the next steps of Phase 6.
+
 ## Database roles
 
 | Role | Used by | RLS |
