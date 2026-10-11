@@ -5,7 +5,7 @@ import { DbService } from '../db/db.module';
 import type { ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
 import { planByRules, type PlannedCall } from './intents';
-import { LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
+import { EvidenceOnlyProvider, LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
 import { parseRelativeRange } from './time';
 import { availableTools, ChatToolsService, toolDefinitions, validateArgs, TOOL_SPECS, type ChatScope, type Evidence, type ToolName, type ToolResult } from './tools';
 
@@ -127,7 +127,9 @@ export class ChatService {
           await this.setConversationScope(p, conversationId, scope);
           sink.event(c.kind, { id: c.id, number: c.number, name: c.label, detail: c.detail });
         } else if (exact) {
-          await this.finish(p, conversationId, "I couldn't find a customer matching that among the records you have access to.", [], [], started, sink, false);
+          const recordOnly = ids.emails.length + ids.phones.length + ids.customerNumbers.length + ids.orgNumbers.length === 0;
+          const what = !recordOnly ? 'a customer matching that' : ids.appointmentNumbers.length ? 'that appointment' : 'that payment';
+          await this.finish(p, conversationId, `I couldn't find ${what} among the records you have access to.`, [], [], started, sink, false);
           return;
         }
         // Only name-like words matched nothing (e.g. a service name): keep the current scope.
@@ -206,7 +208,15 @@ export class ChatService {
     let answer = '';
     try {
       for await (const token of this.llm.answer(
-        { audience: p.type, businessName: ctx.businessName, timeZone: ctx.timeZone, question, history: ctx.history, evidence },
+        {
+          audience: p.type,
+          businessName: ctx.businessName,
+          timeZone: ctx.timeZone,
+          question,
+          history: ctx.history,
+          evidence,
+          lookups: results.filter(({ call }) => call.tool !== 'search_knowledge').map(({ call, result }) => ({ what: lookupLabel(call), found: result.evidence.length })),
+        },
         sink.signal,
       )) {
         answer += token;
@@ -217,6 +227,14 @@ export class ChatService {
       this.logger.error(`answer failed: ${(err as Error).message}`);
       sink.event('error', { message: 'The assistant is unavailable right now. Please try again shortly.' });
       if (!answer) return;
+    }
+
+    // Gemma occasionally spends its whole budget thinking and returns no text: list the records instead.
+    if (!answer.trim() && !sink.signal.aborted) {
+      for await (const token of new EvidenceOnlyProvider().answer({ audience: p.type, businessName: ctx.businessName, timeZone: ctx.timeZone, question, history: [], evidence })) {
+        answer += token;
+        sink.event('token', { text: token });
+      }
     }
 
     await this.finish(p, conversationId, answer, evidence, results, started, sink, true, scope, actions);
@@ -483,4 +501,34 @@ export function linkFor(p: Principal, e: Evidence): string | null {
     default:
       return null; // saved answers have no page for customers
   }
+}
+
+const LOOKUP_LABELS: Record<ToolName, string> = {
+  get_customer_profile: 'profile',
+  list_appointments: 'appointments',
+  get_appointment: 'appointment by number',
+  list_payments: 'payments',
+  get_payment: 'payment by number',
+  get_balance: 'balance',
+  list_services: 'services',
+  list_locations: 'locations',
+  get_my_schedule: 'own schedule',
+  list_pending_bank_transfers: 'pending bank transfers',
+  list_unmatched_stripe_payments: 'unmatched Stripe payments',
+  get_organization: 'organization',
+  list_organization_members: 'organization members',
+  list_tickets: 'support tickets',
+  get_ticket: 'support ticket by number',
+  search_knowledge: 'saved answers and articles',
+  search_customers: 'customer search',
+};
+
+/** "appointments, upcoming, for the dates asked" for the answer prompt (no raw UTC times: the model would quote them). */
+function lookupLabel(call: PlannedCall): string {
+  const a = call.args;
+  const parts = [LOOKUP_LABELS[call.tool]];
+  if (a.upcoming_only) parts.push('upcoming');
+  if (a.overdue_only) parts.push('overdue only');
+  if (a.from || a.to) parts.push('for the dates asked');
+  return parts.join(', ');
 }

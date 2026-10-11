@@ -73,6 +73,18 @@ describe('intent rules', () => {
     expect(planByRules('How much is a haircut?', customer).map((c) => c.tool)).toEqual(['list_services']);
   });
 
+  it('understands casual wording', () => {
+    expect(planByRules('Am I all square with you?', customer).map((c) => c.tool)).toEqual(['get_balance']);
+    expect(planByRules('How did I settle up for my last haircut?', customer).map((c) => c.tool)).toEqual(['list_payments']);
+    expect(planByRules('Has support gotten back to me?', customer).map((c) => c.tool)).toEqual(['list_tickets']);
+    expect(planByRules('What payment methods do you support?', customer).map((c) => c.tool)).toEqual(['list_payments']);
+    const staff = { audience: 'employee' as const, hasCustomerScope: false, hasOrgScope: false };
+    expect(planByRules('Who am I seeing in the next few days?', staff).map((c) => c.tool)).toEqual(['get_my_schedule']);
+    expect(planByRules('Who still has not paid by transfer?', staff).map((c) => c.tool)).toEqual(['list_pending_bank_transfers']);
+    expect(planByRules('Any card payments we could not match to a customer?', staff).map((c) => c.tool)).toEqual(['list_unmatched_stripe_payments']);
+    expect(planByRules('What does my team have scheduled with you?', { ...customer, hasOrgScope: true }).map((c) => c.tool)).toEqual(['list_appointments']);
+  });
+
   it('gives employees their schedule and worklists', () => {
     const staff = { audience: 'employee' as const, hasCustomerScope: false, hasOrgScope: false };
     expect(planByRules("What's on my schedule tomorrow?", staff).map((c) => c.tool)).toEqual(['get_my_schedule']);

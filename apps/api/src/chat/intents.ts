@@ -20,29 +20,29 @@ export function planByRules(
   const range = ctx.range ? { from: ctx.range.from, to: ctx.range.to } : {};
   const calls: PlannedCall[] = [];
 
-  if (ctx.audience === 'employee' && has(t, /\bmy (schedule|appointments|day|calendar)\b|\bam i (booked|busy|working)\b/)) {
+  if (ctx.audience === 'employee' && has(t, /\bmy (schedule|appointments|day|calendar)\b|\bam i (booked|busy|working)\b|\bwho am i (seeing|with)\b|\bwho('s| is) coming in\b/)) {
     calls.push({ tool: 'get_my_schedule', args: range });
   }
-  if (ctx.audience === 'employee' && has(t, /\b(pending|overdue|unreceived|outstanding) (bank )?transfers?\b|\btransfers?\b.*\b(pending|overdue|outstanding)\b/)) {
+  if (ctx.audience === 'employee' && has(t, /\b(pending|overdue|unreceived|outstanding) (bank )?transfers?\b|\btransfers?\b.*\b(pending|overdue|outstanding)\b|\b(not|n't) (yet )?(paid|sent|received)\b.*\btransfers?\b/)) {
     calls.push({ tool: 'list_pending_bank_transfers', args: { overdue_only: has(t, /\boverdue\b/) } });
   }
-  if (ctx.audience === 'employee' && has(t, /\bunmatched\b.*\b(stripe|payments?)\b|\bunassigned payments?\b/)) {
+  if (ctx.audience === 'employee' && has(t, /\bunmatched\b.*\b(stripe|payments?)\b|\bunassigned payments?\b|\bpayments?\b.*\b(could ?n[o']t|not|n't)( be)? match/)) {
     calls.push({ tool: 'list_unmatched_stripe_payments', args: {} });
   }
   if (calls.length > 0) return calls;
 
   const customerScoped = ctx.audience === 'customer' || ctx.hasCustomerScope || ctx.hasOrgScope;
   if (customerScoped) {
-    if (has(t, /\b(appointment|appointments|booking|booked|schedule|visit|session)s?\b/)) {
+    if (has(t, /\b(appointment|appointments|booking|booked|schedule|scheduled|visit|session)s?\b/)) {
       calls.push({ tool: 'list_appointments', args: { ...range, upcoming_only: !ctx.range && has(t, /\b(next|upcoming|coming|future)\b/) } });
     }
-    if (has(t, /\b(owe|balance|outstanding|unpaid|due)\b/)) {
+    if (has(t, /\b(owe|owed|owing|balance|outstanding|unpaid|due)\b|\b(all )?square\b|\bpaid up\b|\bin the clear\b/)) {
       calls.push({ tool: 'get_balance', args: {} });
     }
-    if (has(t, /\b(pay|paid|payment|payments|charge|charged|refund|refunded|transfer|receipt|card)\b/)) {
+    if (has(t, /\b(pay|paid|payment|payments|charge|charged|refund|refunded|transfer|receipt|card|settle|settled)\b/)) {
       calls.push({ tool: 'list_payments', args: range });
     }
-    if (has(t, /\b(tickets?|support (cases?|requests?)|cases?|complaints?|issues?)\b/)) {
+    if (has(t, /\b(tickets?|support (cases?|requests?|team)|cases?|complaints?|issues?)\b|\b(got(ten)?|get|heard|hear) back (to|from)\b/)) {
       const ticketNo = /#(\d{1,12})\b/.exec(t);
       calls.push(ticketNo ? { tool: 'get_ticket', args: { ticket_id: ticketNo[1] } } : { tool: 'list_tickets', args: {} });
     }

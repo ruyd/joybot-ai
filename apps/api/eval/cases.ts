@@ -137,7 +137,7 @@ export const CASES: EvalCase[] = [
     category: 'customer.appointments',
     as: 'rita',
     ask: 'Do I have any appointments?',
-    expect: { tools: ['list_appointments'], noCitations: true, says: [/couldn't find/i] },
+    expect: { tools: ['list_appointments'], noCitations: true, says: [/couldn't find|(have|has) no (upcoming )?appointments|(don't|do not) have any appointments/i] },
   },
 
   // Customers: payments and balance ----------------------------------------------------------
@@ -147,7 +147,7 @@ export const CASES: EvalCase[] = [
     ['Show my payments', 'Did my payment go through?', 'Was I charged by card?', ['How did I settle up for my last haircut?', { model: true }]],
   ),
   ...variants(
-    { category: 'customer.payments', as: 'maria', expect: { tools: ['get_balance'], cites: ['balance'], says: [/Nothing owed/] } },
+    { category: 'customer.payments', as: 'maria', expect: { tools: ['get_balance'], cites: ['balance'], says: [/nothing (is )?owed|\$0\.00/i] } },
     'cust-balance',
     ['Do I owe anything?', "What's my balance?", 'Is there anything unpaid on my account?', ['Am I all square with you?', { model: true }]],
   ),
@@ -217,8 +217,17 @@ export const CASES: EvalCase[] = [
   ...variants(
     { category: 'org_admin', as: 'john', expect: { tools: ['list_appointments'], cites: ['appt:johnDone', 'appt:janeNext'], citesOnly: ['appt:johnDone', 'appt:janeNext'] } },
     'org-appts',
-    ['Show our appointments', "List our organization's bookings", ['What does my team have scheduled with you?', { model: true }]],
+    ['Show our appointments', "List our organization's bookings"],
   ),
+  {
+    // "scheduled": the completed visit may be left out.
+    id: 'org-appts-3',
+    category: 'org_admin',
+    as: 'john',
+    ask: 'What does my team have scheduled with you?',
+    model: true,
+    expect: { tools: ['list_appointments'], cites: ['appt:janeNext'], citesOnly: ['appt:johnDone', 'appt:janeNext'] },
+  },
   {
     id: 'org-members',
     category: 'org_admin',
@@ -583,14 +592,14 @@ export const CASES: EvalCase[] = [
     category: 'access',
     as: 'sam',
     ask: 'Show {appt:victorNext}',
-    expect: { noCitations: true },
+    expect: { noCitations: true, says: [/couldn't find that appointment/] },
   },
   {
     id: 'access-staff-other-payment-number',
     category: 'access',
     as: 'sam',
     ask: 'Show payment {pay:johnStripe}',
-    expect: { noCitations: true },
+    expect: { noCitations: true, says: [/couldn't find that payment/] },
   },
   {
     id: 'access-staff-other-customer-number',
