@@ -43,6 +43,8 @@ import { INVOICE_CHECKOUT, StripeInvoiceCheckout } from './invoices/checkout';
 import { InvoicesController } from './invoices/invoices.controller';
 import { InvoicesService } from './invoices/invoices.service';
 import { AuditController } from './audit/audit.controller';
+import { SiteController } from './website/site.controller';
+import { WebsiteController } from './website/website.controller';
 import { McpController } from './mcp/mcp.controller';
 import { TokensController } from './mcp/tokens.controller';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
@@ -78,6 +80,8 @@ export class AppModule {
         TokensController,
         McpController,
         AuditController,
+        WebsiteController,
+        SiteController,
         KnowledgeController,
         PaymentsController,
         UsersController,

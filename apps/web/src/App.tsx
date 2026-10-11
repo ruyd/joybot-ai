@@ -7,7 +7,6 @@ import { Spinner } from './components/ui';
 import { LoadingMark } from './lib/loading';
 import { SessionProvider } from './lib/auth';
 import { AuthCallback } from './routes/AuthCallback';
-import { Landing } from './routes/Landing';
 
 /**
  * After a deploy, an open tab may ask for page chunks that no longer exist (new hashes): reload once
@@ -72,6 +71,10 @@ const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
 const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
 const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeAccessPage');
+const site = () => import('./routes/site/SitePages');
+const SiteLayout = page(site, 'SiteLayout');
+const SitePageView = page(site, 'SitePageView');
+const WebsitePage = page(() => import('./routes/staff/WebsitePages'), 'WebsitePage');
 const AuditLogPage = page(() => import('./routes/staff/AuditLog'), 'AuditLogPage');
 const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'EmployeesPage');
 const staffInvoices = () => import('./routes/staff/InvoicePages');
@@ -116,6 +119,10 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
   { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
   {
+    label: 'Marketing',
+    items: [{ to: '/staff/website', label: 'Website', can: ['read', 'website'] }],
+  },
+  {
     label: 'Admin',
     items: [
       { to: '/staff/employees', label: 'Employees', can: ['read', 'users'] },
@@ -133,7 +140,11 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Landing />} />
+          {/* The public website: "/" is the home page, "/:slug" any other published page. */}
+          <Route path="/" element={<SiteLayout />}>
+            <Route index element={<SitePageView home />} />
+            <Route path=":slug" element={<SitePageView />} />
+          </Route>
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route
             path="/portal/invite"
@@ -197,6 +208,7 @@ export function App() {
             <Route path="admin" element={<Admin />} />
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="audit" element={<AuditLogPage />} />
+            <Route path="website" element={<WebsitePage />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
             <Route path="profile" element={<StaffProfile />} />

@@ -41,9 +41,11 @@ const LABEL = `coalesce(
     WHEN 'locations' THEN (SELECT name FROM core.locations WHERE id = p.row_id::uuid)
     WHEN 'organizations' THEN (SELECT name FROM core.organizations WHERE id = p.row_id::uuid)
     WHEN 'api_tokens' THEN (SELECT name FROM app.api_tokens WHERE id = p.row_id::uuid)
+    WHEN 'site_pages' THEN (SELECT title FROM core.site_pages WHERE id = p.row_id::uuid)
+    WHEN 'site_assets' THEN (SELECT filename FROM core.site_assets WHERE id = p.row_id::uuid)
   END,
   p.diff->>'invoice_number', p.diff->>'appointment_number', p.diff->>'payment_number', p.diff->>'customer_number',
-  p.diff->>'title', p.diff->>'name', nullif(concat_ws(' ', p.diff->>'first_name', p.diff->>'last_name'), ''))`;
+  p.diff->>'title', p.diff->>'name', p.diff->>'filename', nullif(concat_ws(' ', p.diff->>'first_name', p.diff->>'last_name'), ''))`;
 
 /**
  * The change log (core.change_log, written by the audit triggers on every audited table), newest first,

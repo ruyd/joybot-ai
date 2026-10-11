@@ -43,6 +43,8 @@ const TABLE_LABEL: Record<string, string> = {
   assignments: 'Assignment',
   record_grants: 'Record access',
   api_tokens: 'Claude token',
+  site_pages: 'Website page',
+  site_assets: 'Website image',
 };
 
 /** Where a change came from (core.change_log.changed_via). */

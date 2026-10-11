@@ -478,6 +478,7 @@ const MATRIX: { resource: string; label: string; actions: string[]; scopes: read
   { resource: 'tasks', label: 'To-dos', actions: ['read', 'create', 'update', 'delete'], scopes: ['all', 'own'] },
   { resource: 'schedules', label: 'Working hours and time off', actions: ['read', 'create', 'update', 'delete'], scopes: ['all', 'own'] },
   { resource: 'knowledge', label: 'Knowledge (answers, articles)', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
+  { resource: 'website', label: 'Website', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
   { resource: 'services', label: 'Services', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
   { resource: 'locations', label: 'Locations', actions: ['read', 'create', 'update', 'delete'], scopes: ['all'] },
   { resource: 'users', label: 'Employees', actions: ['read'], scopes: ['all'] },

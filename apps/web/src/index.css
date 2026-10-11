@@ -183,3 +183,21 @@
 .prose-article ol { @apply my-2 list-decimal pl-5; }
 .prose-article a { @apply text-brand-600 underline dark:text-brand-100; }
 .prose-article strong { @apply font-semibold; }
+
+/* Website pages (HTML modules and column text). */
+.site-prose h1 { @apply mb-4 text-3xl font-semibold tracking-tight sm:text-4xl; }
+.site-prose h2 { @apply mt-8 mb-3 text-2xl font-semibold tracking-tight; }
+.site-prose h3 { @apply mt-6 mb-2 text-lg font-semibold; }
+.site-prose h4 { @apply mt-4 mb-1 font-semibold; }
+.site-prose p { @apply my-3 leading-relaxed; }
+.site-prose ul { @apply my-3 list-disc pl-6; }
+.site-prose ol { @apply my-3 list-decimal pl-6; }
+.site-prose li { @apply my-1; }
+.site-prose a { @apply font-medium text-brand-700 underline underline-offset-2 dark:text-brand-600; }
+.site-prose strong, .site-prose b { @apply font-semibold; }
+.site-prose blockquote { @apply my-4 border-l-4 border-brand-200 pl-4 italic text-slate-600 dark:border-slate-700 dark:text-slate-300; }
+.site-prose img { @apply my-4 rounded-xl; }
+.site-prose hr { @apply my-8 border-slate-200 dark:border-slate-800; }
+.site-prose table { @apply my-4 w-full text-left text-sm; }
+.site-prose th, .site-prose td { @apply border-b border-slate-200 px-3 py-2 dark:border-slate-800; }
+.site-prose > :first-child { @apply mt-0; }
