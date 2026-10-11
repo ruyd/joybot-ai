@@ -39,11 +39,16 @@ export interface LlmProvider {
   plan(input: PlanInput): Promise<PlannedToolCall[]>;
   /** Streams the grounded answer. */
   answer(input: AnswerInput, signal?: AbortSignal): AsyncIterable<string>;
+  /** Loads the model ahead of the first question (optional). */
+  warmUp?(): Promise<void>;
 }
 
 export const LLM_PROVIDER = Symbol('LLM_PROVIDER');
 
 const HISTORY_TURNS = 6;
+
+/** Turns off Gemma 4's thinking step: `reasoning_effort` for Ollama, `chat_template_kwargs` for vLLM (each ignores the other). */
+const NO_THINKING = { reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false } };
 
 /** vLLM (AWS) or Ollama (local) through the OpenAI-compatible chat completions API. */
 export class OpenAiCompatibleProvider implements LlmProvider {
@@ -56,7 +61,19 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     private readonly timeoutMs = 60_000,
     /** MODEL_DEBUG: log full requests and responses (local development only). */
     private readonly debug = false,
+    /** MODEL_THINKING: where the model may reason first (slower). */
+    private readonly thinking: 'off' | 'plan' | 'all' = 'plan',
   ) {}
+
+  private options(step: 'plan' | 'answer') {
+    return this.thinking === 'all' || (this.thinking === 'plan' && step === 'plan') ? {} : NO_THINKING;
+  }
+
+  async warmUp(): Promise<void> {
+    const started = Date.now();
+    await this.post({ model: this.model, max_tokens: 1, ...this.options('answer'), messages: [{ role: 'user', content: 'Hi' }] });
+    this.logger.log(`model ${this.model} ready (${Date.now() - started} ms)`);
+  }
 
   async plan(input: PlanInput): Promise<PlannedToolCall[]> {
     if (input.tools.length === 0) return [];
@@ -64,6 +81,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       model: this.model,
       temperature: 0,
       max_tokens: 300,
+      ...this.options('plan'),
       tools: input.tools,
       tool_choice: 'auto',
       messages: [
@@ -97,6 +115,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         model: this.model,
         temperature: 0.2,
         max_tokens: 600,
+        ...this.options('answer'),
         stream: true,
         messages: [
           { role: 'system', content: `${answerPrompt(input)}\n\n${evidenceBlock(input.evidence)}` },

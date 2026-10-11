@@ -20,6 +20,8 @@ export interface AnswerHit {
   body: string;
   actions: AnswerAction[];
   score: number;
+  /** Best trigram similarity to one of its example questions. */
+  similarity: number;
 }
 
 export interface PassageHit {
@@ -37,6 +39,11 @@ export interface PassageHit {
  * appointments?" against "How do I cancel an appointment?" up to 0.50.
  */
 const QUESTION_SIMILARITY = 0.55;
+/**
+ * A saved answer this close to one of its example questions is the reply itself: chat sends its
+ * text without asking the model. Measured: rewordings 0.74+, look-alikes up to 0.54.
+ */
+export const DIRECT_ANSWER_SIMILARITY = 0.7;
 /** A second answer is kept only when it scores this close to the best one (avoids stray buttons). */
 const RUNNER_UP = 0.75;
 /** Normalized ts_rank_cd (rank / (rank + 1)) a passage needs to be offered. */
@@ -94,7 +101,8 @@ export async function searchKnowledge(
     await db.query<AnswerHit>(
       `SELECT a.id, a.title, a.body, a.actions,
               greatest((SELECT max(similarity(lower($1), lower(x))) FROM unnest(a.questions) x),
-                       ts_rank_cd(a.search, websearch_to_tsquery('english', $1), 32)) AS score
+                       ts_rank_cd(a.search, websearch_to_tsquery('english', $1), 32)) AS score,
+              coalesce((SELECT max(similarity(lower($1), lower(x))) FROM unnest(a.questions) x), 0) AS similarity
          FROM core.answers a
         WHERE a.active AND a.audience IN ($4, 'all')
           -- Keywords count when at least two of them match: one shared word ("appointment") is not enough.
