@@ -464,11 +464,10 @@ interface Settings {
 export function Admin() {
   return (
     <Page>
-      <PageHeader title="Settings" description="Business settings, Stripe sync and employees." />
+      <PageHeader title="Settings" description="Business settings and Stripe sync." />
       <div className="grid gap-4 lg:grid-cols-2">
         <SettingsCard />
         <StripeCard />
-        <EmployeesCard />
       </div>
     </Page>
   );
@@ -605,65 +604,6 @@ function StripeCard() {
         </dl>
       )}
       {reconcile.error && <ErrorBanner error={reconcile.error} />}
-    </Card>
-  );
-}
-
-interface Employee {
-  id: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  role: string;
-  active: boolean;
-  has_login: boolean;
-}
-
-function EmployeesCard() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  const q = useQuery({ queryKey: ['employees'], queryFn: () => api.get<Employee[]>('/admin/users?include_inactive=true') });
-  const [form, setForm] = useState({ first_name: '', last_name: '', email: '', role: 'staff' });
-  const add = useMutation({
-    mutationFn: () => api.post('/admin/users', form),
-    onSuccess: () => {
-      setForm({ first_name: '', last_name: '', email: '', role: 'staff' });
-      void queryClient.invalidateQueries({ queryKey: ['employees'] });
-    },
-  });
-  return (
-    <Card title="Employees" className="lg:col-span-2">
-      {q.data && (
-        <Table head={['Name', 'Email', 'Role', 'Status']}>
-          {q.data.map((u) => (
-            <tr key={u.id}>
-              <Td>{u.first_name} {u.last_name}</Td>
-              <Td>{u.email}</Td>
-              <Td>{u.role}</Td>
-              <Td>{!u.active ? <Badge tone="red">inactive</Badge> : u.has_login ? <Badge tone="green">active</Badge> : <Badge tone="amber">invited</Badge>}</Td>
-            </tr>
-          ))}
-        </Table>
-      )}
-      <form
-        className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_1.5fr_8rem_auto] sm:items-end"
-        onSubmit={(e) => {
-          e.preventDefault();
-          add.mutate();
-        }}
-      >
-        <Field label="First name"><Input required value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
-        <Field label="Last name"><Input required value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
-        <Field label="Email"><Input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-        <Field label="Role">
-          <Select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            <option value="staff">Staff</option>
-            <option value="admin">Admin</option>
-          </Select>
-        </Field>
-        <Button type="submit" disabled={add.isPending}>Invite</Button>
-      </form>
-      {add.error && <div className="mt-2"><ErrorBanner error={add.error} /></div>}
     </Card>
   );
 }
