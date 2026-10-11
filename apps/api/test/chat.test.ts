@@ -130,6 +130,22 @@ describe('chat (evidence-only model)', () => {
     expect(citedIds(follow).every((n: string) => maria.payments.includes(n))).toBe(true);
   });
 
+  it('"any customers named …?" lists the matches instead of asking which one', async () => {
+    const lookalike = (await api(app, employee(U.ada)).post('/api/customers', { first_name: 'Maria', last_name: 'Lopes', email: 'maria.lopes.search@example.com' }).expect(201)).body;
+    try {
+      const id = await newConversation(app, employee(U.ada));
+      const sse = await chat(app, employee(U.ada), id, 'do we have any customers named Maria?');
+      expect(sse.of('disambiguation')).toEqual([]);
+      expect(sse.of('customer')).toEqual([]); // nothing pinned
+      expect(lookups(sse).map((l: { tool: string }) => l.tool)).toEqual(['search_customers']);
+      const cited = sse.of('citations')[0] as { id: string; link: string }[];
+      expect(cited.map((c) => c.id)).toEqual(expect.arrayContaining(['C-10001', lookalike.customer_number]));
+      expect(cited.find((c) => c.id === lookalike.customer_number)?.link).toBe(`/staff/customers/${lookalike.id}`);
+    } finally {
+      await migrator.query('DELETE FROM core.customers WHERE id = $1', [lookalike.id]);
+    }
+  });
+
   it('choosing from "which one?" answers the question instead of asking again', async () => {
     const lookalike = (await api(app, employee(U.ada)).post('/api/customers', { first_name: 'Maria', last_name: 'Lopes', email: 'maria.lopes.chat@example.com' }).expect(201)).body;
     try {

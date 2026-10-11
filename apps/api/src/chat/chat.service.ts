@@ -4,7 +4,7 @@ import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
 import { DIRECT_ANSWER_SIMILARITY, type ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
-import { planByRules, type PlannedCall } from './intents';
+import { customerSearch, planByRules, type PlannedCall } from './intents';
 import { EvidenceOnlyProvider, LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
 import { parseRelativeRange } from './time';
 import { availableTools, ChatToolsService, toolDefinitions, validateArgs, TOOL_SPECS, type ChatScope, type Evidence, type ToolName, type ToolResult } from './tools';
@@ -113,7 +113,8 @@ export class ChatService implements OnApplicationBootstrap {
         organizationId: ctx.conversation.active_organization_id ?? undefined,
       };
       const ids = extractIdentifiers(question);
-      if (hasIdentifiers(ids)) {
+      // "Any customers named Maria?" lists the matches instead of asking which one.
+      if (hasIdentifiers(ids) && !customerSearch(question)) {
         sink.event('status', { message: 'Looking up the customer…' });
         let candidates = await this.resolve(p, ids);
         // Already chose one of these (e.g. picked from a "which one?" list): keep it instead of asking again.
@@ -166,6 +167,8 @@ export class ChatService implements OnApplicationBootstrap {
     // Asked by number: that record, not the whole list (the model would mix them up).
     if (ids.appointmentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_appointments');
     if (ids.paymentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_payments');
+    const searchFor = p.type === 'employee' ? customerSearch(question) : undefined;
+    if (searchFor) calls = [{ tool: 'search_customers', args: { query: searchFor } }];
     for (const n of ids.appointmentNumbers) calls.push({ tool: 'get_appointment', args: { appointment_number: n } });
     for (const n of ids.paymentNumbers) calls.push({ tool: 'get_payment', args: { payment_number: n } });
 

@@ -63,3 +63,19 @@ export function planByRules(
   }
   return calls;
 }
+
+/**
+ * "Do we have any customers named Maria?", "find customers called park": a search that lists every
+ * match, not a question about one customer (which would ask "which one did you mean?"). Returns the
+ * name searched for.
+ */
+export function customerSearch(text: string): string | undefined {
+  const searching =
+    /\b(customers?|clients?|anyone|anybody|someone|people)\b.{0,20}\b(named|called|with the (first |last )?name)\b/i.test(text) ||
+    /\b(find|search( for)?|look ?up|list)\b.{0,15}\b(customers?|clients?)\b/i.test(text);
+  if (!searching) return undefined;
+  const name =
+    /\b(?:named|called|name)\s+["“]?([\p{L}'’.-]+(?:\s+[\p{L}'’.-]+){0,2}?)["”]?\s*(?:[?.!,]|$)/iu.exec(text)?.[1] ??
+    /\b(?:customers?|clients?)\s+(?:named|called|like)?\s*([\p{L}'’.-]{2,}(?:\s+[\p{L}'’.-]+){0,2}?)\s*(?:[?.!,]|$)/iu.exec(text)?.[1];
+  return name && name.length >= 2 ? name.trim() : undefined;
+}

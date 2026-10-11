@@ -397,6 +397,21 @@ export const CASES: EvalCase[] = [
 
   // Resolution -----------------------------------------------------------------------------------
   {
+    // A search, not a question about one customer: list the matches, no "which one?".
+    id: 'resolve-search-by-name',
+    category: 'resolution',
+    as: 'ada',
+    ask: 'Do we have any customers named Maria?',
+    expect: { tools: ['search_customers'], cites: ['cust:maria'], says: [/Maria Lopez/] },
+  },
+  {
+    id: 'access-staff-search-restricted',
+    category: 'access',
+    as: 'sam',
+    ask: 'Are there any customers called Rita?',
+    expect: { tools: ['search_customers'], noCitations: true },
+  },
+  {
     id: 'resolve-ambiguous-name',
     category: 'resolution',
     as: 'ada',

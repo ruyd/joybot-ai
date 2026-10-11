@@ -656,6 +656,7 @@ export class ChatToolsService {
                FROM core.customers
               WHERE customer_number = upper($1) OR email = $1 OR phone = $1
                  OR (coalesce(first_name, '') || ' ' || coalesce(last_name, '')) % $1
+                 OR first_name ILIKE $1 || '%' OR last_name ILIKE $1 || '%'
               ORDER BY similarity(coalesce(first_name, '') || ' ' || coalesce(last_name, ''), $1) DESC
               LIMIT 10`,
             [a.query],

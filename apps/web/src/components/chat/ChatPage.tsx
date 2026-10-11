@@ -163,17 +163,25 @@ export function MessageView({
       {message.candidates && message.candidates.length > 0 && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a match">
           {message.candidates.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => onChoose(c)}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-left text-sm hover:border-brand-500 dark:border-slate-700"
-            >
-              <span className="block font-medium">{c.label}</span>
-              <span className="block text-xs text-slate-500">
-                {c.number}
-                {c.detail ? ` · ${c.detail}` : ''}
-              </span>
-            </button>
+            <div key={c.id} className="flex items-stretch rounded-lg border border-slate-300 text-sm hover:border-brand-500 dark:border-slate-700">
+              <button onClick={() => onChoose(c)} title={`Answer about ${c.label}`} className="px-3 py-2 text-left">
+                <span className="block font-medium">{c.label}</span>
+                <span className="block text-xs text-slate-500">
+                  {c.number}
+                  {c.detail ? ` · ${c.detail}` : ''}
+                </span>
+              </button>
+              {audience === 'employee' && c.kind === 'customer' && (
+                <Link
+                  to={`/staff/customers/${c.id}`}
+                  onClick={onAction}
+                  aria-label={`Open ${c.label}'s record`}
+                  className="flex items-center border-l border-slate-200 px-3 text-xs font-medium text-brand-600 hover:bg-brand-50 hover:underline dark:border-slate-800 dark:hover:bg-slate-800"
+                >
+                  Open
+                </Link>
+              )}
+            </div>
           ))}
         </div>
       )}
