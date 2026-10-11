@@ -445,6 +445,7 @@ interface Settings {
   bank_transfer_due_days: number;
   chat_daily_limit_customer: number;
   chat_daily_limit_employee: number;
+  team_chat_retention: number;
   whatsapp_enabled: boolean;
   whatsapp_phone_number_id: string | null;
   whatsapp_otp_template: string | null;
@@ -506,6 +507,9 @@ function SettingsCard() {
             <Input type="number" min={1} value={v.chat_daily_limit_employee} onChange={(e) => set({ chat_daily_limit_employee: Number(e.target.value) })} />
           </Field>
         </div>
+        <Field label="Team chat: messages kept per channel" hint="Older messages are deleted as new ones arrive (10–10,000)">
+          <Input type="number" min={10} max={10000} value={v.team_chat_retention} onChange={(e) => set({ team_chat_retention: Number(e.target.value) })} />
+        </Field>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={v.stripe_enabled} onChange={(e) => set({ stripe_enabled: e.target.checked })} /> Stripe sync enabled
         </label>

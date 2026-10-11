@@ -24,6 +24,7 @@ import { HealthController } from './health/health.controller';
 import { MeController } from './me/me.controller';
 import { SchedulesController } from './schedules/schedules.controller';
 import { TasksController } from './tasks/tasks.controller';
+import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
 import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
@@ -64,6 +65,7 @@ export class AppModule {
         AppointmentsController,
         TasksController,
         SchedulesController,
+        TeamController,
         KnowledgeController,
         PaymentsController,
         UsersController,

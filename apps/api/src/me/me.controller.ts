@@ -11,6 +11,9 @@ const employeeProfileSchema = z
     last_name: z.string().trim().min(1).max(100),
     /** IANA name, or null to use the location or business default. */
     time_zone: z.string().min(1).max(64).nullable(),
+    /** Team chat: play a sound / show a toast when a message arrives. */
+    chat_sound: z.boolean(),
+    chat_toast: z.boolean(),
   })
   .partial()
   .strict();
@@ -26,7 +29,7 @@ export class MeController {
       const profile =
         p.type === 'employee'
           ? (await db.query(
-              `SELECT id, employee_number, first_name, last_name, email, role, home_location_id, time_zone
+              `SELECT id, employee_number, first_name, last_name, email, role, home_location_id, time_zone, chat_sound, chat_toast
                  FROM core.users WHERE id = $1`,
               [p.id],
             )).rows[0]
@@ -40,7 +43,7 @@ export class MeController {
     });
   }
 
-  /** Employees edit their own name and time zone (customers use PUT /me in ProfileController). */
+  /** Employees edit their own name, time zone and chat preferences (customers use PUT /me in ProfileController). */
   @Put('employee')
   @EmployeesOnly()
   async updateEmployee(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(employeeProfileSchema)) body: z.infer<typeof employeeProfileSchema>) {

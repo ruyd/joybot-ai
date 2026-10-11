@@ -28,15 +28,15 @@ export function ThemeToggle() {
   );
 }
 
-function initials(me: Me) {
+export function initials(me: Me) {
   const p = me.profile;
   const letters = `${p.first_name?.[0] ?? ''}${p.last_name?.[0] ?? ''}`.toUpperCase();
   return letters || '?';
 }
 
-const ROLE_LABEL: Record<Me['role'], string> = { admin: 'Admin', staff: 'Staff', org_admin: 'Organization admin', customer: 'Customer' };
+export const ROLE_LABEL: Record<Me['role'], string> = { admin: 'Admin', staff: 'Staff', org_admin: 'Organization admin', customer: 'Customer' };
 
-/** Avatar with initials; opens a menu with "Profile & preferences" and sign-out. */
+/** Customers' avatar menu: "Profile & preferences" and sign-out (staff get the TeamDrawer). */
 export function UserMenu({ me, base }: { me: Me; base: string }) {
   const session = useSession();
   const [open, setOpen] = useState(false);

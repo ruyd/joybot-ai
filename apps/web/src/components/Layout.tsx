@@ -3,6 +3,7 @@ import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
 import { useSession, type Audience } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ThemeToggle, UserMenu } from './HeaderControls';
+import { TeamDrawer } from './team/TeamDrawer';
 import { useMe } from '../lib/me';
 import { BrandMark } from './BrandMark';
 import { Button, ErrorBanner, Spinner } from './ui';
@@ -155,7 +156,7 @@ export function Layout({
         </nav>
         <div className="flex items-center gap-1">
           <ThemeToggle />
-          {me && <UserMenu me={me} base={base} />}
+          {me && (me.type === 'employee' ? <TeamDrawer me={me} base={base} /> : <UserMenu me={me} base={base} />)}
         </div>
       </header>
       <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined}>
