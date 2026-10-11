@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 import type { Evidence, ToolName } from '../tools';
-import { answerPrompt, evidenceBlock, plannerPrompt } from '../prompts';
+import { answerPrompt, evidenceBlock, plannerPrompt, type Lookup } from '../prompts';
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -24,6 +24,8 @@ export interface AnswerInput {
   question: string;
   history: ChatTurn[];
   evidence: Evidence[];
+  /** What was looked up and how many records each lookup found (so empty results can be stated plainly). */
+  lookups?: Lookup[];
 }
 
 export interface PlannedToolCall {
