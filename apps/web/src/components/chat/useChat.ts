@@ -60,12 +60,21 @@ export function useChat(audience: Audience) {
         dispatch({ type: 'send', text: question, id: crypto.randomUUID() });
         const controller = new AbortController();
         abortRef.current = controller;
-        const res = await api.fetch(`/conversations/${id}/messages`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-          body: JSON.stringify({ content: question }),
-          signal: controller.signal,
-        });
+        const post = (conversation: string) =>
+          api.fetch(`/conversations/${conversation}/messages`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+            body: JSON.stringify({ content: question }),
+            signal: controller.signal,
+          });
+        let res = await post(id);
+        // The remembered conversation was deleted (another tab, or a reset): start a new one.
+        if (res.status === 404 && !forConversation) {
+          id = (await api.post<Conversation>('/conversations', {})).id;
+          setConversationId(id);
+          dispatch({ type: 'scope', scope: undefined });
+          res = await post(id);
+        }
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { message?: string };
           throw new Error(body.message ?? (res.status === 429 ? 'Too many messages — please wait a moment.' : `Request failed (${res.status})`));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractIdentifiers, normalizePhone } from '../src/chat/extraction';
-import { planByRules } from '../src/chat/intents';
+import { customerSearch, planByRules } from '../src/chat/intents';
 import { formatLocal, offsetMinutes, parseRelativeRange, zonedMidnight } from '../src/chat/time';
 import { evidenceBlock } from '../src/chat/prompts';
 import { validateArgs } from '../src/chat/tools';
@@ -90,6 +90,15 @@ describe('intent rules', () => {
     expect(planByRules("What's on my schedule tomorrow?", staff).map((c) => c.tool)).toEqual(['get_my_schedule']);
     expect(planByRules('Any overdue bank transfers?', staff)).toEqual([{ tool: 'list_pending_bank_transfers', args: { overdue_only: true } }]);
     expect(planByRules('Show unmatched Stripe payments', staff).map((c) => c.tool)).toEqual(['list_unmatched_stripe_payments']);
+  });
+
+  it('tells a customer search from a question about one customer', () => {
+    expect(customerSearch('do we have any customers named Maria?')).toBe('Maria');
+    expect(customerSearch('Any clients called Daniel Park?')).toBe('Daniel Park');
+    expect(customerSearch('find customers named lopez')).toBe('lopez');
+    expect(customerSearch('Search for customer Park')).toBe('Park');
+    expect(customerSearch("Show me Maria Lopez's appointments")).toBeUndefined();
+    expect(customerSearch('Appointments for Daniel Park')).toBeUndefined();
   });
 
   it('does not run customer tools for employees without a customer in scope', () => {
