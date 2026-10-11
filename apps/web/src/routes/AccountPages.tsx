@@ -75,8 +75,40 @@ export function StaffProfile() {
           </form>
         </Card>
         <PreferenceCards />
+        <TeamChatPreferences />
       </div>
     </Page>
+  );
+}
+
+/** Team chat: a sound and/or a toast when a message arrives (saved to the account). */
+function TeamChatPreferences() {
+  const { me } = useMe();
+  const save = useSaveAccount();
+  if (!me) return null;
+  const toggle = (field: 'chat_sound' | 'chat_toast', label: string, hint: string) => (
+    <label className="flex items-start gap-3 text-sm">
+      <input
+        type="checkbox"
+        className="mt-0.5"
+        checked={me.profile[field] !== false}
+        disabled={save.isPending}
+        onChange={(e) => save.mutate({ [field]: e.target.checked })}
+      />
+      <span>
+        <span className="font-medium">{label}</span>
+        <span className="block text-slate-500">{hint}</span>
+      </span>
+    </label>
+  );
+  return (
+    <Card title="Team chat">
+      <div className="grid gap-3">
+        {toggle('chat_sound', 'Play a sound', 'A short chime when a message or notification arrives.')}
+        {toggle('chat_toast', 'Show a pop-up', 'A notice at the bottom of the screen with the message; click it to open the chat.')}
+        {save.error && <ErrorBanner error={save.error} />}
+      </div>
+    </Card>
   );
 }
 
