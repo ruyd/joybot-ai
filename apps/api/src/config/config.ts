@@ -27,6 +27,11 @@ const schema = z
     MODEL_NAME: z.string().default('gemma'),
     /** Logs every model request (prompt, evidence, history) and response (tool calls, reasoning, answer). Dev only: prompts hold customer data. */
     MODEL_DEBUG: z.enum(['true', 'false']).default('false'),
+    /**
+     * Gemma 4's thinking step. 'plan' (default): only when picking tools, which runs only when the
+     * intent rules miss; answers skip it (about 6x faster, 0.5 s instead of 3 s). 'all' or 'off'.
+     */
+    MODEL_THINKING: z.enum(['off', 'plan', 'all']).default('plan'),
     /** 'dev' trusts the x-dev-principal header — local development and tests only. */
     AUTH_MODE: z.enum(['dev', 'cognito']).default('cognito'),
     CUSTOMERS_USER_POOL_ID: z.string().optional(),

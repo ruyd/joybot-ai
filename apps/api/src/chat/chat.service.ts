@@ -1,8 +1,8 @@
-import { HttpException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger, NotFoundException, type OnApplicationBootstrap } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
-import type { ChatAction } from '../knowledge/knowledge';
+import { DIRECT_ANSWER_SIMILARITY, type ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
 import { planByRules, type PlannedCall } from './intents';
 import { EvidenceOnlyProvider, LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
@@ -29,7 +29,7 @@ const MAX_EVIDENCE = 20;
 const NAME_SIMILARITY = 0.45;
 
 @Injectable()
-export class ChatService {
+export class ChatService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
@@ -37,6 +37,11 @@ export class ChatService {
     private readonly tools: ChatToolsService,
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {}
+
+  /** Loads the model in the background so the first question does not wait for it. */
+  onApplicationBootstrap(): void {
+    this.llm.warmUp?.().catch((err: Error) => this.logger.warn(`model warm-up failed: ${err.message}`));
+  }
 
   /**
    * Questions per rolling 24 hours (settings). Checked before streaming starts, so the client gets
@@ -139,17 +144,32 @@ export class ChatService {
     // 2. Plan --------------------------------------------------------------------------------------
     const range = parseRelativeRange(question, ctx.timeZone);
     const allowed = availableTools(p, scope);
-    let calls: PlannedCall[] = planByRules(question, {
-      audience: p.type,
-      hasCustomerScope: Boolean(scope.customerId),
-      hasOrgScope: Boolean(scope.organizationId),
-      range,
-    });
+    // Saved answers and help articles are searched for every question, first: a close match to one of
+    // a saved answer's example questions makes it a how-to question, answered with the approved text.
+    const knowledge =
+      allowed.includes('search_knowledge') && question.trim().length >= 3
+        ? await this.runCall(p, scope, { tool: 'search_knowledge', args: { query: question.trim().slice(0, 500) } }, sink)
+        : undefined;
+    const strongAnswer = (knowledge?.result.answerSimilarity ?? 0) >= DIRECT_ANSWER_SIMILARITY;
+
+    // A how-to question ("Can I move my booking?") is answered by the saved answer, not by listing
+    // the records its words mention.
+    let calls: PlannedCall[] = strongAnswer
+      ? []
+      : planByRules(question, {
+          audience: p.type,
+          hasCustomerScope: Boolean(scope.customerId),
+          hasOrgScope: Boolean(scope.organizationId),
+          range,
+        });
     const ids = extractIdentifiers(question);
+    // Asked by number: that record, not the whole list (the model would mix them up).
+    if (ids.appointmentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_appointments');
+    if (ids.paymentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_payments');
     for (const n of ids.appointmentNumbers) calls.push({ tool: 'get_appointment', args: { appointment_number: n } });
     for (const n of ids.paymentNumbers) calls.push({ tool: 'get_payment', args: { payment_number: n } });
 
-    if (calls.length === 0 && allowed.length > 0) {
+    if (calls.length === 0 && allowed.length > 0 && !strongAnswer) {
       sink.event('status', { message: 'Thinking about what to look up…' });
       try {
         const planned = await this.llm.plan({
@@ -166,28 +186,10 @@ export class ChatService {
         this.logger.warn(`planner failed: ${(err as Error).message}`);
       }
     }
-    // Saved answers and help articles are searched for every question (first, so they are never cut).
-    if (allowed.includes('search_knowledge') && question.trim().length >= 3 && !calls.some((c) => c.tool === 'search_knowledge')) {
-      calls.unshift({ tool: 'search_knowledge', args: { query: question.trim().slice(0, 500) } });
-    }
-    calls = calls.filter((c) => allowed.includes(c.tool)).slice(0, MAX_TOOL_CALLS);
+    calls = calls.filter((c) => c.tool !== 'search_knowledge' && allowed.includes(c.tool)).slice(0, MAX_TOOL_CALLS - (knowledge ? 1 : 0));
 
     // 3. Retrieve ----------------------------------------------------------------------------------
-    const results = await Promise.all(
-      calls.map(async (call) => {
-        sink.event('status', { message: `Checking ${TOOL_SPECS[call.tool].requires.replace('_', ' ')}…` });
-        const t0 = Date.now();
-        let result: ToolResult;
-        try {
-          validateArgs(call.tool, call.args);
-          result = await withTimeout(this.tools.run(p, scope, call.tool, call.args), TOOL_TIMEOUT_MS);
-        } catch (err) {
-          const timedOut = (err as Error).message === 'timeout';
-          result = { evidence: [], status: 'error', note: timedOut ? 'timeout' : (err as Error).message };
-        }
-        return { call, result, ms: Date.now() - t0 };
-      }),
-    );
+    const results = [...(knowledge ? [knowledge] : []), ...(await Promise.all(calls.map((call) => this.runCall(p, scope, call, sink))))];
     const seen = new Set<string>();
     const evidence: Evidence[] = [];
     for (const { result } of results) {
@@ -206,30 +208,37 @@ export class ChatService {
 
     // 4. Answer ------------------------------------------------------------------------------------
     let answer = '';
-    try {
-      for await (const token of this.llm.answer(
-        {
-          audience: p.type,
-          businessName: ctx.businessName,
-          timeZone: ctx.timeZone,
-          question,
-          history: ctx.history,
-          evidence,
-          lookups: results.filter(({ call }) => call.tool !== 'search_knowledge').map(({ call, result }) => ({ what: lookupLabel(call), found: result.evidence.length })),
-        },
-        sink.signal,
-      )) {
-        answer += token;
-        sink.event('token', { text: token });
+    // A how-to question that matched a saved answer strongly gets the approved text as written.
+    const approved = strongAnswer && calls.length === 0 ? evidence.findIndex((e) => e.type === 'answer') : -1;
+    if (approved >= 0) {
+      answer = `${String(evidence[approved].fields.approved_answer)} [${approved + 1}]`;
+      sink.event('token', { text: answer });
+    } else {
+      try {
+        for await (const token of this.llm.answer(
+          {
+            audience: p.type,
+            businessName: ctx.businessName,
+            timeZone: ctx.timeZone,
+            question,
+            history: ctx.history,
+            evidence,
+            lookups: results.filter(({ call }) => call.tool !== 'search_knowledge').map(({ call, result }) => ({ what: lookupLabel(call), found: result.evidence.length })),
+          },
+          sink.signal,
+        )) {
+          answer += token;
+          sink.event('token', { text: token });
+        }
+      } catch (err) {
+        if (sink.signal.aborted) return;
+        this.logger.error(`answer failed: ${(err as Error).message}`);
+        sink.event('error', { message: 'The assistant is unavailable right now. Please try again shortly.' });
+        if (!answer) return;
       }
-    } catch (err) {
-      if (sink.signal.aborted) return;
-      this.logger.error(`answer failed: ${(err as Error).message}`);
-      sink.event('error', { message: 'The assistant is unavailable right now. Please try again shortly.' });
-      if (!answer) return;
     }
 
-    // Gemma occasionally spends its whole budget thinking and returns no text: list the records instead.
+    // Gemma occasionally returns no text (e.g. its budget went on thinking): list the records instead.
     if (!answer.trim() && !sink.signal.aborted) {
       for await (const token of new EvidenceOnlyProvider().answer({ audience: p.type, businessName: ctx.businessName, timeZone: ctx.timeZone, question, history: [], evidence })) {
         answer += token;
@@ -241,6 +250,20 @@ export class ChatService {
   }
 
   // ---------------------------------------------------------------------------------------------
+
+  private async runCall(p: Principal, scope: ChatScope, call: PlannedCall, sink: ChatSink): Promise<{ call: PlannedCall; result: ToolResult; ms: number }> {
+    sink.event('status', { message: `Checking ${TOOL_SPECS[call.tool].requires.replace('_', ' ')}…` });
+    const t0 = Date.now();
+    let result: ToolResult;
+    try {
+      validateArgs(call.tool, call.args);
+      result = await withTimeout(this.tools.run(p, scope, call.tool, call.args), TOOL_TIMEOUT_MS);
+    } catch (err) {
+      const timedOut = (err as Error).message === 'timeout';
+      result = { evidence: [], status: 'error', note: timedOut ? 'timeout' : (err as Error).message };
+    }
+    return { call, result, ms: Date.now() - t0 };
+  }
 
   private async finish(
     p: Principal,

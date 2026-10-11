@@ -57,6 +57,7 @@ class ScriptedProvider implements LlmProvider {
   readonly name = 'scripted';
   next: PlannedToolCall[] = [];
   lastPlan?: PlanInput;
+  lastAnswer?: AnswerInput;
   private readonly fallback = new EvidenceOnlyProvider();
   async plan(input: PlanInput) {
     this.lastPlan = input;
@@ -65,6 +66,7 @@ class ScriptedProvider implements LlmProvider {
     return calls;
   }
   answer(input: AnswerInput) {
+    this.lastAnswer = input;
     return this.fallback.answer(input);
   }
 }
@@ -318,5 +320,28 @@ describe('chat (model tool calling)', () => {
       { tool: 'list_services', status: 'ok', records: expect.any(Number) },
     ]);
     expect(sse.of('citations')[0].every((c: { type: string }) => c.type === 'service')).toBe(true);
+  });
+
+  it('answers a close match to a saved answer with its approved text, without the model', async () => {
+    const id = await newConversation(app, customer(C.maria));
+    model.lastPlan = model.lastAnswer = undefined;
+    const sse = await chat(app, customer(C.maria), id, 'Can I move my booking?');
+    expect(model.lastPlan).toBeUndefined();
+    expect(model.lastAnswer).toBeUndefined();
+    expect(lookups(sse)).toEqual([]);
+    expect(sse.text).toBe('You can cancel at no charge up to 24 hours before your appointment. To move it, book a new time and we will cancel the old one, or reply to your confirmation. [1]');
+    expect(sse.of('citations')[0][0]).toMatchObject({ type: 'answer' });
+    expect(sse.of('actions')[0].map((a: { type: string }) => a.type)).toContain('book');
+
+    // A question that merely looks like one still goes to the model.
+    await chat(app, customer(C.maria), id, 'Do I have any appointments?');
+    expect((model.lastAnswer as AnswerInput | undefined)?.question).toBe('Do I have any appointments?');
+  });
+
+  it('a record asked for by number is looked up alone, not with the whole list', async () => {
+    const id = await newConversation(app, customer(C.maria));
+    const sse = await chat(app, customer(C.maria), id, 'Show payment P-2026-999999');
+    expect(lookups(sse).map((l: { tool: string }) => l.tool)).toEqual(['get_payment']);
+    expect(model.lastAnswer?.lookups).toEqual([{ what: 'payment by number', found: 0 }]);
   });
 });

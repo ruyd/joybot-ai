@@ -24,4 +24,5 @@ if up; then
   exit 0
 fi
 
-exec ollama serve
+# Keep the model loaded between questions (Ollama unloads it after 5 idle minutes; reloading takes ~10 s).
+OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:--1} exec ollama serve

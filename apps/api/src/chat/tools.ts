@@ -58,6 +58,8 @@ export interface ToolResult {
   note?: string;
   /** Buttons from matched saved answers and articles (search_knowledge). */
   actions?: ChatAction[];
+  /** search_knowledge: the best answer's similarity to one of its example questions. */
+  answerSimilarity?: number;
 }
 
 interface ToolSpec {
@@ -327,7 +329,12 @@ export class ChatToolsService {
         fields: { article: s.title, section: s.heading, text: s.body },
       })),
     ];
-    return { evidence, status: evidence.length ? 'ok' : 'empty', actions: await actionsFor(db, answers, passages, p.type) };
+    return {
+      evidence,
+      status: evidence.length ? 'ok' : 'empty',
+      actions: await actionsFor(db, answers, passages, p.type),
+      answerSimilarity: answers[0] ? Number(answers[0].similarity) : undefined,
+    };
   }
 
   /** Freshdesk tools: same ownership checks as the API (reader role), private notes for staff only. */
