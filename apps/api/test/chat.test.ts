@@ -65,9 +65,13 @@ class ScriptedProvider implements LlmProvider {
     this.next = [];
     return calls;
   }
+  /** Scripted answer text (otherwise answers like the evidence-only provider). */
+  nextAnswer?: string;
   answer(input: AnswerInput) {
     this.lastAnswer = input;
-    return this.fallback.answer(input);
+    const text = this.nextAnswer;
+    this.nextAnswer = undefined;
+    return text === undefined ? this.fallback.answer(input) : (async function* () { yield text; })();
   }
 }
 
@@ -352,6 +356,27 @@ describe('chat (model tool calling)', () => {
     // A question that merely looks like one still goes to the model.
     await chat(app, customer(C.maria), id, 'Do I have any appointments?');
     expect((model.lastAnswer as AnswerInput | undefined)?.question).toBe('Do I have any appointments?');
+  });
+
+  it('replaces an answer that states details no record contains with the record list', async () => {
+    const id = await newConversation(app, customer(C.maria));
+    model.nextAnswer = 'You have a massage on 2023-10-27 at 10:00 AM [1].';
+    const sse = await chat(app, customer(C.maria), id, 'When is my next appointment?');
+    expect(sse.of('replace')).toHaveLength(1);
+    const replaced = sse.of('replace')[0].text as string;
+    expect(replaced).toMatch(/^Here is what I found:/);
+    expect(replaced).not.toMatch(/massage|2023/);
+    // The stored message is the corrected one.
+    const stored = (await api(app, customer(C.maria)).get(`/api/conversations/${id}/messages`).expect(200)).body;
+    expect(stored.at(-1).content).toBe(replaced);
+  });
+
+  it('a customer search is answered with the matches, not by the model', async () => {
+    const id = await newConversation(app, employee(U.ada));
+    model.lastAnswer = undefined;
+    const sse = await chat(app, employee(U.ada), id, 'find customer rita reyes');
+    expect(model.lastAnswer).toBeUndefined();
+    expect(sse.text).toBe('Found 1 customer matching "rita reyes":\n\n- Rita Reyes · C-10005 · rita@example.com [1]');
   });
 
   it('a record asked for by number is looked up alone, not with the whole list', async () => {

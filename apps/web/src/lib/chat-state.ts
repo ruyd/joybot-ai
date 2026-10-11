@@ -104,6 +104,8 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
           return updateLast(state, (m) => ({ ...m, actions: d }));
         case 'token':
           return updateLast(state, (m) => ({ ...m, content: m.content + d.text, status: undefined }));
+        case 'replace': // the server rejected the streamed answer (not supported by the records)
+          return updateLast(state, (m) => ({ ...m, content: d.text, status: undefined }));
         case 'error':
           return updateLast(state, (m) => ({ ...m, error: d.message, status: undefined }));
         case 'done':
