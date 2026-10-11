@@ -59,7 +59,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **External services:**
   - Clients are injectable tokens (`JWT_VERIFIERS`, `EMPLOYEE_LOGINS`, `CUSTOMER_LOGINS`, `LLM_PROVIDER`, `MESSAGE_SENDER`), so tests can override them.
   - In dev, messages are logged rather than sent.
-- **MCP (`apps/api/src/mcp/`):** `POST /api/mcp`, authenticated by an admin's personal access token (`app.api_tokens`, sha256 only), not the app's sign-in. Tools run as that admin through the existing services or SQL under RLS; never add a raw-SQL tool. Queries made while handling it are marked `via = 'mcp'` (`requestVia` in `db.module.ts`). Tools are read-only for now: mark any future write tool `destructiveHint` and require confirmation for irreversible ones.
+- **MCP (`apps/api/src/mcp/`):** `POST /api/mcp`, authenticated by an admin's personal access token (`app.api_tokens`, sha256 only), not the app's sign-in. Tools run as that admin through the existing services or SQL under RLS; never add a raw-SQL tool. Queries made while handling it are marked `via = 'mcp'` (`requestVia` in `db.module.ts`). Read tools are in `mcp.tools.ts`; write tools (`mcp.write-tools.ts`, `read_write` tokens only) validate with the API's own Zod schemas and call the shared services (`TasksService`, `InvoicesService`, `SchedulesService`, `AppointmentsService`, `PaymentsService`). Anything hard to undo uses `gate()`: a preview plus a single-use confirmation in `app.mcp_confirmations`, and `destructiveHint` when it destroys or cancels.
 
 ### Product constraints from the owner
 - us-east-1 only, with one AWS Organization.

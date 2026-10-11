@@ -11,6 +11,7 @@ import type { PaymentsService } from '../payments/payments.service';
 export interface ToolContext {
   principal: Principal;
   tokenName: string;
+  scope: 'read' | 'read_write';
   db: DbService;
   appointments: AppointmentsService;
   payments: PaymentsService;
@@ -63,7 +64,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
     const [s] = await sql<{ business_name: string; default_time_zone: string; default_currency: string }>(
       'SELECT business_name, default_time_zone, default_currency FROM core.settings WHERE id = 1',
     );
-    return { acting_as: { ...me, role: p.role }, business: s, token: { name: ctx.tokenName, scope: 'read-only' } };
+    return { acting_as: { ...me, role: p.role }, business: s, token: { name: ctx.tokenName, scope: ctx.scope === 'read_write' ? 'read and write' : 'read-only' } };
   });
 
   tool(
@@ -228,17 +229,28 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   });
 }
 
-function json(data: unknown): CallToolResult {
+export function json(data: unknown): CallToolResult {
   return { content: [{ type: 'text', text: JSON.stringify(data, null, 1) }] };
 }
 
-/** Tool errors go back to Claude as text (it can correct its call), without internal details. */
-function failure(err: unknown): CallToolResult {
-  const message =
-    err instanceof HttpException
-      ? err.message
-      : err instanceof Error && !('code' in err)
-        ? err.message
-        : 'The request could not be completed (check the ids and filters).';
-  return { isError: true, content: [{ type: 'text', text: message }] };
+/**
+ * Tool errors go back to Claude as text it can act on: the API's own error (with details such as
+ * conflicting appointments), validation issues, or a database rule's message; never internals.
+ */
+export function failure(err: unknown): CallToolResult {
+  const text = (t: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text: t }] });
+  if (err instanceof HttpException) {
+    const r = err.getResponse();
+    if (typeof r === 'object' && r) {
+      const { statusCode: _s, ...rest } = r as Record<string, unknown>;
+      return text(JSON.stringify(rest));
+    }
+    return text(err.message);
+  }
+  if (err instanceof z.ZodError) return text(`Invalid arguments: ${err.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ')}`);
+  const code = (err as { code?: string }).code;
+  if (code === '42501') return text('Not allowed: the token’s admin may not change that record');
+  if (code === '23514' || code === '23505' || code === 'P0001') return text((err as Error).message);
+  if (err instanceof Error && !code) return text(err.message);
+  return text('The request could not be completed (check the ids and arguments).');
 }

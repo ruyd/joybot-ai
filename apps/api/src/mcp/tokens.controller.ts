@@ -9,6 +9,8 @@ const createSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
     expires_in_days: z.number().int().min(1).max(365).default(90),
+    /** 'read_write' adds the write tools (with confirmations for what is hard to undo). */
+    scope: z.enum(['read', 'read_write']).default('read'),
   })
   .strict();
 
@@ -48,10 +50,10 @@ export class TokensController {
     return this.db.as(p, async (db) => {
       const row = (
         await db.query(
-          `INSERT INTO app.api_tokens (user_id, name, token_hash, prefix, expires_at)
-           VALUES ($1, $2, $3, $4, now() + make_interval(days => $5))
+          `INSERT INTO app.api_tokens (user_id, name, token_hash, prefix, expires_at, scope)
+           VALUES ($1, $2, $3, $4, now() + make_interval(days => $5), $6)
            RETURNING id, name, prefix, scope, created_at, expires_at`,
-          [p.id, body.name, hash, token.slice(0, 12), body.expires_in_days],
+          [p.id, body.name, hash, token.slice(0, 12), body.expires_in_days, body.scope],
         )
       ).rows[0];
       return { ...row, token };
