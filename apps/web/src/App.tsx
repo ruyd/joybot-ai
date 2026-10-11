@@ -71,6 +71,7 @@ const Knowledge = page(() => import('./routes/staff/KnowledgePages'), 'Knowledge
 const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
 const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
+const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeAccessPage');
 const staffInvoices = () => import('./routes/staff/InvoicePages');
 const Invoices = page(staffInvoices, 'Invoices');
 const InvoicePage = page(staffInvoices, 'InvoicePage');
@@ -118,6 +119,7 @@ const STAFF_NAV: NavItem[] = [
       { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
       { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
       { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
+      { to: '/staff/claude', label: 'Claude access', role: 'admin' },
     ],
   },
 ];
@@ -179,6 +181,7 @@ export function App() {
             <Route path="todos" element={<Todos />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="claude" element={<ClaudeAccessPage />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices/:id" element={<InvoicePage />} />
             <Route path="help" element={<HelpList />} />

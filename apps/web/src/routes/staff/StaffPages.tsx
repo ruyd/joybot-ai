@@ -11,7 +11,6 @@ import { CustomerTickets } from '../portal/TicketPages';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 import { MergeCard } from './ReviewPages';
 import { AssignmentsCard, GrantsCard } from './AccessPages';
-import { McpTokensCard } from './McpTokens';
 
 
 // Customers ----------------------------------------------------------------------------------
@@ -463,15 +462,13 @@ interface Settings {
 }
 
 export function Admin() {
-  const { me } = useMe();
   return (
     <Page>
-      <PageHeader title="Settings" description="Business settings, Stripe sync, employees and Claude access." />
+      <PageHeader title="Settings" description="Business settings, Stripe sync and employees." />
       <div className="grid gap-4 lg:grid-cols-2">
         <SettingsCard />
         <StripeCard />
         <EmployeesCard />
-        {me?.role === 'admin' && <McpTokensCard />}
       </div>
     </Page>
   );

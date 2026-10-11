@@ -23,7 +23,9 @@ import { TicketsController } from './freshdesk/tickets.controller';
 import { HealthController } from './health/health.controller';
 import { MeController } from './me/me.controller';
 import { SchedulesController } from './schedules/schedules.controller';
+import { SchedulesService } from './schedules/schedules.service';
 import { TasksController } from './tasks/tasks.controller';
+import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
@@ -39,6 +41,8 @@ import { StripeController } from './stripe/stripe.controller';
 import { StripeSecrets } from './stripe/stripe-secrets';
 import { INVOICE_CHECKOUT, StripeInvoiceCheckout } from './invoices/checkout';
 import { InvoicesController } from './invoices/invoices.controller';
+import { InvoicesService } from './invoices/invoices.service';
+import { AuditController } from './audit/audit.controller';
 import { McpController } from './mcp/mcp.controller';
 import { TokensController } from './mcp/tokens.controller';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
@@ -73,6 +77,7 @@ export class AppModule {
         InvoicesController,
         TokensController,
         McpController,
+        AuditController,
         KnowledgeController,
         PaymentsController,
         UsersController,
@@ -89,6 +94,9 @@ export class AppModule {
         { provide: JWT_VERIFIERS, useFactory: () => cognitoVerifiers(config) },
         AppointmentsService,
         PaymentsService,
+        TasksService,
+        InvoicesService,
+        SchedulesService,
         WhatsAppSettingsPublisher,
         ChatToolsService,
         StripeSecrets,
