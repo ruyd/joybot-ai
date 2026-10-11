@@ -81,6 +81,11 @@ export function UserMenu({ me, base }: { me: Me; base: string }) {
             <Link role="menuitem" to={`${base}/profile`} className={item} onClick={() => setOpen(false)}>
               Profile & preferences
             </Link>
+            {base === '/staff' && (
+              <Link role="menuitem" to="/staff/schedule" className={item} onClick={() => setOpen(false)}>
+                My hours & time off
+              </Link>
+            )}
           </div>
           <div className="border-t border-slate-200 pt-1 dark:border-slate-800">
             <button role="menuitem" type="button" className={item} onClick={() => void session.signOut()}>

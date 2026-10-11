@@ -45,9 +45,15 @@ interface CalendarData {
   appointments: CalendarAppointment[];
   busy: Busy[];
   staff: Staff[];
+  /** Working hours as concrete intervals. */
+  shifts: { employee_id: string; location_id: string; starts_at: string; ends_at: string }[];
+  /** Reason only for whoever may change that schedule. */
+  time_off: { id: string; employee_id: string; starts_at: string; ends_at: string; reason: string | null }[];
+  /** Staff with working hours set: a day without shifts is a day off for them; others are unrestricted. */
+  staff_with_hours: string[];
 }
 
-/** One block on the calendar: an appointment the viewer can see, or a colleague's busy time. */
+/** One block on the calendar: an appointment the viewer can see, a colleague's busy time, or time off. */
 type Item =
   | {
       kind: 'appointment';
@@ -63,6 +69,14 @@ type Item =
       start: string;
       end: string;
       employeeId: string;
+    }
+  | {
+      kind: 'off';
+      key: string;
+      start: string;
+      end: string;
+      employeeId: string;
+      reason: string | null;
     };
 
 const HOUR_PX = 48;
@@ -130,7 +144,24 @@ export function CalendarPage() {
       end: b.scheduled_end,
       employeeId: b.employee_id,
     })),
+    ...(q.data?.time_off ?? []).map((t): Item => ({
+      kind: 'off',
+      key: `off-${t.id}`,
+      start: t.starts_at,
+      end: t.ends_at,
+      employeeId: t.employee_id,
+      reason: t.reason,
+    })),
   ];
+  /** Working intervals of one staff member on one day, in minutes; undefined when they have no hours set. */
+  const openFor = (employeeId: string, day: string): [number, number][] | undefined =>
+    q.data?.staff_with_hours.includes(employeeId)
+      ? q.data.shifts
+          .filter((sh) => sh.employee_id === employeeId)
+          .map((sh) => ({ start: sh.starts_at, end: sh.ends_at }))
+          .filter((sh) => overlapsDay(sh, day, zone))
+          .map((sh) => clip(sh, day, zone))
+      : undefined;
   const step = (n: number) =>
     set({
       date: view === 'month' ? addMonths(anchor, n) : addDays(anchor, n * (view === 'week' ? 7 : 1)),
@@ -139,7 +170,15 @@ export function CalendarPage() {
 
   return (
     <Page>
-      <PageHeader title="Calendar" description={`Appointments and staff busy times, in your time zone (${zone.replaceAll('_', ' ')}).`} />
+      <PageHeader
+        title="Calendar"
+        description={`Appointments, busy times and working hours, in your time zone (${zone.replaceAll('_', ' ')}).`}
+        actions={
+          <Link to="/staff/schedule" className="press btn-outline-gradient rounded-full px-3.5 py-1.5 text-sm font-semibold text-brand-700 dark:text-brand-600">
+            Hours &amp; time off
+          </Link>
+        }
+      />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={() => set({ date: '' })}>
           Today
@@ -211,12 +250,14 @@ export function CalendarPage() {
                   day: d,
                   items: items.filter((it) => overlapsDay(it, d, zone)),
                   onOpen: () => openDay(d),
+                  open: staffId ? openFor(staffId, d) : undefined,
                 }))
               : staffColumns(q.data, items, staffId).map((c) => ({
                   key: c.id,
                   label: staffName(c.id === UNASSIGNED ? null : c.id),
                   day: days[0],
                   items: c.items,
+                  open: c.id === UNASSIGNED ? undefined : openFor(c.id, days[0]),
                 }))
           }
           zone={zone}
@@ -237,6 +278,8 @@ interface Column {
   day: string;
   items: Item[];
   onOpen?: () => void;
+  /** Working intervals (minutes) when this column belongs to someone with hours set: the rest is shaded. */
+  open?: [number, number][];
 }
 
 function TimeGrid({ columns, zone, staffName, emptyNote }: { columns: Column[]; zone: string; staffName?: (id: string | null) => string; emptyNote?: string }) {
@@ -246,8 +289,8 @@ function TimeGrid({ columns, zone, staffName, emptyNote }: { columns: Column[]; 
   let first = 8;
   let last = 20;
   for (const c of columns) {
-    for (const it of c.items) {
-      const [s, e] = clip(it, c.day, zone);
+    // Time off (often whole days) does not widen the grid; it is cut to it below.
+    for (const [s, e] of [...c.items.filter((it) => it.kind !== 'off').map((it) => clip(it, c.day, zone)), ...(c.open ?? [])]) {
       first = Math.min(first, Math.floor(s / 60));
       last = Math.max(last, Math.ceil(e / 60));
     }
@@ -293,8 +336,19 @@ function TimeGrid({ columns, zone, staffName, emptyNote }: { columns: Column[]; 
         </div>
         {columns.map((c) => (
           <div key={c.key} className="relative border-l border-slate-200 dark:border-slate-800" style={{ height }}>
+            {c.open && (
+              <div className="absolute inset-0 bg-slate-100 dark:bg-slate-950/60" title="Outside working hours" aria-hidden="true">
+                {c.open.map(([s, e]) => (
+                  <div
+                    key={s}
+                    className="absolute inset-x-0 bg-white dark:bg-slate-900"
+                    style={{ top: ((s - first * 60) / 60) * HOUR_PX, height: ((e - s) / 60) * HOUR_PX }}
+                  />
+                ))}
+              </div>
+            )}
             {hours.map((h) => (
-              <div key={h} className="border-t border-slate-100 dark:border-slate-800/70" style={{ height: HOUR_PX }} />
+              <div key={h} className="relative border-t border-slate-100 dark:border-slate-800/70" style={{ height: HOUR_PX }} />
             ))}
             {c.day === today && minutesNow >= first * 60 && minutesNow <= last * 60 && (
               <div
@@ -306,7 +360,9 @@ function TimeGrid({ columns, zone, staffName, emptyNote }: { columns: Column[]; 
               </div>
             )}
             {layout(c.items, c.day, zone).map(({ item, lane, lanes }) => {
-              const [s, e] = clip(item, c.day, zone);
+              const [cs, ce] = clip(item, c.day, zone);
+              const s = Math.max(cs, first * 60);
+              const e = Math.min(ce, last * 60);
               const style: CSSProperties = {
                 top: ((s - first * 60) / 60) * HOUR_PX + 1,
                 height: Math.max(((e - s) / 60) * HOUR_PX - 2, 20),
@@ -325,6 +381,19 @@ function TimeGrid({ columns, zone, staffName, emptyNote }: { columns: Column[]; 
 
 function Block({ item, zone, style, staffName }: { item: Item; zone: string; style: CSSProperties; staffName?: (id: string | null) => string }) {
   const when = `${clock(item.start, zone)} – ${clock(item.end, zone)}`;
+  if (item.kind === 'off') {
+    const who = staffName?.(item.employeeId);
+    return (
+      <div
+        style={style}
+        title={`Time off${item.reason ? `: ${item.reason}` : ''}${who ? ` · ${who}` : ''}`}
+        className="absolute z-10 overflow-hidden rounded-md border border-dashed border-violet-300 bg-violet-50 px-1.5 py-0.5 text-xs text-violet-900 dark:border-violet-700 dark:bg-violet-950/60 dark:text-violet-100"
+      >
+        <p className="font-medium">Time off</p>
+        <p className="truncate">{[who, item.reason].filter(Boolean).join(' · ')}</p>
+      </div>
+    );
+  }
   if (item.kind === 'busy') {
     const who = staffName?.(item.employeeId);
     return (
@@ -441,7 +510,10 @@ function MonthGrid({
           </div>
         ))}
         {days.map((d, i) => {
-          const dayItems = items.filter((it) => dayIn(it.start, zone) === d) // on the day it starts.sort((x, y) => x.start.localeCompare(y.start));
+          // Bookings on the day they start; time off on every day it covers.
+          const dayItems = items
+            .filter((it) => (it.kind === 'off' ? overlapsDay(it, d, zone) : dayIn(it.start, zone) === d))
+            .sort((x, y) => x.start.localeCompare(y.start));
           const inMonth = d.startsWith(month);
           return (
             <div
@@ -475,6 +547,11 @@ function MonthGrid({
                         />
                         <span className="font-medium">{clock(it.start, zone)}</span> {it.a.customer_name ?? it.a.service_name}
                       </Link>
+                    ) : it.kind === 'off' ? (
+                      <p className="truncate px-1 py-0.5 text-xs text-violet-800 dark:text-violet-200" title={`Time off${it.reason ? `: ${it.reason}` : ''}`}>
+                        <span className="mr-1 inline-block size-1.5 rounded-full bg-violet-400 align-middle" />
+                        Time off · {staffName(it.employeeId)}
+                      </p>
                     ) : (
                       <p className="truncate px-1 py-0.5 text-xs text-slate-500" title="A booking you cannot open">
                         <span className="mr-1 inline-block size-1.5 rounded-full bg-slate-400 align-middle" />
@@ -515,6 +592,12 @@ function Legend() {
       <li className="flex items-center gap-1.5">
         <span className="size-3 rounded border border-slate-300 bg-[repeating-linear-gradient(135deg,var(--color-slate-100)_0_3px,var(--color-slate-300)_3px_6px)] dark:border-slate-700" />{' '}
         Busy (a colleague's booking you cannot open)
+      </li>
+      <li className="flex items-center gap-1.5">
+        <span className="size-3 rounded border border-dashed border-violet-300 bg-violet-50 dark:border-violet-700 dark:bg-violet-950/60" /> Time off
+      </li>
+      <li className="flex items-center gap-1.5">
+        <span className="size-3 rounded border border-slate-300 bg-slate-100 dark:border-slate-700 dark:bg-slate-950/60" /> Outside working hours
       </li>
     </ul>
   );
@@ -601,12 +684,12 @@ function minutesIn(iso: string, zone: string) {
   return p.hour * 60 + p.minute;
 }
 
-function overlapsDay(it: Item, day: string, zone: string) {
+function overlapsDay(it: { start: string; end: string }, day: string, zone: string) {
   return dayIn(it.start, zone) <= day && dayIn(new Date(new Date(it.end).getTime() - 1).toISOString(), zone) >= day;
 }
 
 /** [start, end] minutes of an item within one day (cut at midnight). */
-function clip(it: Item, day: string, zone: string): [number, number] {
+function clip(it: { start: string; end: string }, day: string, zone: string): [number, number] {
   const s = dayIn(it.start, zone) < day ? 0 : minutesIn(it.start, zone);
   const e = dayIn(it.end, zone) > day ? 24 * 60 : minutesIn(it.end, zone);
   return [s, Math.max(e, s + 15)];
