@@ -19,6 +19,7 @@
     "@aws-sdk/client-ssm": "^3.700.0",
     "@joybot/access": "workspace:*",
     "@joybot/db": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-express": "^11.1.0",

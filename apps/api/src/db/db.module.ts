@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Global, Inject, Injectable, Module, type OnModuleDestroy } from '@nestjs/common';
 import { withPrincipal, type ChangeVia } from '@joybot/db';
 import { Pool, types, type PoolClient } from 'pg';
@@ -6,6 +7,12 @@ import { Pool, types, type PoolClient } from 'pg';
 types.setTypeParser(types.builtins.DATE, (value) => value);
 import { APP_CONFIG, poolConfig, type AppConfig } from '../config/config';
 import type { Principal } from '../auth/principal';
+
+/**
+ * Where the current request came from, when not the web app ('mcp' for the MCP endpoint): queries
+ * made while handling it record that in the audit log without every service passing it along.
+ */
+export const requestVia = new AsyncLocalStorage<ChangeVia>();
 
 export const APP_POOL = Symbol('APP_POOL');
 export const READER_POOL = Symbol('READER_POOL');
@@ -18,8 +25,8 @@ export class DbService implements OnModuleDestroy {
   ) {}
 
   /** Back-office reads and writes as the principal (joybot_app role, RLS applies). */
-  as<T>(principal: Principal, fn: (db: PoolClient) => Promise<T>, via: ChangeVia = 'api'): Promise<T> {
-    return withPrincipal(this.appPool, principal, fn, via);
+  as<T>(principal: Principal, fn: (db: PoolClient) => Promise<T>, via?: ChangeVia): Promise<T> {
+    return withPrincipal(this.appPool, principal, fn, via ?? requestVia.getStore() ?? 'api');
   }
 
   /** Read-only chat retrieval as the principal (joybot_reader role, RLS applies). */
