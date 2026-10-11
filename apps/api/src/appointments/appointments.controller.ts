@@ -3,11 +3,13 @@ import { Can, CurrentPrincipal, CustomersOnly, EmployeesOnly, type Principal } f
 import { ZodPipe } from '../common/zod.pipe';
 import {
   AppointmentsService,
+  calendarSchema,
   createAppointmentSchema,
   listAppointmentsSchema,
   requestAppointmentSchema,
   reviewRequestSchema,
   updateAppointmentSchema,
+  type CalendarQuery,
   type CreateAppointment,
   type ListAppointments,
   type RequestAppointment,
@@ -24,6 +26,14 @@ export class AppointmentsController {
   @Can('read', 'appointments')
   list(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(listAppointmentsSchema)) q: ListAppointments) {
     return this.appointments.list(p, q);
+  }
+
+  /** Calendar page: appointments in a range, colleagues' busy times (no details) and the staff. */
+  @Get('calendar')
+  @EmployeesOnly()
+  @Can('read', 'appointments')
+  calendar(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(calendarSchema)) q: CalendarQuery) {
+    return this.appointments.calendar(p, q);
   }
 
   /** Review page: customer booking requests waiting for confirmation. */

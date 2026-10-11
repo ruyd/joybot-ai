@@ -90,7 +90,7 @@ export function Knowledge() {
             role="tab"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
-            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm ${tab === key ? 'bg-brand-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+            className={`press whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab === key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
           >
             {label}
           </button>

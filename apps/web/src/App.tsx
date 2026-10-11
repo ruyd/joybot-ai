@@ -61,6 +61,7 @@ const ArticleView = page(help, 'ArticleView');
 const BookPage = page(() => import('./routes/portal/BookPage'), 'BookPage');
 const Knowledge = page(() => import('./routes/staff/KnowledgePages'), 'Knowledge');
 const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
+const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
@@ -87,6 +88,7 @@ const PORTAL_NAV: NavItem[] = [
 
 const STAFF_NAV: NavItem[] = [
   { to: '/staff', label: 'Home', end: true },
+  { to: '/staff/calendar', label: 'Calendar', can: ['read', 'appointments'] },
   { to: '/staff/assistant', label: 'Assistant' },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
@@ -156,6 +158,7 @@ export function App() {
             <Route path="assistant" element={<ChatPage audience="employee" />} />
             <Route path="customers" element={<Customers />} />
             <Route path="todos" element={<Todos />} />
+            <Route path="calendar" element={<CalendarPage />} />
             <Route path="help" element={<HelpList />} />
             <Route path="help/:slug" element={<ArticleView />} />
             <Route path="knowledge" element={<Knowledge />} />

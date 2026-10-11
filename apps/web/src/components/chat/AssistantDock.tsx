@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { Audience } from '../../lib/auth';
 import { Button } from '../ui';
 import { Composer, MessageView, ScopeBar, Welcome } from './ChatPage';
+import { BrandMark } from '../BrandMark';
 import { useChat } from './useChat';
 
 const STORAGE_KEY = 'joybot.dock';
@@ -38,7 +39,8 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
   // Pick up the conversation from before a reload (collapsed), and remember the current one.
   useEffect(() => {
     const id = remembered(audience);
-    if (id) open(id).catch(() => remember(audience, null));
+    // Gone (deleted elsewhere): start fresh, so the stale id is not remembered again.
+    if (id) open(id).catch(() => void open(null));
   }, [audience, open]);
   useEffect(() => remember(audience, conversationId), [audience, conversationId]);
 
@@ -69,7 +71,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
           className="fixed inset-x-2 bottom-[4.5rem] z-30 flex h-[min(60dvh,32rem)] flex-col rounded-xl border border-slate-200 bg-white shadow-xl sm:inset-x-auto sm:right-4 sm:w-[28rem] dark:border-slate-800 dark:bg-slate-950"
         >
           <header className="flex items-center gap-1 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-            <img src="/favicon.svg" alt="" className="size-5" />
+            <BrandMark className="size-5" />
             <h2 className="flex-1 pl-1 text-sm font-semibold">Assistant</h2>
             <Button size="sm" variant="ghost" onClick={() => void open(null)} disabled={state.busy}>
               New chat
@@ -110,7 +112,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
             aria-controls="assistant-dock-panel"
             className="flex shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-900"
           >
-            <img src="/favicon.svg" alt="" className="size-5" />
+            <BrandMark className="size-5" />
             <span className="hidden font-medium sm:inline">Assistant</span>
             {summary && <span className="hidden text-slate-500 md:inline">· {summary}</span>}
             <span aria-hidden className="text-slate-500">{expanded ? '▾' : '▴'}</span>

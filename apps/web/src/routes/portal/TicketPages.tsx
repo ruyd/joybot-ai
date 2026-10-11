@@ -80,7 +80,7 @@ export function MyTickets() {
                   role="tab"
                   aria-selected={scope === s}
                   onClick={() => setScope(s)}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${scope === s ? 'bg-brand-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+                  className={`press rounded-full px-3 py-1.5 text-sm ${scope === s ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
                 >
                   {s === 'self' ? 'Mine' : 'Organization'}
                 </button>

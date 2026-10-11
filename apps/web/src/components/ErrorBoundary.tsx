@@ -18,7 +18,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error?: 
       <main className="mx-auto max-w-xl px-4 py-10">
         <h1 className="text-lg font-semibold">Something went wrong on this page</h1>
         <p className="mt-2 text-sm text-slate-500">Try again, or go back. If it keeps happening, let us know.</p>
-        <button className="mt-4 rounded-lg bg-brand-600 px-3 py-2 text-sm text-white" onClick={() => this.setState({ error: undefined })}>
+        <button className="press btn-gradient mt-4 rounded-full px-4 py-2 text-sm font-semibold" onClick={() => this.setState({ error: undefined })}>
           Try again
         </button>
       </main>
