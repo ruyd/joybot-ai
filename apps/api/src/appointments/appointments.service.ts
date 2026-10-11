@@ -80,6 +80,21 @@ export type ReviewRequest = z.infer<typeof reviewRequestSchema>;
 export type UpdateAppointment = z.infer<typeof updateAppointmentSchema>;
 export type ListAppointments = z.infer<typeof listAppointmentsSchema>;
 
+/** Calendar: a day, week or month (at most 45 days), optionally one location or one staff member. */
+export const calendarSchema = z
+  .object({
+    from: isoDateTime,
+    to: isoDateTime,
+    location_id: z.string().uuid().optional(),
+    employee_id: z.string().uuid().optional(),
+  })
+  .strict()
+  .refine((q) => Date.parse(q.to) > Date.parse(q.from) && Date.parse(q.to) - Date.parse(q.from) <= 45 * 86_400_000, {
+    message: 'to must be after from, at most 45 days later',
+  });
+
+export type CalendarQuery = z.infer<typeof calendarSchema>;
+
 /** Allowed status changes. Terminal statuses can only be reopened by admins. */
 const TRANSITIONS: Record<string, string[]> = {
   scheduled: ['confirmed', 'completed', 'cancelled', 'no_show'],
@@ -139,6 +154,43 @@ export class AppointmentsService {
         )
       ).rows,
     );
+  }
+
+  /**
+   * Calendar for a range: the appointments this employee can see (not cancelled), plus "busy" blocks
+   * for the rest of each staff member's bookings (times only: core.staff_busy), and the location's
+   * staff (all of them, also when one is picked, for the picker).
+   */
+  calendar(p: Principal, q: CalendarQuery) {
+    return this.db.as(p, async (db) => {
+      const appointments = (
+        await db.query(
+          `SELECT ${this.columns(p)} FROM ${FROM}
+            WHERE a.scheduled_end > $1 AND a.scheduled_start < $2 AND a.status <> 'cancelled'
+              AND ($3::uuid IS NULL OR a.location_id = $3) AND ($4::uuid IS NULL OR a.employee_id = $4)
+            ORDER BY a.scheduled_start LIMIT 1000`,
+          [q.from, q.to, q.location_id ?? null, q.employee_id ?? null],
+        )
+      ).rows;
+      const visible = new Set(appointments.map((a) => a.id));
+      const busy = (
+        await db.query<{ appointment_id: string; employee_id: string; location_id: string; scheduled_start: string; scheduled_end: string }>(
+          'SELECT * FROM core.staff_busy($1, $2, $3)',
+          [q.from, q.to, q.location_id ?? null],
+        )
+      ).rows
+        .filter((b) => !visible.has(b.appointment_id) && (!q.employee_id || b.employee_id === q.employee_id))
+        .map(({ appointment_id: _hidden, ...b }) => b);
+      const staff = (
+        await db.query(
+          `SELECT s.id, s.first_name, s.last_name FROM core.v_staff_public s
+            WHERE ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM core.user_locations ul WHERE ul.user_id = s.id AND ul.location_id = $1))
+            ORDER BY s.first_name, s.last_name`,
+          [q.location_id ?? null],
+        )
+      ).rows;
+      return { appointments, busy, staff };
+    });
   }
 
   async get(p: Principal, id: string) {
