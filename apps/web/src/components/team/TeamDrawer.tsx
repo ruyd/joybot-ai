@@ -71,6 +71,7 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
     refetchIntervalInBackground: true,
   });
   const unread = (channels.data ?? []).reduce((n, c) => n + c.unread, 0);
+  const notifications = channels.data?.find((c) => c.kind === 'notifications');
   const openChannel = view.kind === 'channel' && open ? view.id : null;
 
   // New messages since the last poll: chime and toast, unless that conversation is on screen.
@@ -185,7 +186,26 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
               </button>
             </nav>
 
-            <section aria-label="Team chat" className="flex min-h-0 flex-1 flex-col">
+            {notifications && (
+              <NotificationsRow
+                channel={notifications}
+                selected={view.kind === 'channel' && view.id === notifications.id}
+                onOpen={() => setView({ kind: 'channel', id: notifications.id })}
+              />
+            )}
+
+            {/* Team chat: a box in the logo colours (a title bar in the logo gradient, a faint tint). */}
+            <section
+              aria-labelledby="team-chat-title"
+              className="relative mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl rounded-t-md border border-[#1c9dab]/30 bg-[#67d5df]/[0.06] dark:border-[#67d5df]/25 dark:bg-[#67d5df]/[0.04]"
+            >
+              <h2 id="team-chat-title" className="logo-accent flex shrink-0 items-center gap-2 px-3 py-2 text-sm font-semibold">
+                <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 4.5h9.5v6.5H7.5L4.5 13.5V11H3z" />
+                  <path d="M12.5 7.5H17v6.5h-1.5v2.5L12.5 14H8.5v-3" />
+                </svg>
+                Team chat
+              </h2>
               {view.kind === 'channel' && channels.data?.find((c) => c.id === view.id) ? (
                 <ChannelView
                   channel={channels.data.find((c) => c.id === view.id)!}
@@ -241,6 +261,39 @@ function channelTitle(c: Channel) {
   return c.name ?? 'Direct message';
 }
 
+// Notifications -----------------------------------------------------------------------------------
+
+/** JoyBot's notices for you, above team chat: the latest one, and a bell with the unread count. */
+function NotificationsRow({ channel, selected, onOpen }: { channel: Channel; selected: boolean; onOpen: () => void }) {
+  const unread = channel.unread;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-current={selected ? 'true' : undefined}
+      aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
+      className={`press mx-3 my-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 ${selected ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className={`block text-sm ${unread ? 'font-semibold' : 'font-medium'}`}>Notifications</span>
+        <span className="block truncate text-xs text-slate-500">{channel.last_message ? channel.last_message.body : 'Nothing yet'}</span>
+      </span>
+      {channel.last_message && <span className="shrink-0 text-[11px] text-slate-500">{ago(channel.last_message.created_at)}</span>}
+      <span className={`relative flex size-8 shrink-0 items-center justify-center rounded-full ${unread ? 'logo-accent' : 'text-slate-500'}`} aria-hidden="true">
+        <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 3a4.5 4.5 0 0 0-4.5 4.5c0 3.5-1.5 5-1.5 5h12s-1.5-1.5-1.5-5A4.5 4.5 0 0 0 10 3Z" />
+          <path d="M8.5 15.5a1.5 1.5 0 0 0 3 0" />
+        </svg>
+        {unread > 0 && (
+          <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-white dark:ring-slate-900">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 // Channel list ------------------------------------------------------------------------------------
 
 function ChannelList({
@@ -261,13 +314,11 @@ function ChannelList({
   onNewGroup: () => void;
 }) {
   const sections: { title: string; kinds: Channel['kind'][]; action?: { label: string; onClick: () => void } }[] = [
-    { title: 'Notifications', kinds: ['notifications'] },
     { title: 'Channels', kinds: ['everyone', 'group'], action: { label: 'New channel', onClick: onNewGroup } },
     { title: 'Direct messages', kinds: ['direct'], action: { label: 'New message', onClick: onNewDirect } },
   ];
   return (
-    <div className="flex-1 overflow-y-auto px-2 py-3">
-      <h2 className="px-2 pb-2 text-sm font-semibold">Team chat</h2>
+    <div className="flex-1 overflow-y-auto px-2 pb-3 pt-2">
       {loading && <Spinner />}
       {error ? <ErrorBanner error={error} /> : null}
       {channels &&
