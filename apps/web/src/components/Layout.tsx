@@ -4,6 +4,7 @@ import { useSession, type Audience } from '../lib/auth';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ThemeToggle, UserMenu } from './HeaderControls';
 import { useMe } from '../lib/me';
+import { BrandMark } from './BrandMark';
 import { Button, ErrorBanner, Spinner } from './ui';
 
 export interface NavLinkItem {
@@ -25,8 +26,10 @@ export interface NavGroup {
 export type NavItem = NavLinkItem | NavGroup;
 
 const navClass = (active: boolean) =>
-  `whitespace-nowrap rounded-lg px-3 py-1.5 text-sm ${
-    active ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900'
+  `press whitespace-nowrap rounded-lg px-3 py-1.5 text-sm ${
+    active
+      ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100'
+      : 'text-slate-600 hover:bg-slate-100 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-900 dark:hover:text-brand-100'
   }`;
 
 /**
@@ -87,7 +90,7 @@ function NavMenu({ group }: { group: NavGroup }) {
               end={i.end}
               role="menuitem"
               className={({ isActive }) =>
-                `block rounded-md px-3 py-2 text-sm ${isActive ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`
+                `press block rounded-md px-3 py-2 text-sm ${isActive ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'hover:bg-slate-100 hover:text-brand-700 dark:hover:bg-slate-800 dark:hover:text-brand-100'}`
               }
             >
               {i.label}
@@ -132,10 +135,10 @@ export function Layout({
     <div className="min-h-dvh">
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
         <div className="flex items-center gap-2">
-          <img src="/favicon.svg" alt="" className="size-7" />
+          <BrandMark className="size-7" />
           <span className="font-semibold">{title}</span>
         </div>
-        <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto">
+        <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
           {nav.map((n) => {
             const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role);
             if ('items' in n) {

@@ -6,7 +6,7 @@ import type { Me } from '../lib/me';
 import { useTheme } from '../lib/theme';
 
 const iconButton =
-  'inline-flex size-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900';
+  'press inline-flex size-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-900';
 
 /** Switches between light and dark (the first click leaves "follow the system"). */
 export function ThemeToggle() {
@@ -58,7 +58,7 @@ export function UserMenu({ me, base }: { me: Me; base: string }) {
     };
   }, [open]);
 
-  const item = 'block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100 dark:hover:bg-slate-800';
+  const item = 'press block w-full rounded-md px-3 py-2 text-left text-sm hover:bg-slate-100 hover:text-brand-700 dark:hover:bg-slate-800 dark:hover:text-brand-100';
   return (
     <div ref={ref} className="relative">
       <button
@@ -67,7 +67,7 @@ export function UserMenu({ me, base }: { me: Me; base: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Account menu for ${fullName(me.profile)}`}
-        className="flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-white hover:bg-brand-700"
+        className="press flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-on-brand hover:bg-brand-700 hover:ring-4 hover:ring-brand-500/20"
       >
         {initials(me)}
       </button>

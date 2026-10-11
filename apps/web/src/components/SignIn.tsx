@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useSession } from '../lib/auth';
 import { appConfig } from '../lib/config';
+import { BrandMark } from './BrandMark';
 import { Button, Card, Field, Input, Spinner } from './ui';
 
 /** Sample principals from packages/db/src/seed.ts (local development only). */
@@ -35,7 +36,7 @@ function SignIn() {
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4">
       <div className="mb-6 flex items-center gap-2">
-        <img src="/favicon.svg" alt="" className="size-8" />
+        <BrandMark className="size-8" />
         <h1 className="text-xl font-semibold">JoyBot · {who}</h1>
       </div>
       {!dev ? (

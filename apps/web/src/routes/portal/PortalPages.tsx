@@ -73,7 +73,7 @@ export function MyAppointments() {
       <PageHeader
         title="My appointments"
         description="Times are shown in each location's time zone."
-        actions={<Link to="/portal/book" className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700">Book an appointment</Link>}
+        actions={<Link to="/portal/book" className="press btn-gradient rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm">Book an appointment</Link>}
       />
       <div className="space-y-4">
         <Card title="Upcoming">

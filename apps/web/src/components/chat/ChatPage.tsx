@@ -47,7 +47,7 @@ export function ChatPage({ audience }: { audience: Audience }) {
             <li key={c.id} className="group flex items-center">
               <button
                 onClick={() => void open(c.id)}
-                className={`flex-1 truncate rounded-lg px-3 py-2 text-left text-sm ${
+                className={`press flex-1 truncate rounded-lg px-3 py-2 text-left text-sm ${
                   c.id === conversationId ? 'bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100' : 'hover:bg-slate-100 dark:hover:bg-slate-900'
                 }`}
               >
@@ -97,7 +97,7 @@ export function Welcome({ audience, onPick }: { audience: Audience; onPick: (q: 
           <button
             key={s}
             onClick={() => onPick(s)}
-            className="rounded-full border border-slate-300 px-3 py-1.5 text-sm hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:hover:text-brand-100"
+            className="press rounded-full border border-slate-300 px-3 py-1.5 text-sm hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-brand-100"
           >
             {s}
           </button>
@@ -142,7 +142,7 @@ export function MessageView({
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm bg-brand-600 px-4 py-2 text-sm text-white">{message.content}</p>
+        <p className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-sm btn-gradient px-4 py-2 text-sm">{message.content}</p>
       </div>
     );
   }
@@ -163,8 +163,8 @@ export function MessageView({
       {message.candidates && message.candidates.length > 0 && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a match">
           {message.candidates.map((c) => (
-            <div key={c.id} className="flex items-stretch rounded-lg border border-slate-300 text-sm hover:border-brand-500 dark:border-slate-700">
-              <button onClick={() => onChoose(c)} title={`Answer about ${c.label}`} className="px-3 py-2 text-left">
+            <div key={c.id} className="flex items-stretch overflow-hidden rounded-lg border border-slate-300 text-sm transition-colors hover:border-brand-500 dark:border-slate-700">
+              <button onClick={() => onChoose(c)} title={`Answer about ${c.label}`} className="press px-3 py-2 text-left hover:bg-brand-50 dark:hover:bg-slate-800">
                 <span className="block font-medium">{c.label}</span>
                 <span className="block text-xs text-slate-500">
                   {c.number}
@@ -176,7 +176,7 @@ export function MessageView({
                   to={`/staff/customers/${c.id}`}
                   onClick={onAction}
                   aria-label={`Open ${c.label}'s record`}
-                  className="flex items-center border-l border-slate-200 px-3 text-xs font-medium text-brand-600 hover:bg-brand-50 hover:underline dark:border-slate-800 dark:hover:bg-slate-800"
+                  className="press flex items-center border-l border-slate-200 px-3 text-xs font-medium text-brand-600 hover:bg-brand-50 hover:underline dark:border-slate-800 dark:hover:bg-slate-800"
                 >
                   Open
                 </Link>
@@ -208,7 +208,7 @@ function ActionButtons({ actions, audience, onFollow }: { actions: SuggestedActi
           key={`${a.type}:${a.type === 'book' ? a.service_id : a.slug}`}
           to={actionHref(a, audience)}
           onClick={onFollow}
-          className="rounded-lg border border-brand-500 px-3 py-1.5 text-sm font-medium text-brand-700 hover:bg-brand-50 dark:text-brand-100 dark:hover:bg-slate-800"
+          className="press btn-outline-gradient rounded-full px-3.5 py-1.5 text-sm font-semibold text-brand-700 dark:text-brand-600"
         >
           {a.label}
         </Link>

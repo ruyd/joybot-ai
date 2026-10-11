@@ -5,11 +5,85 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --color-brand-50: oklch(0.97 0.02 277);
-  --color-brand-100: oklch(0.93 0.04 277);
-  --color-brand-500: oklch(0.59 0.2 277);
-  --color-brand-600: oklch(0.51 0.23 277);
-  --color-brand-700: oklch(0.46 0.21 277);
+  /* Blue to teal, after the reference buttons (#0789BF → #56A4AE), a shade deeper so white text
+     stays readable on it (5.1:1 at the blue end, 4.3:1 at the teal end). 600 is the link and flat-fill color (5.1:1 on white). */
+  --color-brand-50: #eff8fc;
+  --color-brand-100: #d8eef7;
+  --color-brand-200: #b0dcee;
+  --color-brand-300: #78c2e0;
+  --color-brand-400: #3ea6d1;
+  --color-brand-500: #0a8bc0;
+  --color-brand-600: #0878ab;
+  --color-brand-700: #066a98;
+  --color-brand-800: #0a5778;
+  --color-brand-900: #0c4762;
+  --color-brand-950: #072d40;
+  --color-brand-teal: #34868f;
+  /* Text on a brand-600 fill. */
+  --color-on-brand: #ffffff;
+}
+
+:root {
+  --grad-from: var(--color-brand-600);
+  --grad-to: var(--color-brand-teal);
+  --surface: #ffffff;
+}
+
+/* Dark mode: links and flat fills lift to a bright blue (dark text on fills); gradient buttons keep
+   the same gradient with white text. */
+.dark {
+  --color-brand-500: #38b0da;
+  --color-brand-600: #6cc8ea;
+  --color-brand-700: #9adaf2;
+  --color-on-brand: #072d40;
+  --grad-from: #0878ab;
+  --surface: #0f172a;
+}
+
+/* Buttons: a blue→teal gradient fill (primary) or a gradient outline with gradient text (secondary). */
+@utility btn-gradient {
+  color: #ffffff;
+  background-image: linear-gradient(90deg, var(--grad-from), var(--grad-to));
+  &:hover:not(:disabled) {
+    --grad-from: #066a98;
+    --grad-to: #2b7680;
+    box-shadow: 0 6px 16px -6px rgb(8 120 171 / 0.55);
+  }
+}
+@utility btn-outline-gradient {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    linear-gradient(90deg, var(--grad-from), var(--grad-to)) border-box;
+  &:hover:not(:disabled) {
+    background:
+      linear-gradient(color-mix(in oklab, var(--grad-from) 8%, var(--surface)), color-mix(in oklab, var(--grad-to) 8%, var(--surface))) padding-box,
+      linear-gradient(90deg, var(--grad-from), var(--grad-to)) border-box;
+  }
+}
+@utility text-gradient {
+  background-image: linear-gradient(90deg, var(--grad-from), var(--grad-to));
+  background-clip: text;
+  color: transparent;
+}
+.dark .text-gradient {
+  background-image: linear-gradient(90deg, #6cc8ea, #7fd0d6);
+}
+
+/* Press feedback for anything clickable: a quick shrink while held (none with reduced motion). */
+@utility press {
+  transition-property: color, background-color, border-color, box-shadow, transform, translate, filter;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+    filter: brightness(0.95);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:active:not(:disabled) {
+      transform: none;
+    }
+  }
 }
 
 @layer base {

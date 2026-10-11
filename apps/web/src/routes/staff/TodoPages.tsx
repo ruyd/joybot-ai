@@ -208,7 +208,7 @@ export function Todos() {
                   role="tab"
                   aria-selected={status === key}
                   onClick={() => setStatus(key)}
-                  className={`rounded-lg px-3 py-1 text-sm ${status === key ? 'bg-brand-600 text-white' : 'font-normal hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  className={`press rounded-full px-3 py-1 text-sm ${status === key ? 'btn-gradient font-medium' : 'font-normal hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                 >
                   {label}
                 </button>

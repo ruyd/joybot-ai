@@ -6,22 +6,25 @@ export function Button({
   variant = 'primary',
   size = 'md',
   className,
+  children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; size?: 'sm' | 'md' }) {
   return (
     <button
       {...props}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'px-2.5 py-1 text-sm' : 'px-3.5 py-2 text-sm',
-        variant === 'primary' && 'bg-brand-600 text-white hover:bg-brand-700',
-        variant === 'secondary' &&
-          'border border-slate-300 bg-white text-slate-800 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
-        variant === 'ghost' && 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
-        variant === 'danger' && 'bg-red-600 text-white hover:bg-red-700',
+        'press inline-flex items-center justify-center gap-1.5 rounded-full font-semibold disabled:cursor-not-allowed disabled:opacity-50',
+        size === 'sm' ? 'px-3 py-1 text-sm' : 'px-4.5 py-2 text-sm',
+        variant === 'primary' && 'btn-gradient shadow-sm',
+        variant === 'secondary' && 'btn-outline-gradient text-brand-700 dark:text-brand-600',
+        variant === 'ghost' && 'font-medium text-slate-600 hover:bg-slate-100 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-brand-600',
+        variant === 'danger' && 'bg-red-600 text-white shadow-sm hover:bg-red-700 hover:shadow-md hover:shadow-red-600/25',
         className,
       )}
-    />
+    >
+      {/* Outlined buttons with a text label get gradient text, like their border. */}
+      {variant === 'secondary' && typeof children === 'string' ? <span className="text-gradient">{children}</span> : children}
+    </button>
   );
 }
 
