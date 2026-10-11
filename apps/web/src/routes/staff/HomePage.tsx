@@ -224,6 +224,8 @@ function BookAppointment() {
   const [day, setDay] = useState('');
   const [clock, setClock] = useState('');
   const [conflicts, setConflicts] = useState<Conflict[] | null>(null);
+  /** Time off or outside working hours (the API's message). */
+  const [unavailable, setUnavailable] = useState<string | null>(null);
   const [booked, setBooked] = useState<string | null>(null);
   const [round, setRound] = useState(0); // remounts the customer picker (clears its search) after a booking
 
@@ -260,6 +262,7 @@ function BookAppointment() {
     onSuccess: (res) => {
       setBooked(res.appointment_number);
       setConflicts(null);
+      setUnavailable(null);
       setCustomer(null);
       setRound((r) => r + 1);
       setClock('');
@@ -267,6 +270,7 @@ function BookAppointment() {
     },
     onError: (err) => {
       if (err instanceof ApiError && err.body.code === 'employee_double_booked') setConflicts(err.body.conflicts as Conflict[]);
+      if (err instanceof ApiError && err.body.code === 'employee_unavailable') setUnavailable(err.message);
     },
   });
 
@@ -274,6 +278,7 @@ function BookAppointment() {
     e.preventDefault();
     setBooked(null);
     setConflicts(null);
+    setUnavailable(null);
     book.mutate(false);
   };
   const zone = location ? time(zonedToIso(day || todayIn(location.time_zone), clock || '12:00', location.time_zone), location.time_zone).split(' ').pop() : '';
@@ -338,7 +343,16 @@ function BookAppointment() {
             </div>
           </div>
         )}
-        {book.error && !conflicts && <ErrorBanner error={book.error} />}
+        {unavailable && !conflicts && (
+          <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
+            <p className="font-medium">{unavailable}.</p>
+            <div className="mt-2 flex gap-2">
+              <Button type="button" size="sm" onClick={() => book.mutate(true)}>Book anyway</Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setUnavailable(null)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+        {book.error && !conflicts && !unavailable && <ErrorBanner error={book.error} />}
         {booked && <p role="status" className="text-sm text-emerald-700">Booked as {booked}.</p>}
         <div>
           <Button type="submit" disabled={!customer || !location || (service && !service.duration_minutes) || book.isPending}>

@@ -62,6 +62,7 @@ const BookPage = page(() => import('./routes/portal/BookPage'), 'BookPage');
 const Knowledge = page(() => import('./routes/staff/KnowledgePages'), 'Knowledge');
 const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
+const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
@@ -159,6 +160,7 @@ export function App() {
             <Route path="customers" element={<Customers />} />
             <Route path="todos" element={<Todos />} />
             <Route path="calendar" element={<CalendarPage />} />
+            <Route path="schedule" element={<SchedulePage />} />
             <Route path="help" element={<HelpList />} />
             <Route path="help/:slug" element={<ArticleView />} />
             <Route path="knowledge" element={<Knowledge />} />

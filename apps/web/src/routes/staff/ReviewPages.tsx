@@ -140,8 +140,9 @@ function BookingRequestRow({ r }: { r: BookingRequest }) {
     },
     onError: (err) => {
       if (err instanceof ApiError && err.body.code === 'employee_double_booked') {
-        setClash((err.body.conflicts as { appointment_number: string }[]).map((c) => c.appointment_number).join(', '));
+        setClash(`That staff member is already booked then (${(err.body.conflicts as { appointment_number: string }[]).map((c) => c.appointment_number).join(', ')}).`);
       }
+      if (err instanceof ApiError && err.body.code === 'employee_unavailable') setClash(`${err.message}.`);
     },
   });
   return (
@@ -159,7 +160,7 @@ function BookingRequestRow({ r }: { r: BookingRequest }) {
         {r.notes_customer && <p className="mt-1 whitespace-pre-wrap">“{r.notes_customer}”</p>}
         {clash && (
           <div role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950">
-            That staff member is already booked then ({clash}).{' '}
+            {clash}{' '}
             <Button size="sm" onClick={() => review.mutate({ decision: 'confirm', confirm_overlap: true })}>Confirm anyway</Button>
           </div>
         )}

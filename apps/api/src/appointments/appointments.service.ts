@@ -158,8 +158,9 @@ export class AppointmentsService {
 
   /**
    * Calendar for a range: the appointments this employee can see (not cancelled), plus "busy" blocks
-   * for the rest of each staff member's bookings (times only: core.staff_busy), and the location's
-   * staff (all of them, also when one is picked, for the picker).
+   * for the rest of each staff member's bookings (times only: core.staff_busy), the location's staff
+   * (all of them, also when one is picked, for the picker), their working hours as intervals
+   * (`shifts`) and their time off.
    */
   calendar(p: Principal, q: CalendarQuery) {
     return this.db.as(p, async (db) => {
@@ -189,7 +190,30 @@ export class AppointmentsService {
           [q.location_id ?? null],
         )
       ).rows;
-      return { appointments, busy, staff };
+      // Working hours as concrete intervals, and time off (its reason only for whoever may change it).
+      const shifts = (
+        await db.query(
+          `SELECT employee_id, location_id, starts_at, ends_at FROM core.working_intervals($1, $2, $3)
+            WHERE ($4::uuid IS NULL OR employee_id = $4)`,
+          [q.from, q.to, q.location_id ?? null, q.employee_id ?? null],
+        )
+      ).rows;
+      const timeOff = (
+        await db.query(
+          `SELECT t.id, t.user_id AS employee_id, t.starts_at, t.ends_at,
+                  CASE WHEN authz.schedule_in_scope(t.user_id, 'update') THEN t.reason END AS reason
+             FROM core.time_off t
+            WHERE t.ends_at > $1 AND t.starts_at < $2 AND ($3::uuid IS NULL OR t.user_id = $3)
+            ORDER BY t.starts_at`,
+          [q.from, q.to, q.employee_id ?? null],
+        )
+      ).rows;
+      // Staff with hours set (at this location): a day without shifts is a day off for them, while
+      // staff without any hours are not restricted.
+      const withHours = (
+        await db.query<{ user_id: string }>('SELECT DISTINCT user_id FROM core.working_hours WHERE ($1::uuid IS NULL OR location_id = $1)', [q.location_id ?? null])
+      ).rows.map((r) => r.user_id);
+      return { appointments, busy, staff, shifts, time_off: timeOff, staff_with_hours: withHours };
     });
   }
 
@@ -219,7 +243,7 @@ export class AppointmentsService {
       if (end <= start) throw new BadRequestException('scheduled_end must be after scheduled_start');
 
       if (input.employee_id && !input.confirm_overlap) {
-        await this.assertNoConflicts(db, input.employee_id, start, end);
+        await this.assertNoConflicts(db, input.employee_id, input.location_id, start, end);
       }
 
       const row: Record<string, unknown> = {
@@ -275,7 +299,7 @@ export class AppointmentsService {
         changes.scheduled_start !== undefined || changes.scheduled_end !== undefined || changes.employee_id !== undefined;
       const active = (changes.status ?? current.status) === 'scheduled' || (changes.status ?? current.status) === 'confirmed';
       if (employeeId && timeOrEmployeeChanged && active && !confirm_overlap) {
-        await this.assertNoConflicts(db, employeeId, start, end, id);
+        await this.assertNoConflicts(db, employeeId, changes.location_id ?? current.location_id, start, end, id);
       }
 
       const fields: Record<string, unknown> = { ...changes };
@@ -338,7 +362,7 @@ export class AppointmentsService {
       if (input.decision === 'confirm' && employeeId) {
         await this.employeeWorksAt(db, employeeId, current.location_id);
         if (!input.confirm_overlap) {
-          await this.assertNoConflicts(db, employeeId, new Date(current.scheduled_start), new Date(current.scheduled_end), id);
+          await this.assertNoConflicts(db, employeeId, current.location_id, new Date(current.scheduled_start), new Date(current.scheduled_end), id);
         }
       }
       const res = await db.query(
@@ -386,7 +410,11 @@ export class AppointmentsService {
     if (!ok) throw new BadRequestException('Employee is inactive or does not work at this location');
   }
 
-  private async assertNoConflicts(db: PoolClient, employeeId: string, start: Date, end: Date, excludeId?: string) {
+  /**
+   * The employee is free: no other booking at that time, not on time off, and within their working
+   * hours at the location (when they have any there). Callers skip this with confirm_overlap.
+   */
+  private async assertNoConflicts(db: PoolClient, employeeId: string, locationId: string, start: Date, end: Date, excludeId?: string) {
     const conflicts = (
       await db.query('SELECT * FROM core.employee_conflicts($1, $2, $3, $4)', [
         employeeId,
@@ -401,6 +429,17 @@ export class AppointmentsService {
         code: 'employee_double_booked',
         message: 'The employee already has an appointment at this time',
         conflicts,
+      });
+    }
+    const reasons: string[] = (
+      await db.query('SELECT core.employee_unavailable($1, $2, $3, $4) AS reasons', [employeeId, locationId, start.toISOString(), end.toISOString()])
+    ).rows[0].reasons;
+    if (reasons.length > 0) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'employee_unavailable',
+        message: reasons.includes('time_off') ? 'The employee is on time off then' : 'This is outside the employee’s working hours',
+        reasons,
       });
     }
   }
