@@ -174,7 +174,7 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
                 </svg>
               </Button>
             </header>
-            <nav aria-label="Account" className="grid border-b border-slate-200 p-2 dark:border-slate-800">
+            <nav aria-label="Account" className="grid border-b border-slate-200 p-2 pb-3 dark:border-slate-800">
               <Link to={`${base}/profile`} className={item} onClick={close}>
                 Profile & preferences
               </Link>
@@ -186,18 +186,10 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
               </button>
             </nav>
 
-            {notifications && (
-              <NotificationsRow
-                channel={notifications}
-                selected={view.kind === 'channel' && view.id === notifications.id}
-                onOpen={() => setView({ kind: 'channel', id: notifications.id })}
-              />
-            )}
-
             {/* Team chat: a box in the logo colours (a title bar in the logo gradient, a faint tint). */}
             <section
               aria-labelledby="team-chat-title"
-              className="relative mx-3 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl rounded-t-md border border-[#1c9dab]/30 bg-[#67d5df]/[0.06] dark:border-[#67d5df]/25 dark:bg-[#67d5df]/[0.04]"
+              className="relative mx-3 mb-3 mt-4 flex min-h-0 flex-1 flex-col overflow-hidden rounded-b-xl rounded-t-md border border-[#1c9dab]/30 bg-[#67d5df]/[0.06] dark:border-[#67d5df]/25 dark:bg-[#67d5df]/[0.04]"
             >
               <h2 id="team-chat-title" className="logo-accent flex shrink-0 items-center gap-2 px-3 py-2 text-sm font-semibold">
                 <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -221,6 +213,7 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
               ) : (
                 <ChannelList
                   channels={channels.data}
+                  notifications={notifications}
                   myId={me.profile.id}
                   loading={channels.isLoading}
                   error={channels.error}
@@ -263,16 +256,15 @@ function channelTitle(c: Channel) {
 
 // Notifications -----------------------------------------------------------------------------------
 
-/** JoyBot's notices for you, above team chat: the latest one, and a bell with the unread count. */
-function NotificationsRow({ channel, selected, onOpen }: { channel: Channel; selected: boolean; onOpen: () => void }) {
+/** JoyBot's notices for you, at the top of team chat: the latest one, and a bell with the unread count. */
+function NotificationsRow({ channel, onOpen }: { channel: Channel; onOpen: () => void }) {
   const unread = channel.unread;
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-current={selected ? 'true' : undefined}
       aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
-      className={`press mx-3 my-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 ${selected ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+      className="press mb-3 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
     >
       <span className="min-w-0 flex-1">
         <span className={`block text-sm ${unread ? 'font-semibold' : 'font-medium'}`}>Notifications</span>
@@ -298,6 +290,7 @@ function NotificationsRow({ channel, selected, onOpen }: { channel: Channel; sel
 
 function ChannelList({
   channels,
+  notifications,
   myId,
   loading,
   error,
@@ -306,6 +299,7 @@ function ChannelList({
   onNewGroup,
 }: {
   channels?: Channel[];
+  notifications?: Channel;
   myId: string;
   loading: boolean;
   error: unknown;
@@ -321,6 +315,7 @@ function ChannelList({
     <div className="flex-1 overflow-y-auto px-2 pb-3 pt-2">
       {loading && <Spinner />}
       {error ? <ErrorBanner error={error} /> : null}
+      {notifications && <NotificationsRow channel={notifications} onOpen={() => onOpen(notifications.id)} />}
       {channels &&
         sections.map((s) => {
           const list = channels.filter((c) => s.kinds.includes(c.kind));
