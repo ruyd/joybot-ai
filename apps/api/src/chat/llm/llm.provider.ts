@@ -113,7 +113,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const res = await this.post(
       {
         model: this.model,
-        temperature: 0.2,
+        temperature: 0, // grounded answers: no variety wanted, and fewer invented details
         max_tokens: 600,
         ...this.options('answer'),
         stream: true,

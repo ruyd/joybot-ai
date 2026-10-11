@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractIdentifiers, normalizePhone } from '../src/chat/extraction';
+import { ungroundedFacts } from '../src/chat/grounding';
 import { customerSearch, planByRules } from '../src/chat/intents';
 import { formatLocal, offsetMinutes, parseRelativeRange, zonedMidnight } from '../src/chat/time';
 import { evidenceBlock } from '../src/chat/prompts';
@@ -131,5 +132,26 @@ describe('evidenceBlock', () => {
     const block = evidenceBlock([{ type: 'answer', id: 'b0000000-0000-4000-8000-000000000001', title: 'Rescheduling', fields: { approved_answer: 'Cancel 24 hours ahead.' } }]);
     expect(block).toContain('type="answer"');
     expect(block).not.toContain('b0000000-0000-4000-8000-000000000001');
+  });
+});
+
+describe('grounding check', () => {
+  const appointment = {
+    type: 'appointment' as const,
+    id: 'A-2026-000002',
+    title: 'Haircut — Mon, Oct 12, 2026, 8:06 PM EDT',
+    fields: { status: 'scheduled', price: '$50.00', payment: 'P-2026-000001' },
+  };
+  it('passes answers whose years, times, amounts and numbers come from the records', () => {
+    expect(ungroundedFacts('Your Haircut is on Monday, October 12, 2026, at 8:06 PM EDT for $50 [1].', [appointment], 'When is my next appointment?')).toEqual([]);
+    expect(ungroundedFacts('A-2026-000002 was paid with P-2026-000001 [1].', [appointment], 'Show A-2026-000002')).toEqual([]);
+    // Numbers from the question may be repeated ("I can't find P-2026-000009").
+    expect(ungroundedFacts('There are no records for payment P-2026-000009.', [], 'Show payment P-2026-000009')).toEqual([]);
+  });
+  it('flags invented details', () => {
+    const customer = { type: 'customer' as const, id: 'C-10005', title: 'Rita Reyes', fields: { status: 'active' } };
+    expect(ungroundedFacts('Rita Reyes has an appointment for a massage on 2023-10-27 at 10:00 AM [1].', [customer], 'find customer rita reyes')).toEqual(['10:00 AM', '2023']);
+    expect(ungroundedFacts('Your Haircut costs $65.00 [1].', [appointment], 'How much?')).toEqual(['$65.00']);
+    expect(ungroundedFacts('See ticket #5009 [1].', [appointment], 'Any tickets?')).toEqual(['#5009']);
   });
 });

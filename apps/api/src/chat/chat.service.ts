@@ -4,6 +4,7 @@ import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
 import { DIRECT_ANSWER_SIMILARITY, type ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
+import { ungroundedFacts } from './grounding';
 import { customerSearch, planByRules, type PlannedCall } from './intents';
 import { EvidenceOnlyProvider, LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
 import { parseRelativeRange } from './time';
@@ -216,6 +217,10 @@ export class ChatService implements OnApplicationBootstrap {
     if (approved >= 0) {
       answer = `${String(evidence[approved].fields.approved_answer)} [${approved + 1}]`;
       sink.event('token', { text: answer });
+    } else if (searchFor) {
+      // A customer search is answered with the matches themselves: the model has nothing to add.
+      answer = searchReply(searchFor, evidence);
+      sink.event('token', { text: answer });
     } else {
       try {
         for await (const token of this.llm.answer(
@@ -241,12 +246,17 @@ export class ChatService implements OnApplicationBootstrap {
       }
     }
 
-    // Gemma occasionally returns no text (e.g. its budget went on thinking): list the records instead.
-    if (!answer.trim() && !sink.signal.aborted) {
+    // Gemma occasionally returns no text, or states a year, time, amount or record number that no
+    // record contains: list the records instead (the streamed text is replaced).
+    const ungrounded = approved < 0 && !searchFor ? ungroundedFacts(answer, evidence, question) : [];
+    if ((!answer.trim() || ungrounded.length) && !sink.signal.aborted) {
+      if (ungrounded.length) this.logger.warn(`answer not supported by the records (${ungrounded.join(', ')}): replaced with the record list`);
+      let listed = '';
       for await (const token of new EvidenceOnlyProvider().answer({ audience: p.type, businessName: ctx.businessName, timeZone: ctx.timeZone, question, history: [], evidence })) {
-        answer += token;
-        sink.event('token', { text: token });
+        listed += token;
       }
+      answer = listed;
+      sink.event('replace', { text: answer });
     }
 
     await this.finish(p, conversationId, answer, evidence, results, started, sink, true, scope, actions);
@@ -557,4 +567,12 @@ function lookupLabel(call: PlannedCall): string {
   if (a.overdue_only) parts.push('overdue only');
   if (a.from || a.to) parts.push('for the dates asked');
   return parts.join(', ');
+}
+
+/** "Found 2 customers: …" with each match cited (its source links to the record). */
+function searchReply(name: string, evidence: Evidence[]): string {
+  const matches = evidence.map((e, i) => ({ e, n: i + 1 })).filter(({ e }) => e.type === 'customer');
+  if (matches.length === 0) return `I couldn't find any customers matching "${name}" among the records you have access to.`;
+  const lines = matches.map(({ e, n }) => `- ${e.title} · ${e.id}${e.fields.email ? ` · ${e.fields.email}` : ''} [${n}]`);
+  return `Found ${matches.length === 1 ? '1 customer' : `${matches.length} customers`} matching "${name}":\n\n${lines.join('\n')}`;
 }
