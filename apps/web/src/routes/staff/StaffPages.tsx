@@ -89,6 +89,11 @@ export function CustomerDetail() {
             {c.restricted && <Badge tone="red">restricted</Badge>}
             <StatusBadge status={c.status} />
             {c.has_login ? <Badge tone="green">portal account</Badge> : can('update', 'customers') && <InviteButtons customer={c} />}
+            {can('create', 'payments') && (
+              <Link to={`/staff/invoices/new?customer=${c.id}`} className="press btn-outline-gradient rounded-full px-3 py-1 text-sm font-semibold text-brand-700 dark:text-brand-600">
+                New invoice
+              </Link>
+            )}
           </div>
         }
       />
@@ -446,6 +451,8 @@ interface Settings {
   chat_daily_limit_customer: number;
   chat_daily_limit_employee: number;
   team_chat_retention: number;
+  invoice_due_days: number;
+  bank_transfer_instructions: string | null;
   whatsapp_enabled: boolean;
   whatsapp_phone_number_id: string | null;
   whatsapp_otp_template: string | null;
@@ -505,6 +512,21 @@ function SettingsCard() {
           </Field>
           <Field label="Chat questions per day — employees">
             <Input type="number" min={1} value={v.chat_daily_limit_employee} onChange={(e) => set({ chat_daily_limit_employee: Number(e.target.value) })} />
+          </Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+          <Field label="Invoices due after (days)">
+            <Input type="number" min={0} max={365} value={v.invoice_due_days} onChange={(e) => set({ invoice_due_days: Number(e.target.value) })} />
+          </Field>
+          <Field label="Bank transfer details for invoices" hint="Shown to customers under “Pay by bank transfer”">
+            <textarea
+              rows={3}
+              maxLength={2000}
+              value={v.bank_transfer_instructions ?? ''}
+              onChange={(e) => set({ bank_transfer_instructions: e.target.value || null })}
+              placeholder={'Bank: …\nAccount name: …\nAccount / IBAN: …'}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
           </Field>
         </div>
         <Field label="Team chat: messages kept per channel" hint="Older messages are deleted as new ones arrive (10–10,000)">

@@ -9,7 +9,7 @@ const PUBLIC_FIELDS = `business_name, default_time_zone, default_currency, defau
   whatsapp_enabled, whatsapp_display_number, freshdesk_portal_url, stripe_enabled`;
 const ALL_FIELDS = `${PUBLIC_FIELDS}, chat_retention_days, whatsapp_phone_number_id, whatsapp_otp_template,
   whatsapp_invite_template, whatsapp_template_language, freshdesk_domain, manual_payment_methods,
-  bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, updated_by, updated_at`;
+  bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, invoice_due_days, bank_transfer_instructions, updated_by, updated_at`;
 
 const updateSchema = z
   .object({
@@ -33,6 +33,9 @@ const updateSchema = z
     chat_daily_limit_employee: z.number().int().min(1).max(100_000),
     /** Team chat: messages kept per channel (older ones are deleted). */
     team_chat_retention: z.number().int().min(10).max(10_000),
+    /** Invoices: days to pay (due date when sent) and what customers see under "Pay by bank transfer". */
+    invoice_due_days: z.number().int().min(0).max(365),
+    bank_transfer_instructions: z.string().trim().max(2000).nullable(),
   })
   .partial()
   .strict();

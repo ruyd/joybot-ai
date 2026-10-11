@@ -63,6 +63,12 @@ const Knowledge = page(() => import('./routes/staff/KnowledgePages'), 'Knowledge
 const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
 const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
+const staffInvoices = () => import('./routes/staff/InvoicePages');
+const Invoices = page(staffInvoices, 'Invoices');
+const InvoicePage = page(staffInvoices, 'InvoicePage');
+const portalInvoices = () => import('./routes/portal/InvoicePages');
+const MyInvoices = page(portalInvoices, 'MyInvoices');
+const MyInvoice = page(portalInvoices, 'MyInvoice');
 const Customers = page(staff, 'Customers');
 const CustomerDetail = page(staff, 'CustomerDetail');
 const Payments = page(staff, 'Payments');
@@ -78,6 +84,7 @@ const PORTAL_NAV: NavItem[] = [
   { to: '/portal', label: 'Assistant', end: true },
   { to: '/portal/appointments', label: 'Appointments' },
   { to: '/portal/book', label: 'Book' },
+  { to: '/portal/invoices', label: 'Invoices' },
   { to: '/portal/payments', label: 'Payments' },
   { to: '/portal/tickets', label: 'Support' },
   { to: '/portal/organization', label: 'Organization', role: 'org_admin' },
@@ -94,6 +101,7 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
+  { to: '/staff/invoices', label: 'Invoices', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
   { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
   {
@@ -137,6 +145,8 @@ export function App() {
             <Route path="help" element={<HelpList />} />
             <Route path="help/:slug" element={<ArticleView />} />
             <Route path="payments" element={<MyPayments />} />
+            <Route path="invoices" element={<MyInvoices />} />
+            <Route path="invoices/:id" element={<MyInvoice />} />
             <Route path="tickets" element={<MyTickets />} />
             <Route path="tickets/:id" element={<TicketView back="/portal/tickets" />} />
             <Route path="organization" element={<Organization />} />
@@ -161,6 +171,8 @@ export function App() {
             <Route path="todos" element={<Todos />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="schedule" element={<SchedulePage />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="invoices/:id" element={<InvoicePage />} />
             <Route path="help" element={<HelpList />} />
             <Route path="help/:slug" element={<ArticleView />} />
             <Route path="knowledge" element={<Knowledge />} />

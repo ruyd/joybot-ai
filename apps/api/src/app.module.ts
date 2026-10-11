@@ -37,6 +37,8 @@ import { PaymentsService } from './payments/payments.service';
 import { SettingsController } from './settings/settings.controller';
 import { StripeController } from './stripe/stripe.controller';
 import { StripeSecrets } from './stripe/stripe-secrets';
+import { INVOICE_CHECKOUT, StripeInvoiceCheckout } from './invoices/checkout';
+import { InvoicesController } from './invoices/invoices.controller';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
 
 @Module({})
@@ -66,6 +68,7 @@ export class AppModule {
         TasksController,
         SchedulesController,
         TeamController,
+        InvoicesController,
         KnowledgeController,
         PaymentsController,
         UsersController,
@@ -85,6 +88,11 @@ export class AppModule {
         WhatsAppSettingsPublisher,
         ChatToolsService,
         StripeSecrets,
+        {
+          provide: INVOICE_CHECKOUT,
+          inject: [StripeSecrets],
+          useFactory: (secrets: StripeSecrets) => new StripeInvoiceCheckout(secrets, config.STRIPE_API_BASE),
+        },
         FreshdeskService,
         MessagingService,
         {

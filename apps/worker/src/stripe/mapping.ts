@@ -93,7 +93,8 @@ export interface PaymentUpsert {
   cardLast4: string | null;
   paidAt: string | null;
   invoiceId: string | null;
-  match: { customerNumber: string | null; appointmentNumber: string | null; email: string | null };
+  /** invoice_number: set by the portal's Stripe Checkout for an invoice (links the payment to it). */
+  match: { customerNumber: string | null; appointmentNumber: string | null; invoiceNumber: string | null; email: string | null };
 }
 
 const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
@@ -135,6 +136,7 @@ export function fromIntent(pi: StripePaymentIntent): PaymentUpsert {
     match: {
       customerNumber: pi.metadata?.customer_number ?? null,
       appointmentNumber: pi.metadata?.appointment_number ?? null,
+      invoiceNumber: pi.metadata?.invoice_number ?? null,
       email: pi.receipt_email ?? charge?.billing_details?.email ?? null,
     },
   };
@@ -164,6 +166,7 @@ export function fromCharge(charge: StripeCharge): PaymentUpsert | undefined {
     match: {
       customerNumber: charge.metadata?.customer_number ?? null,
       appointmentNumber: charge.metadata?.appointment_number ?? null,
+      invoiceNumber: charge.metadata?.invoice_number ?? null,
       email: charge.billing_details?.email ?? null,
     },
   };

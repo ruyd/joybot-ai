@@ -41,6 +41,12 @@ const schema = z
     /** Stripe: secret with { restrictedKey, webhookSigningSecret } (AWS) or the signing secret directly (local). */
     STRIPE_SECRET_ARN: optional(z.string()),
     STRIPE_WEBHOOK_SECRET: optional(z.string()),
+    /**
+     * Invoices paid by card: a restricted Stripe key allowed to create Checkout Sessions. Locally set
+     * directly; in AWS the Stripe secret's `checkoutKey`. Without it the portal offers bank transfer only.
+     */
+    STRIPE_CHECKOUT_KEY: optional(z.string()),
+    STRIPE_API_BASE: optional(z.string().url()),
     /** Freshdesk: secret with { apiKey } (AWS) or the key directly (local). BASE_URL overrides the domain (tests). */
     FRESHDESK_SECRET_ARN: optional(z.string()),
     FRESHDESK_API_KEY: optional(z.string()),
