@@ -67,12 +67,15 @@ export function StatusBadge({ status }: { status: string }) {
   return <Badge tone={tone}>{status.replaceAll('_', ' ')}</Badge>;
 }
 
+/**
+ * Loading, for screen readers only: the accent line under the header (lib/loading.ts) is the one
+ * visible loading indicator, so screens don't flicker with small spinners.
+ */
 export function Spinner({ label = 'Loading' }: { label?: string }) {
   return (
-    <div role="status" className="flex items-center gap-2 text-sm text-slate-500">
-      <span className="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" />
+    <span role="status" className="sr-only">
       {label}…
-    </div>
+    </span>
   );
 }
 

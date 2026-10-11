@@ -131,7 +131,7 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`Account and team chat for ${fullName(me.profile)}${unread ? `, ${unread} unread` : ''}`}
-        className="press relative flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-on-brand hover:bg-brand-700 hover:ring-4 hover:ring-brand-500/20"
+        className="press relative flex size-9 items-center justify-center rounded-full logo-accent text-sm font-semibold hover:ring-4 hover:ring-[#67d5df]/35"
       >
         {initials(me)}
         {unread > 0 && (
@@ -160,7 +160,7 @@ export function TeamDrawer({ me, base }: { me: Me; base: string }) {
             }`}
           >
             <header className="flex items-start gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-on-brand">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full logo-accent text-sm font-semibold">
                 {initials(me)}
               </span>
               <div className="min-w-0 flex-1">

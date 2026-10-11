@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout, type NavItem } from './components/Layout';
 import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
+import { LoadingMark } from './lib/loading';
 import { SessionProvider } from './lib/auth';
 import { AuthCallback } from './routes/AuthCallback';
 import { Landing } from './routes/Landing';
@@ -33,7 +34,14 @@ function loadWithReload<M>(load: () => Promise<M>): Promise<M> {
 function page<M extends Record<string, ComponentType<any>>>(load: () => Promise<M>, name: keyof M) {
   const C = lazy(() => loadWithReload(load).then((m) => ({ default: m[name] as ComponentType<any> })));
   return (props: Record<string, unknown>) => (
-    <Suspense fallback={<div className="p-6"><Spinner /></div>}>
+    <Suspense
+      fallback={
+        <div className="p-6">
+          <LoadingMark />
+          <Spinner />
+        </div>
+      }
+    >
       <C {...props} />
     </Suspense>
   );

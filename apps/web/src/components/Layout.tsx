@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
 import { useSession, type Audience } from '../lib/auth';
+import { useBusy } from '../lib/loading';
 import { ErrorBoundary } from './ErrorBoundary';
 import { ThemeToggle, UserMenu } from './HeaderControls';
 import { TeamDrawer } from './team/TeamDrawer';
@@ -121,6 +122,7 @@ export function Layout({
   const session = useSession();
   const location = useLocation();
   const { me, can, isLoading, error } = useMe();
+  const busy = useBusy();
   if (isLoading) return <div className="p-6"><Spinner /></div>;
   if (error) {
     // e.g. a new sign-up waiting for staff review (403 account_in_review): let them sign out.
@@ -134,7 +136,9 @@ export function Layout({
 
   return (
     <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+      <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-white/90 px-4 backdrop-blur dark:bg-slate-950/90">
+        {/* The logo-coloured accent under the header doubles as the loading indicator. */}
+        <div aria-hidden="true" className={`nav-accent${busy ? ' is-loading' : ''}`} />
         <div className="flex items-center gap-2">
           <BrandMark className="size-7" />
           <span className="font-semibold">{title}</span>
@@ -159,7 +163,7 @@ export function Layout({
           {me && (me.type === 'employee' ? <TeamDrawer me={me} base={base} /> : <UserMenu me={me} base={base} />)}
         </div>
       </header>
-      <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined}>
+      <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined} aria-busy={busy}>
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>
