@@ -211,9 +211,9 @@ Resources:
     Condition: CreateStripeSecret
     Properties:
       Name: !Sub "joybot/${EnvironmentName}/integrations/stripe"
-      Description: 'Stripe: {"restrictedKey": "rk_...", "webhookSigningSecret": "whsec_..."}'
+      Description: 'Stripe: {"restrictedKey": "rk_...", "webhookSigningSecret": "whsec_...", "checkoutKey": "rk_..."}'
       KmsKeyId: !Ref DataKey
-      SecretString: '{"restrictedKey":"","webhookSigningSecret":""}'
+      SecretString: '{"restrictedKey":"","webhookSigningSecret":"","checkoutKey":""}'
 
   # DB bootstrap custom resource ---------------------------------------------------------------
 

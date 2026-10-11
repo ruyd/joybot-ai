@@ -163,6 +163,7 @@ export class PaymentsService {
         source: 'manual',
         customer_id: input.customer_id,
         appointment_id: input.appointment_id ?? null,
+        invoice_id: input.invoice_id ?? null,
         location_id: locationId,
         amount: input.amount,
         currency,

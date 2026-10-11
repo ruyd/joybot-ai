@@ -11,7 +11,7 @@ export interface OutgoingMessage {
   channel: 'email' | 'whatsapp';
   /** Email address or E.164 phone. */
   to: string;
-  template: 'contact_code' | 'invite';
+  template: 'contact_code' | 'invite' | 'invoice';
   subject: string;
   text: string;
   whatsapp?: { phoneNumberId: string; template: string; language: string; bodyParams: string[]; buttonParam?: string };

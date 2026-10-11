@@ -8,6 +8,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD');
 const common = {
   customer_id: z.string().uuid(),
   appointment_id: z.string().uuid().optional(),
+  /** Counts toward this invoice (an open invoice of the same customer). */
+  invoice_id: z.string().uuid().optional(),
   location_id: z.string().uuid().optional(),
   amount: money,
   currency: currency.optional(),

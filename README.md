@@ -29,8 +29,8 @@ Phases 1–3 are done; see [plan.md §11](plan.md#11-phased-roadmap) for the rem
 | CI | Every PR runs typecheck, tests against Postgres, cfn-lint, the nested-parameter check, a Lambda build and image builds. Pushing a `v*.*.*` tag publishes a private release | [.github/workflows](.github/workflows) |
 
 **Not yet:**
-- A full eval run against a real Gemma 4 model (only a 5-case sample on local Gemma 4 E2B so far).
-- Phase 5 feature refinements, then Phase 6 pre-launch: hardening, Playwright, load tests.
+- An eval run against Gemma 4 served by vLLM in AWS (local Gemma 4 E2B on Ollama passes 117/118).
+- Phase 6: an MCP server so a business's admins can use Claude on their own data. Then Phase 7 pre-launch: hardening, Playwright, load tests.
 - A first real AWS deployment.
 
 ## Local development

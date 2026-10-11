@@ -66,7 +66,7 @@ aws cloudformation create-stack --region us-east-1 --stack-name joybot-dev \
 |---|---|
 | First admin: accept the emailed invite, set a password, enrol an authenticator app | Staff sign-in (`EmployeesLoginDomain` output) |
 | Freshdesk: put `{"apiKey": "..."}` in the `FreshdeskSecretArn` secret | Secrets Manager |
-| Stripe: put `{"restrictedKey": "rk_...", "webhookSigningSecret": "whsec_..."}` in `StripeSecretArn` | Secrets Manager |
+| Stripe: put `{"restrictedKey": "rk_...", "webhookSigningSecret": "whsec_...", "checkoutKey": "rk_..."}` in `StripeSecretArn` (`checkoutKey`: a restricted key with Checkout Sessions write, for invoice card payments; leave it out to offer bank transfer only) | Secrets Manager |
 | WhatsApp: Meta Business account → WhatsApp Business Account + number in **AWS End User Messaging Social** → approved OTP template → Admin → Settings → WhatsApp | Meta, AWS console, JoyBot admin |
 | SES: confirm the verification email for `SesFromAddress` (and request SES production access) | Email / SES console |
 | Without a custom domain: add `<AppUrl>/auth/callback` to the `AppCallbackUrls` parameter and update the stack (the CloudFront URL is only known after the first deploy) | CloudFormation |

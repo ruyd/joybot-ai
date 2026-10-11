@@ -55,6 +55,41 @@ describe('Stripe event processing', () => {
     });
   });
 
+  it('links a Checkout payment to the invoice it names and marks the invoice paid', async () => {
+    const migrator = new Pool({ connectionString: process.env.MIGRATOR_DATABASE_URL, max: 1 });
+    const invoice = async (customerId: string) => {
+      const inv = (
+        await migrator.query(
+          `INSERT INTO core.invoices (customer_id, currency, created_by) VALUES ($1, 'USD', $2) RETURNING id, invoice_number`,
+          [customerId, SAMPLE.users.ada],
+        )
+      ).rows[0];
+      await migrator.query(`INSERT INTO core.invoice_lines (invoice_id, description, unit_price) VALUES ($1, 'Color', 45)`, [inv.id]);
+      await migrator.query(`UPDATE core.invoices SET status = 'sent', sent_at = now() WHERE id = $1`, [inv.id]);
+      return inv as { id: string; invoice_number: string };
+    };
+    try {
+      const mine = await invoice(C.maria);
+      const janes = await invoice(C.jane);
+      await store('payment_intent.succeeded', intent('pi_invoice', { metadata: { customer_number: 'C-10001', invoice_number: mine.invoice_number } }), 1_760_000_030);
+      // Metadata naming someone else's invoice: the payment is kept, just not linked.
+      await store('payment_intent.succeeded', intent('pi_wrong_invoice', { metadata: { customer_number: 'C-10001', invoice_number: janes.invoice_number } }), 1_760_000_031);
+      await processPendingEvents(worker, 200, quiet);
+
+      expect(await payment('pi_invoice')).toMatchObject({ customer_id: C.maria, invoice_id: mine.id, status: 'succeeded' });
+      const paid = (await migrator.query('SELECT status, amount_paid, paid_at FROM core.invoices WHERE id = $1', [mine.id])).rows[0];
+      expect(paid).toMatchObject({ status: 'paid', amount_paid: '45.00' });
+      expect(paid.paid_at).not.toBeNull();
+      expect(await payment('pi_wrong_invoice')).toMatchObject({ customer_id: C.maria, invoice_id: null });
+      expect((await migrator.query('SELECT status FROM core.invoices WHERE id = $1', [janes.id])).rows[0].status).toBe('sent');
+    } finally {
+      // Shared database: leave no invoices behind.
+      await migrator.query(`UPDATE core.payments SET invoice_id = NULL WHERE invoice_id IS NOT NULL`);
+      await migrator.query(`DELETE FROM core.invoices`); // lines go with them
+      await migrator.end();
+    }
+  });
+
   it('ignores events older than the state already applied', async () => {
     await store('payment_intent.succeeded', intent('pi_order'), 1_760_000_100);
     await store('payment_intent.payment_failed', intent('pi_order', { status: 'requires_payment_method', last_payment_error: { message: 'Card declined' } }), 1_760_000_050);
