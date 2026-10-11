@@ -67,7 +67,7 @@ export function UserMenu({ me, base }: { me: Me; base: string }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={`Account menu for ${fullName(me.profile)}`}
-        className="press flex size-9 items-center justify-center rounded-full bg-brand-600 text-sm font-semibold text-on-brand hover:bg-brand-700 hover:ring-4 hover:ring-brand-500/20"
+        className="press flex size-9 items-center justify-center rounded-full logo-accent text-sm font-semibold hover:ring-4 hover:ring-[#67d5df]/35"
       >
         {initials(me)}
       </button>
