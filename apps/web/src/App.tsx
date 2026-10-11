@@ -72,6 +72,8 @@ const Todos = page(() => import('./routes/staff/TodoPages'), 'Todos');
 const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'CalendarPage');
 const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
 const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeAccessPage');
+const AuditLogPage = page(() => import('./routes/staff/AuditLog'), 'AuditLogPage');
+const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'EmployeesPage');
 const staffInvoices = () => import('./routes/staff/InvoicePages');
 const Invoices = page(staffInvoices, 'Invoices');
 const InvoicePage = page(staffInvoices, 'InvoicePage');
@@ -116,10 +118,12 @@ const STAFF_NAV: NavItem[] = [
   {
     label: 'Admin',
     items: [
+      { to: '/staff/employees', label: 'Employees', can: ['read', 'users'] },
       { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
       { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
       { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
       { to: '/staff/claude', label: 'Claude access', role: 'admin' },
+      { to: '/staff/audit', label: 'Audit log', can: ['read', 'audit'] },
     ],
   },
 ];
@@ -191,6 +195,8 @@ export function App() {
             <Route path="payments" element={<Payments />} />
             <Route path="tickets/:id" element={<TicketView back="/staff/customers" />} />
             <Route path="admin" element={<Admin />} />
+            <Route path="employees" element={<EmployeesPage />} />
+            <Route path="audit" element={<AuditLogPage />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
             <Route path="profile" element={<StaffProfile />} />
