@@ -161,8 +161,9 @@ describe('saved answers', () => {
 });
 
 describe('self-booking', () => {
+  // Days 8–11: the seed books Sam 1–4 days from now at the current time of day, which could collide.
   const book = (who = C.maria, body: Record<string, unknown> = {}) =>
-    api(app, customer(who)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(3), ...body });
+    api(app, customer(who)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(8), ...body });
 
   it('customers request appointments within limits; staff confirm or decline on the Review page', async () => {
     const req = (await book().expect(201)).body;
@@ -173,14 +174,14 @@ describe('self-booking', () => {
     await book(C.maria, { scheduled_start: inDays(400) }).expect(400);
     const overlap = await book().expect(400);
     expect(overlap.body.message).toMatch(/already have an appointment at that time/);
-    await book(C.maria, { scheduled_start: inDays(4) }).expect(201);
-    await book(C.maria, { scheduled_start: inDays(5) }).expect(201);
-    const limit = await book(C.maria, { scheduled_start: inDays(6) }).expect(400);
+    await book(C.maria, { scheduled_start: inDays(9) }).expect(201);
+    await book(C.maria, { scheduled_start: inDays(10) }).expect(201);
+    const limit = await book(C.maria, { scheduled_start: inDays(11) }).expect(400);
     expect(limit.body.message).toMatch(/three requests/);
 
     // Staff in scope see the queue; customers and out-of-scope staff do not.
     await api(app, customer(C.maria)).get('/api/appointments/requests').expect(403);
-    await api(app, employee(U.sam)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(3) }).expect(403);
+    await api(app, employee(U.sam)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(8) }).expect(403);
     const queue = (await api(app, employee(U.sam)).get('/api/appointments/requests').expect(200)).body;
     expect(queue.map((a: { id: string }) => a.id)).toContain(req.id);
     expect(queue[0]).toMatchObject({ customer_name: 'Maria Lopez' });
