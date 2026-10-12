@@ -13,6 +13,8 @@ export const createAppointmentSchema = z
     customer_id: z.string().uuid(),
     service_id: z.string().uuid(),
     location_id: z.string().uuid(),
+    /** Appointment type (not a system type); 'service' when left out. */
+    type_id: z.string().uuid().optional(),
     employee_id: z.string().uuid().nullable().optional(),
     scheduled_start: isoDateTime,
     scheduled_end: isoDateTime.optional(), // defaults to start + service duration
@@ -28,6 +30,7 @@ export const updateAppointmentSchema = z
   .object({
     service_id: z.string().uuid(),
     location_id: z.string().uuid(),
+    type_id: z.string().uuid(),
     employee_id: z.string().uuid().nullable(),
     scheduled_start: isoDateTime,
     scheduled_end: isoDateTime,
@@ -104,19 +107,24 @@ const TRANSITIONS: Record<string, string[]> = {
   no_show: [],
 };
 
-const CUSTOMER_COLUMNS = `a.id, a.appointment_number, a.customer_id, a.service_id, s.name AS service_name,
-  a.location_id, l.name AS location_name, l.time_zone, a.employee_id,
+// Sales calls have no service, location or customer: their type names them, they are online, and
+// their times read in the business time zone.
+const ZONE = `coalesce(l.time_zone, (SELECT default_time_zone FROM core.settings WHERE id = 1))`;
+const CUSTOMER_COLUMNS = `a.id, a.appointment_number, a.customer_id, a.service_id, coalesce(s.name, t.name) AS service_name,
+  a.location_id, coalesce(l.name, 'Online') AS location_name, ${ZONE} AS time_zone, a.employee_id,
   nullif(concat_ws(' ', st.first_name, st.last_name), '') AS employee_name,
   a.scheduled_start, a.scheduled_end,
-  to_char(a.scheduled_start AT TIME ZONE l.time_zone, 'YYYY-MM-DD"T"HH24:MI') AS local_start,
-  a.status, a.price_quoted, a.currency, a.notes_customer, a.requested_by_customer, a.reviewed_at, a.created_at, a.updated_at`;
+  to_char(a.scheduled_start AT TIME ZONE ${ZONE}, 'YYYY-MM-DD"T"HH24:MI') AS local_start,
+  a.status, a.price_quoted, a.currency, a.notes_customer, a.requested_by_customer, a.reviewed_at, a.created_at, a.updated_at,
+  a.type_id, t.key AS type_key, t.name AS type_name, t.color AS type_color`;
 // The customer subquery runs under RLS like the rest: a customer the employee cannot read comes back null.
-const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, a.created_by,
-  (SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = a.customer_id) AS customer_name,
+const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, a.created_by, a.contact_name, a.contact_email, a.outcome, a.outcome_notes,
+  coalesce((SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = a.customer_id), a.contact_name) AS customer_name,
   (SELECT c.customer_number FROM core.customers c WHERE c.id = a.customer_id) AS customer_number`;
 const FROM = `core.appointments a
-  JOIN core.services s ON s.id = a.service_id
-  JOIN core.locations l ON l.id = a.location_id
+  JOIN core.appointment_types t ON t.id = a.type_id
+  LEFT JOIN core.services s ON s.id = a.service_id
+  LEFT JOIN core.locations l ON l.id = a.location_id
   LEFT JOIN core.v_staff_public st ON st.id = a.employee_id`;
 
 @Injectable()
@@ -231,6 +239,7 @@ export class AppointmentsService {
 
       const service = await this.activeService(db, input.service_id);
       await this.activeLocation(db, input.location_id);
+      if (input.type_id) await this.bookableType(db, input.type_id);
       if (input.employee_id) await this.employeeWorksAt(db, input.employee_id, input.location_id);
 
       const start = new Date(input.scheduled_start);
@@ -250,6 +259,7 @@ export class AppointmentsService {
         customer_id: input.customer_id,
         service_id: input.service_id,
         location_id: input.location_id,
+        ...(input.type_id ? { type_id: input.type_id } : {}),
         employee_id: input.employee_id ?? null,
         scheduled_start: start.toISOString(),
         scheduled_end: end.toISOString(),
@@ -285,6 +295,7 @@ export class AppointmentsService {
       }
 
       if (changes.service_id) await this.activeService(db, changes.service_id);
+      if (changes.type_id && changes.type_id !== current.type_id) await this.bookableType(db, changes.type_id);
       const locationId = changes.location_id ?? current.location_id;
       if (changes.location_id) await this.activeLocation(db, changes.location_id);
       const employeeId = changes.employee_id === undefined ? current.employee_id : changes.employee_id;
@@ -391,6 +402,13 @@ export class AppointmentsService {
     if (!s) throw new BadRequestException('Service not found');
     if (!s.active) throw new BadRequestException('Service is inactive');
     return s;
+  }
+
+  /** Staff book any type but the system ones (sales calls are booked from the website). */
+  private async bookableType(db: PoolClient, id: string) {
+    const t = (await db.query<{ system: boolean }>('SELECT system FROM core.appointment_types WHERE id = $1', [id])).rows[0];
+    if (!t) throw new BadRequestException('Appointment type not found');
+    if (t.system) throw new BadRequestException('This type is managed by the app (sales calls are booked from the website)');
   }
 
   private async activeLocation(db: PoolClient, id: string) {

@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
+import { AppointmentTypesDialog, TypeDot, useAppointmentTypes } from '../../components/AppointmentTypes';
 import { Button, ErrorBanner, PageHeader, Select, Spinner } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { preferredTimeZone, todayIn, zonedToIso } from '../../lib/format';
@@ -12,9 +13,13 @@ type View = 'day' | 'week' | 'month';
 interface CalendarAppointment {
   id: string;
   appointment_number: string;
-  customer_id: string;
+  /** Null for sales calls (the visitor's name is in customer_name). */
+  customer_id: string | null;
   customer_name: string | null;
   service_name: string;
+  type_key: string;
+  type_name: string;
+  type_color: string;
   location_name: string;
   employee_id: string | null;
   employee_name: string | null;
@@ -88,6 +93,7 @@ const UNASSIGNED = 'unassigned';
  * The view, date, location and staff member live in the URL.
  */
 export function CalendarPage() {
+  const [typesOpen, setTypesOpen] = useState(false);
   const api = useApi();
   const { me } = useMe();
   const zone = preferredTimeZone(me?.profile.time_zone);
@@ -174,11 +180,17 @@ export function CalendarPage() {
         title="Calendar"
         description={`Appointments, busy times and working hours, in your time zone (${zone.replaceAll('_', ' ')}).`}
         actions={
-          <Link to="/staff/schedule" className="press btn-outline-gradient rounded-full px-3.5 py-1.5 text-sm font-semibold text-brand-700 dark:text-brand-600">
-            Hours &amp; time off
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setTypesOpen(true)}>
+              Appointment types
+            </Button>
+            <Link to="/staff/schedule" className="press btn-outline-gradient rounded-full px-3.5 py-1.5 text-sm font-semibold text-brand-700 dark:text-brand-600">
+              Hours &amp; time off
+            </Link>
+          </div>
         }
       />
+      <AppointmentTypesDialog open={typesOpen} onClose={() => setTypesOpen(false)} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" onClick={() => set({ date: '' })}>
           Today
@@ -414,10 +426,10 @@ function Block({ item, zone, style, staffName }: { item: Item; zone: string; sty
   const who = staffName ? (a.employee_name ?? 'Unassigned') : null;
   return (
     <Link
-      to={`/staff/customers/${a.customer_id}`}
-      style={style}
-      title={`${a.service_name} · ${a.customer_name ?? a.appointment_number} · ${when}${a.employee_name ? ` · ${a.employee_name}` : ''} · ${a.location_name} · ${a.status}`}
-      className={`press absolute z-10 overflow-hidden rounded-md px-1.5 py-0.5 text-xs shadow-sm hover:z-30 hover:shadow-md ${TONE[a.status] ?? TONE.scheduled}`}
+      to={appointmentLink(a)}
+      style={{ ...style, borderLeftColor: a.type_color }}
+      title={`${a.type_name} · ${a.service_name} · ${a.customer_name ?? a.appointment_number} · ${when}${a.employee_name ? ` · ${a.employee_name}` : ''} · ${a.location_name} · ${a.status}`}
+      className={`press absolute z-10 overflow-hidden rounded-md border-l-4 px-1.5 py-0.5 text-xs shadow-sm hover:z-30 hover:shadow-md ${TONE[a.status] ?? TONE.scheduled}`}
     >
       <p className="truncate font-semibold">{a.customer_name ?? a.appointment_number}</p>
       <p className="truncate">
@@ -427,6 +439,9 @@ function Block({ item, zone, style, staffName }: { item: Item; zone: string; sty
     </Link>
   );
 }
+
+/** Where an appointment opens: its customer, or the sales calls page for a sales call. */
+const appointmentLink = (a: CalendarAppointment) => (a.customer_id ? `/staff/customers/${a.customer_id}` : `/staff/sales-calls?call=${a.id}`);
 
 const TONE: Record<string, string> = {
   scheduled: 'bg-brand-100 text-brand-900 hover:bg-brand-200 dark:bg-brand-900 dark:text-brand-100 dark:hover:bg-brand-800',
@@ -538,12 +553,13 @@ function MonthGrid({
                   <li key={it.key}>
                     {it.kind === 'appointment' ? (
                       <Link
-                        to={`/staff/customers/${it.a.customer_id}`}
-                        title={`${it.a.service_name} · ${it.a.customer_name ?? it.a.appointment_number} · ${it.a.employee_name ?? 'Unassigned'}`}
+                        to={appointmentLink(it.a)}
+                        title={`${it.a.type_name} · ${it.a.service_name} · ${it.a.customer_name ?? it.a.appointment_number} · ${it.a.employee_name ?? 'Unassigned'}`}
                         className="press block truncate rounded px-1 py-0.5 text-xs hover:bg-brand-50 dark:hover:bg-slate-800"
                       >
                         <span
-                          className={`mr-1 inline-block size-1.5 rounded-full align-middle ${it.a.status === 'completed' ? 'bg-slate-400' : 'bg-brand-500'}`}
+                          className={`mr-1 inline-block size-1.5 rounded-full align-middle ${it.a.status === 'completed' ? 'opacity-50' : ''}`}
+                          style={{ backgroundColor: it.a.type_color }}
                         />
                         <span className="font-medium">{clock(it.start, zone)}</span> {it.a.customer_name ?? it.a.service_name}
                       </Link>
@@ -578,8 +594,14 @@ function MonthGrid({
 }
 
 function Legend() {
+  const types = useAppointmentTypes();
   return (
     <ul className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500" aria-label="Legend">
+      {types.data?.map((t) => (
+        <li key={t.id} className="flex items-center gap-1.5">
+          <TypeDot color={t.color} /> {t.name}
+        </li>
+      ))}
       <li className="flex items-center gap-1.5">
         <span className="size-3 rounded bg-brand-100 dark:bg-brand-900" /> Scheduled
       </li>

@@ -73,7 +73,7 @@ describe('sales calls: booking', () => {
 
     const calls = (await api(app, employee(U.ada)).get('/api/website/sales-calls').expect(200)).body as { items: Record<string, unknown>[]; total: number };
     expect(calls.total).toBe(1);
-    expect(calls.items).toMatchObject([{ id: res.id, name: 'Pat Prospect', email: 'pat@example.com', time_zone: 'America/Chicago', notes: 'Need a booking site', status: 'booked' }]);
+    expect(calls.items).toMatchObject([{ id: res.id, name: 'Pat Prospect', email: 'pat@example.com', time_zone: 'America/Chicago', notes: 'Need a booking site', status: 'confirmed' }]);
   });
 
   it('rejects times outside the open hours and bad input', async () => {
@@ -140,7 +140,7 @@ describe('sales calls: rescheduling', () => {
 
     const sent = sender.sent.length;
     const moved = (await api(app, employee(U.ada)).post(`/api/website/sales-calls/${call.id}/reschedule`, { start: open[12] }).expect(200)).body;
-    expect(moved).toMatchObject({ id: call.id, starts_at: open[12], status: 'booked' });
+    expect(moved).toMatchObject({ id: call.id, starts_at: open[12], status: 'confirmed' });
     expect(Date.parse(moved.ends_at) - Date.parse(open[12])).toBe(30 * 60_000);
     expect(sender.sent.slice(sent)).toMatchObject([{ to: 'rae@example.com', subject: expect.stringMatching(/^New time: /) }]);
     const freed = await slots();
@@ -167,10 +167,13 @@ describe('sales calls: staff', () => {
     await api(app, customer(C.maria)).get('/api/website/sales-calls').expect(403);
     expect((await api(app, employee(U.ada)).get('/api/website/sales-calls?when=past').expect(200)).body).toEqual({ items: [], total: 0 });
 
-    const call = ((await api(app, employee(U.ada)).get('/api/website/sales-calls').expect(200)).body.items as { id: string; starts_at: string; status: string }[]).find((c) => c.status === 'booked')!;
+    const call = ((await api(app, employee(U.ada)).get('/api/website/sales-calls').expect(200)).body.items as { id: string; starts_at: string; status: string }[]).find((c) => c.status === 'confirmed')!;
     await api(app, employee(U.sam)).post(`/api/website/sales-calls/${call.id}/cancel`).expect(403);
     expect((await api(app, employee(U.ada)).post(`/api/website/sales-calls/${call.id}/cancel`).expect(200)).body.status).toBe('cancelled');
     await api(app, employee(U.ada)).post(`/api/website/sales-calls/${call.id}/cancel`).expect(404);
+    expect((await api(app, employee(U.ada)).get(`/api/website/sales-calls/${call.id}`).expect(200)).body).toMatchObject({ id: call.id, status: 'cancelled' });
+    await api(app, employee(U.sam)).get(`/api/website/sales-calls/${call.id}`).expect(403);
+    await api(app, employee(U.ada)).get('/api/website/sales-calls/00000000-0000-4000-8000-000000000000').expect(404);
     expect(await slots()).toContain(new Date(call.starts_at).toISOString());
   });
 

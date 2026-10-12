@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useAppointmentTypes } from '../../components/AppointmentTypes';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
@@ -35,7 +36,8 @@ export function StaffHome() {
 }
 
 type StaffAppointment = Appointment & {
-  customer_id: string;
+  /** Null for sales calls (customer_name is the visitor). */
+  customer_id: string | null;
   customer_name: string | null;
   customer_number: string | null;
   employee_id: string | null;
@@ -64,7 +66,7 @@ function zoneLabel(zone: string) {
 
 function TodayAppointments({ zone }: { zone: string }) {
   const api = useApi();
-  const { me } = useMe();
+  const { me, can } = useMe();
   const [mine, setMine] = useState(false);
   const { from, to } = todayRange(zone);
   const q = useQuery({
@@ -117,7 +119,16 @@ function TodayAppointments({ zone }: { zone: string }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    {a.customer_name || a.customer_number ? (
+                    {!a.customer_id && a.customer_name ? (
+                      // A sales call: the visitor has no customer record; open the call (when allowed).
+                      can('read', 'website') ? (
+                        <Link to={`/staff/sales-calls?call=${a.id}`} className={`font-medium text-brand-600 hover:underline ${inactive ? 'line-through' : ''}`}>
+                          {a.customer_name}
+                        </Link>
+                      ) : (
+                        <span className={`font-medium ${inactive ? 'line-through' : ''}`}>{a.customer_name}</span>
+                      )
+                    ) : a.customer_name || a.customer_number ? (
                       <Link to={`/staff/customers/${a.customer_id}`} className={`font-medium text-brand-600 hover:underline ${inactive ? 'line-through' : ''}`}>
                         {a.customer_name ?? a.customer_number}
                       </Link>
@@ -220,6 +231,9 @@ function BookAppointment() {
     if (params.has('book')) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [params]);
   const [locationId, setLocationId] = useState('');
+  const [typeId, setTypeId] = useState('');
+  const types = useAppointmentTypes();
+  const bookableTypes = types.data?.filter((t) => !t.system) ?? [];
   const [employeeId, setEmployeeId] = useState('');
   const [day, setDay] = useState('');
   const [clock, setClock] = useState('');
@@ -255,6 +269,7 @@ function BookAppointment() {
         customer_id: customer!.id,
         service_id: serviceId,
         location_id: locationId,
+        type_id: typeId || undefined,
         employee_id: employeeId || null,
         scheduled_start: zonedToIso(day, clock, location!.time_zone),
         confirm_overlap: confirm || undefined,
@@ -289,6 +304,15 @@ function BookAppointment() {
       <form onSubmit={onSubmit} className="grid gap-4">
         <Field label="Customer">
           <CustomerPicker key={round} value={customer} onChange={setCustomer} />
+        </Field>
+        <Field label="Type">
+          <Select value={typeId || (bookableTypes.find((t) => t.key === 'service')?.id ?? '')} onChange={(e) => setTypeId(e.target.value)}>
+            {bookableTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label="Service">
           <Select required value={serviceId} onChange={(e) => setServiceId(e.target.value)}>

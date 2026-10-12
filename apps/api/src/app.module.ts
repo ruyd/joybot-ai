@@ -3,6 +3,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AccessController } from './admin/access.controller';
 import { CognitoEmployeeLogins, EMPLOYEE_LOGINS, LocalEmployeeLogins } from './admin/employee-logins';
 import { UsersController } from './admin/users.controller';
+import { AppointmentTypesController } from './appointment-types/appointment-types.controller';
 import { AppointmentsController } from './appointments/appointments.controller';
 import { AppointmentsService } from './appointments/appointments.service';
 import { AuthGuard, cognitoVerifiers, JWT_VERIFIERS } from './auth/auth.guard';
@@ -75,6 +76,7 @@ export class AppModule {
         CustomersController,
         MergeController,
         AppointmentsController,
+        AppointmentTypesController,
         TasksController,
         SchedulesController,
         TeamController,
