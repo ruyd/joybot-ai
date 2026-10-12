@@ -169,6 +169,18 @@ Resources:
         GenerateStringKey: password
         PasswordLength: 40
         ExcludePunctuation: true
+  # Encrypts secrets the API keeps in the database (e.g. the Resend API key set in Admin > Email).
+  SettingsEncryptionSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "joybot/${EnvironmentName}/settings-encryption"
+      Description: Key for secrets stored in the database by the API (AES-256-GCM)
+      KmsKeyId: !Ref DataKey
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: key
+        PasswordLength: 64
+        ExcludePunctuation: true
   ReaderDbSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -300,6 +312,8 @@ Outputs:
     Value: !GetAtt DbCluster.MasterUserSecret.SecretArn
   AppDbSecretArn:
     Value: !Ref AppDbSecret
+  SettingsEncryptionSecretArn:
+    Value: !Ref SettingsEncryptionSecret
   ReaderDbSecretArn:
     Value: !Ref ReaderDbSecret
   WorkerDbSecretArn:

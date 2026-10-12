@@ -6,6 +6,8 @@ import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import type { Pool } from 'pg';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { APP_POOL } from '../db/db.module';
+import { EmailService } from '../email/email.service';
+import { ResendClient } from '../email/resend';
 
 export interface OutgoingMessage {
   channel: 'email' | 'whatsapp';
@@ -22,6 +24,12 @@ export interface MessageSender {
   send(message: OutgoingMessage): Promise<{ providerMessageId?: string }>;
 }
 export const MESSAGE_SENDER = Symbol('MESSAGE_SENDER');
+
+/**
+ * App email that goes through Resend once its key and a from address are saved. Sign-in and verification codes are the auth
+ * provider's (contact_code keeps the default sender).
+ */
+export const RESEND_TEMPLATES: ReadonlySet<OutgoingMessage['template']> = new Set(['invite', 'invoice', 'ticket', 'sales_call']);
 
 const hash = (v: string) => createHash('sha256').update(v.toLowerCase()).digest('hex');
 
@@ -79,6 +87,8 @@ export class MessagingService {
     @Inject(MESSAGE_SENDER) private readonly sender: MessageSender,
     @Inject(APP_POOL) private readonly pool: Pool,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    private readonly email: EmailService,
+    private readonly resend: ResendClient,
   ) {}
 
   /** Public URL of the web app, used in invite links. */
@@ -92,9 +102,23 @@ export class MessagingService {
     return value;
   }
 
+  /** App email (RESEND_TEMPLATES) goes through Resend when it is on (Admin › Email); the rest through the configured sender. */
   async send(message: OutgoingMessage): Promise<void> {
     try {
-      const res = await this.sender.send(message);
+      const resend = message.channel === 'email' && RESEND_TEMPLATES.has(message.template) ? await this.email.delivery() : null;
+      const res = resend
+        ? {
+            providerMessageId: (
+              await this.resend.send(resend.key, {
+                from: resend.from,
+                to: [message.to],
+                subject: message.subject,
+                text: message.text,
+                tags: [{ name: 'template', value: message.template }],
+              })
+            ).id,
+          }
+        : await this.sender.send(message);
       await this.record(message, 'sent', res.providerMessageId);
     } catch (err) {
       await this.record(message, 'failed', undefined, err instanceof Error ? err.message : String(err));

@@ -56,6 +56,13 @@ const schema = z
     MESSAGING_MODE: z.enum(['log', 'live']).optional(),
     SES_FROM_ADDRESS: optional(z.string().email()),
     SES_CONFIGURATION_SET: optional(z.string()),
+    /**
+     * Encrypts secrets kept in the database (the Resend API key): any long random string. In AWS a
+     * generated secret; locally, AUTH_MODE=dev falls back to a fixed development key.
+     */
+    SETTINGS_ENCRYPTION_KEY: optional(z.string().min(32)),
+    /** Resend's API (tests point it elsewhere). */
+    RESEND_API_BASE: optional(z.string().url()),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
     WHATSAPP_SETTINGS_PARAMETER: optional(z.string()),
   })

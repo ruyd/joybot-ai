@@ -77,6 +77,7 @@ const SiteLayout = page(site, 'SiteLayout');
 const SitePageView = page(site, 'SitePageView');
 const BookCallPage = page(() => import('./routes/site/BookCall'), 'BookCallPage');
 const WebsitePage = page(() => import('./routes/staff/WebsitePages'), 'WebsitePage');
+const EmailPage = page(() => import('./routes/staff/EmailPage'), 'EmailPage');
 const SalesCallsPage = page(() => import('./routes/staff/SalesCalls'), 'SalesCallsPage');
 const AuditLogPage = page(() => import('./routes/staff/AuditLog'), 'AuditLogPage');
 const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'EmployeesPage');
@@ -140,6 +141,7 @@ const STAFF_NAV: NavItem[] = [
       { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
       { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
       { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
+      { to: '/staff/email', label: 'Email', can: ['update', 'settings'] },
       { to: '/staff/claude', label: 'Claude access', role: 'admin' },
       { to: '/staff/audit', label: 'Audit log', can: ['read', 'audit'] },
     ],
@@ -223,6 +225,7 @@ export function App() {
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="website" element={<WebsitePage />} />
             <Route path="sales-calls" element={<SalesCallsPage />} />
+            <Route path="email" element={<EmailPage />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
             <Route path="profile" element={<StaffProfile />} />
