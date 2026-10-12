@@ -34,6 +34,8 @@ export interface ResendEmail {
   subject: string;
   text: string;
   tags?: { name: string; value: string }[];
+  /** content: base64. */
+  attachments?: { filename: string; content: string; content_type?: string }[];
 }
 
 /** A Resend error with what the admin page should say. */
