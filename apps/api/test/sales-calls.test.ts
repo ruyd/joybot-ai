@@ -65,8 +65,9 @@ describe('sales calls: booking', () => {
     const res = (await book(start, '  Pat Prospect ', 'Pat@Example.com', { notes: 'Need a booking site' }).expect(201)).body;
     expect(res).toMatchObject({ starts_at: start, event: { title: 'Sales call' } });
     expect(Date.parse(res.ends_at) - Date.parse(start)).toBe(30 * 60_000);
-    expect(sender.sent.slice(sent)).toMatchObject([{ template: 'sales_call', to: 'pat@example.com' }]); // as saved
-    expect(sender.sent.at(-1)!.text).toContain('(America/Chicago)');
+    const toVisitor = sender.sent.slice(sent).filter((m) => m.template === 'sales_call'); // admins are emailed too
+    expect(toVisitor).toMatchObject([{ template: 'sales_call', to: 'pat@example.com' }]); // as saved
+    expect(toVisitor[0].text).toContain('(America/Chicago)');
 
     expect(await slots()).not.toContain(start);
     await book(start, 'Someone Else', 'else@example.com').expect(400); // taken
@@ -116,8 +117,9 @@ describe('sales calls: setup', () => {
     // The confirmation carries the meeting link; the call lasts an hour.
     const booked = (await book(res.slots[0], 'Lee Long', 'lee@example.com').expect(201)).body;
     expect(Date.parse(booked.ends_at) - Date.parse(booked.starts_at)).toBe(60 * 60_000);
-    expect(sender.sent.at(-1)).toMatchObject({ to: 'lee@example.com', subject: expect.stringContaining('Discovery call') });
-    expect(sender.sent.at(-1)!.text).toContain('https://meet.example.com/appjoy');
+    const toLee = sender.sent.findLast((m) => m.to === 'lee@example.com')!;
+    expect(toLee).toMatchObject({ subject: expect.stringContaining('Discovery call') });
+    expect(toLee.text).toContain('https://meet.example.com/appjoy');
     // A half-hour start inside it is taken too.
     expect(await slots()).not.toContain(new Date(Date.parse(res.slots[0]) + 30 * 60_000).toISOString());
     await api(app, employee(U.ada)).post(`/api/website/sales-calls/${booked.id}/cancel`).expect(200);
@@ -243,7 +245,7 @@ describe('sales calls: general hours and hosts', () => {
     const open = (await slots()).filter((t) => local(t).weekday !== 'Fri');
     const [a, b, c] = [open[20], open[24], open[28]];
     const first = (await book(a, 'Host One', 'host1@example.com').expect(201)).body as { id: string };
-    const sent = sender.sent.at(-1)!;
+    const sent = sender.sent.findLast((m) => m.to === 'host1@example.com')!;
     expect(sent.text).toContain('Sam Staff');
     const second = (await book(a, 'Host Two', 'host2@example.com').expect(201)).body as { id: string }; // same time, other host
     expect((await callById(first.id)).assigned_to).toBe(U.sam);

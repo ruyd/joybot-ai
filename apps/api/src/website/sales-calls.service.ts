@@ -4,6 +4,8 @@ import { z } from 'zod';
 import type { Principal } from '../auth/principal';
 import { APP_POOL, DbService } from '../db/db.module';
 import { MessagingService } from '../messaging/messaging.service';
+import { googleCalendarLink, ics, outlookCalendarLink, type CalendarEvent } from '../email/calendar';
+import { assertKnownFields, render, type Fields, type Preview, type TemplateCreate, type TemplateUpdate, type ThankYou } from '../email/templates';
 
 /** The lengths a sales call can have (also checked in SQL). */
 export const SALES_CALL_DURATIONS = [15, 20, 30, 45, 60, 90] as const;
@@ -66,6 +68,8 @@ export const salesCallSettingsSchema = z
       }),
     /** The staff who take calls, replacing the current ones (none: unassigned, one call at a time). */
     host_ids: z.array(z.string().uuid()).max(50),
+    /** Email every admin (with an add-to-calendar invite) when someone books. */
+    email_admins: z.boolean(),
   })
   .partial()
   .strict()
@@ -124,6 +128,7 @@ export interface SalesCall {
   outcome: (typeof OUTCOMES)[number] | null;
   outcome_notes: string | null;
   outcome_at: string | null;
+  thank_you_sent_at: string | null;
 }
 
 /** What the booking page shows. */
@@ -138,11 +143,27 @@ export interface SalesCallEvent {
 const SALES = `(SELECT a.id, a.appointment_number, a.contact_name AS name, a.contact_email::text AS email,
     a.scheduled_start AS starts_at, a.scheduled_end AS ends_at, a.contact_time_zone AS time_zone, a.notes_customer AS notes,
     a.status, a.created_at, a.employee_id AS assigned_to,
-    a.outcome, a.outcome_notes, a.outcome_at
+    a.outcome, a.outcome_notes, a.outcome_at, a.thank_you_sent_at
   FROM core.appointments a JOIN core.appointment_types t ON t.id = a.type_id AND t.key = 'sales_call') c`;
 // The host's name through core.v_staff_public (null once they are inactive).
 const COLUMNS = `c.*, (SELECT nullif(concat_ws(' ', s.first_name, s.last_name), '') FROM core.v_staff_public s WHERE s.id = c.assigned_to) AS assigned_to_name`;
-const SETTINGS_COLUMNS = 'title, description, duration_minutes, meeting_url, updated_at';
+const TEMPLATE_COLUMNS = 'id, kind, name, subject, body, sort_order, updated_at';
+export type TemplateKind = 'sales_call_confirmation' | 'sales_call_thank_you';
+
+/** What a sales call email needs about the call. */
+interface CallFacts {
+  name: string;
+  email: string;
+  starts_at: Date;
+  ends_at: Date;
+  time_zone: string | null;
+  title: string;
+  meeting_url: string | null;
+  site_name: string | null;
+  host_name: string | null;
+}
+
+const SETTINGS_COLUMNS = 'title, description, duration_minutes, meeting_url, email_admins, updated_at';
 
 /**
  * Sales calls booked from the public site (/book-a-call). Visitors have no principal: they see the
@@ -184,6 +205,7 @@ export class SalesCallsService {
       throw this.bookingError(err);
     }
     const call = await this.email(id, 'booked');
+    if (call) await this.emailAdmins(id, call, input.notes);
     const event = (await this.pool.query<SalesCallEvent>('SELECT * FROM authz.sales_call_event()')).rows[0];
     return { id, event, starts_at: call?.starts_at.toISOString() ?? input.start, ends_at: call?.ends_at.toISOString() };
   }
@@ -334,34 +356,210 @@ export class SalesCallsService {
   /** Emails the visitor their booking or its new time (best effort: the booking stands if the email fails). */
   private async email(id: string, kind: 'booked' | 'rescheduled') {
     const call = (
-      await this.pool.query<{ name: string; email: string; starts_at: Date; ends_at: Date; time_zone: string | null; title: string; meeting_url: string | null; site_name: string | null; host_name: string | null }>(
-        'SELECT * FROM authz.sales_call_details($1)',
-        [id],
-      )
+      await this.pool.query<CallFacts>('SELECT * FROM authz.sales_call_details($1)', [id])
     ).rows[0];
     if (!call) return undefined;
     try {
-      const zone = call.time_zone && isTimeZone(call.time_zone) ? call.time_zone : 'UTC';
-      const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: zone }).format(call.starts_at);
-      const minutes = Math.round((call.ends_at.getTime() - call.starts_at.getTime()) / 60_000);
-      const who = call.host_name ? `${call.host_name}${call.site_name ? ` (${call.site_name})` : ''}` : (call.site_name ?? 'us');
-      const join = call.meeting_url ? `Join the call here: ${call.meeting_url}` : "We'll send the meeting details before the call.";
-      await this.messaging.send({
-        channel: 'email',
-        to: call.email,
-        template: 'sales_call',
-        subject: `${kind === 'rescheduled' ? 'New time: ' : ''}${call.title} with ${who}: ${when}`,
-        text:
-          `Hi ${call.name},\n\n` +
-          (kind === 'rescheduled'
-            ? `Your ${minutes}-minute ${call.title.toLowerCase()} with ${who} has moved to ${when} (${zone}).`
-            : `Your ${minutes}-minute ${call.title.toLowerCase()} with ${who} is booked for ${when} (${zone}).`) +
-          `\n\n${join}\n\nReply to this email if you need to change it.`,
-      });
+      const fields = this.fields(call, await this.messaging.appUrl());
+      let subject: string;
+      let text: string;
+      if (kind === 'booked') {
+        const t = (await this.pool.query<{ subject: string; body: string }>("SELECT * FROM authz.email_template('sales_call_confirmation')")).rows[0];
+        subject = render(t.subject, fields, true);
+        text = render(t.body, fields);
+      } else {
+        subject = `New time: ${fields.call_title} with ${fields.host_name}: ${fields.date} at ${fields.time}`;
+        text = `Hi ${fields.first_name},\n\nYour ${fields.duration}-minute ${fields.call_title} with ${fields.host_name} has moved to ${fields.date} at ${fields.time} (${fields.time_zone}).\n\n${fields.meeting_details}\n\nReply to this email if you need to change it.`;
+      }
+      await this.messaging.send({ channel: 'email', to: call.email, template: 'sales_call', subject, text });
     } catch (err) {
       this.logger.warn(`sales call email failed: ${(err as Error).message}`);
     }
     return call;
+  }
+
+  /** Emails every admin about a new booking, with an add-to-calendar invite (best effort; on unless turned off in the setup). */
+  private async emailAdmins(id: string, call: CallFacts, notes?: string) {
+    try {
+      const admins = (await this.pool.query<{ email: string; first_name: string | null; time_zone: string }>('SELECT * FROM authz.sales_call_admin_recipients()')).rows;
+      if (!admins.length) return;
+      const appUrl = await this.messaging.appUrl();
+      const link = `${appUrl}/staff/sales-calls?call=${id}`;
+      const minutes = Math.round((call.ends_at.getTime() - call.starts_at.getTime()) / 60_000);
+      const event: CalendarEvent = {
+        uid: `sales-call-${id}@joybot`,
+        title: `${call.title}: ${call.name}`,
+        start: call.starts_at,
+        end: call.ends_at,
+        description: [
+          `${call.name} <${call.email}>`,
+          call.host_name ? `Host: ${call.host_name}` : 'No host yet',
+          notes ? `Notes: ${notes}` : '',
+          call.meeting_url ? `Join: ${call.meeting_url}` : '',
+          `In JoyBot: ${link}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        location: call.meeting_url ?? undefined,
+        url: link,
+      };
+      const invite = { filename: 'sales-call.ics', content: ics(event), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' };
+      for (const admin of admins) {
+        const zone = isTimeZone(admin.time_zone) ? admin.time_zone : 'UTC';
+        const when = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: zone }).format(call.starts_at);
+        await this.messaging
+          .send({
+            channel: 'email',
+            to: admin.email,
+            template: 'sales_call_admin',
+            subject: `New ${call.title.toLowerCase()}: ${call.name}, ${when}`,
+            text:
+              `Hi ${admin.first_name ?? 'there'},\n\n` +
+              `${call.name} (${call.email}) booked a ${minutes}-minute ${call.title.toLowerCase()} for ${when} (${zone}).\n` +
+              `${call.host_name ? `Host: ${call.host_name}` : 'No host is assigned yet.'}\n` +
+              (notes ? `Notes: ${notes}\n` : '') +
+              (call.meeting_url ? `Meeting link: ${call.meeting_url}\n` : '') +
+              `\nAdd it to your calendar:\n` +
+              `Google Calendar: ${googleCalendarLink(event)}\n` +
+              `Outlook: ${outlookCalendarLink(event)}\n` +
+              `Apple Calendar and others: open the attached sales-call.ics\n\n` +
+              `See it in JoyBot: ${link}`,
+            attachments: [invite],
+          })
+          .catch((err) => this.logger.warn(`admin email failed: ${(err as Error).message}`));
+      }
+    } catch (err) {
+      this.logger.warn(`admin emails failed: ${(err as Error).message}`);
+    }
+  }
+
+  // Email templates (Confirmation email and Thank you email tabs) ------------------------------
+
+  templates(p: Principal, kind: TemplateKind) {
+    return this.db.as(p, async (db) => (await db.query(`SELECT ${TEMPLATE_COLUMNS} FROM core.email_templates WHERE kind = $1 ORDER BY sort_order, name`, [kind])).rows);
+  }
+
+  createThankYouPreset(p: Principal, input: TemplateCreate) {
+    assertKnownFields(input.subject, input.body);
+    return this.db.as(p, async (db) =>
+      (
+        await db.query(
+          `INSERT INTO core.email_templates (kind, name, subject, body, sort_order, updated_by)
+           VALUES ('sales_call_thank_you', $1, $2, $3, (SELECT coalesce(max(sort_order), 0) + 10 FROM core.email_templates WHERE kind = 'sales_call_thank_you'), $4)
+           RETURNING ${TEMPLATE_COLUMNS}`,
+          [input.name, input.subject, input.body, p.id],
+        )
+      ).rows[0],
+    ).catch((err) => {
+      if (err instanceof DatabaseError && err.code === '23505') throw new ConflictException('A preset with that name already exists');
+      throw err;
+    });
+  }
+
+  updateTemplate(p: Principal, id: string, input: TemplateUpdate) {
+    assertKnownFields(input.subject ?? '', input.body ?? '');
+    const cols = Object.keys(input) as (keyof TemplateUpdate)[];
+    return this.db.as(p, async (db) => {
+      const row = (
+        await db.query(
+          `UPDATE core.email_templates SET ${cols.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_by = $${cols.length + 2}
+            WHERE id = $1 RETURNING ${TEMPLATE_COLUMNS}`,
+          [id, ...cols.map((c) => input[c]), p.id],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException('Template not found');
+      return row;
+    }).catch((err) => {
+      if (err instanceof DatabaseError && err.code === '23505') throw new ConflictException('A preset with that name already exists');
+      throw err;
+    });
+  }
+
+  async deleteThankYouPreset(p: Principal, id: string) {
+    const res = await this.db.as(p, (db) => db.query(`DELETE FROM core.email_templates WHERE id = $1 AND kind = 'sales_call_thank_you'`, [id]));
+    if (!res.rowCount) throw new NotFoundException('Preset not found');
+  }
+
+  /** A subject and body filled in for a call, or for a sample call when none is given. */
+  async preview(p: Principal, input: Preview) {
+    assertKnownFields(input.subject, input.body);
+    const appUrl = await this.messaging.appUrl();
+    const fields = input.call_id ? this.fields(await this.callFacts(p, input.call_id), appUrl) : await this.sampleFields(p, appUrl);
+    return { subject: render(input.subject, fields, true), body: render(input.body, fields) };
+  }
+
+  /** Emails the visitor a thank-you (the preset as edited) and records it on the call. */
+  async sendThankYou(p: Principal, id: string, input: ThankYou): Promise<SalesCall> {
+    assertKnownFields(input.subject, input.body);
+    const call = await this.callFacts(p, id);
+    const fields = this.fields(call, await this.messaging.appUrl());
+    await this.messaging.send({ channel: 'email', to: call.email, template: 'sales_call_thank_you', subject: render(input.subject, fields, true), text: render(input.body, fields) });
+    return this.db.as(p, async (db) => {
+      await db.query('UPDATE core.appointments SET thank_you_sent_at = now(), thank_you_sent_by = $2 WHERE id = $1', [id, p.id]);
+      return this.load(db, id);
+    });
+  }
+
+  /** A sales call's details for an email, read as the employee (any status but cancelled). */
+  private async callFacts(p: Principal, id: string): Promise<CallFacts> {
+    const row = await this.db.as(p, async (db) =>
+      (
+        await db.query<CallFacts>(
+          `SELECT a.contact_name AS name, a.contact_email::text AS email, a.scheduled_start AS starts_at, a.scheduled_end AS ends_at,
+                  a.contact_time_zone AS time_zone, s.title, s.meeting_url,
+                  coalesce((SELECT ss.site_name FROM core.site_settings ss WHERE ss.id = 1), (SELECT st.business_name FROM core.settings st WHERE st.id = 1)) AS site_name,
+                  (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.v_staff_public u WHERE u.id = a.employee_id) AS host_name
+             FROM core.appointments a
+             JOIN core.appointment_types t ON t.id = a.type_id AND t.key = 'sales_call'
+             CROSS JOIN core.sales_call_settings s
+            WHERE a.id = $1 AND a.status <> 'cancelled' AND s.id = 1`,
+          [id],
+        )
+      ).rows[0],
+    );
+    if (!row) throw new NotFoundException('No sales call with that id (or it was cancelled)');
+    return row;
+  }
+
+  /** A sample call (tomorrow at 10:00, the employee as host) for previews. */
+  private async sampleFields(p: Principal, appUrl: string): Promise<Fields> {
+    const facts = await this.db.as(p, async (db) =>
+      (
+        await db.query<{ title: string; meeting_url: string | null; duration: number; site_name: string | null; host_name: string | null; tz: string }>(
+          `SELECT s.title, s.meeting_url, s.duration_minutes AS duration,
+                  coalesce((SELECT ss.site_name FROM core.site_settings ss WHERE ss.id = 1), (SELECT st.business_name FROM core.settings st WHERE st.id = 1)) AS site_name,
+                  (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.v_staff_public u WHERE u.id = $1) AS host_name,
+                  (SELECT default_time_zone FROM core.settings WHERE id = 1) AS tz
+             FROM core.sales_call_settings s WHERE s.id = 1`,
+          [p.id],
+        )
+      ).rows[0],
+    );
+    const start = new Date(Date.now() + 86_400_000);
+    start.setUTCHours(15, 0, 0, 0);
+    return this.fields(
+      { name: 'Pat Example', email: 'pat@example.com', starts_at: start, ends_at: new Date(start.getTime() + facts.duration * 60_000), time_zone: facts.tz, title: facts.title, meeting_url: facts.meeting_url, site_name: facts.site_name, host_name: facts.host_name },
+      appUrl,
+    );
+  }
+
+  private fields(call: CallFacts, appUrl: string): Fields {
+    const zone = call.time_zone && isTimeZone(call.time_zone) ? call.time_zone : 'UTC';
+    const site = call.site_name ?? 'us';
+    return {
+      first_name: call.name.trim().split(/\s+/)[0],
+      name: call.name,
+      call_title: call.title,
+      date: new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeZone: zone }).format(call.starts_at),
+      time: new Intl.DateTimeFormat('en-US', { timeStyle: 'short', timeZone: zone }).format(call.starts_at),
+      time_zone: zone,
+      duration: String(Math.round((call.ends_at.getTime() - call.starts_at.getTime()) / 60_000)),
+      host_name: call.host_name ?? site,
+      site_name: site,
+      meeting_link: call.meeting_url ?? '',
+      meeting_details: call.meeting_url ? `Join the call here: ${call.meeting_url}` : "We'll send the meeting details before the call.",
+      booking_link: `${appUrl}/book-a-call`,
+    };
   }
 }
 

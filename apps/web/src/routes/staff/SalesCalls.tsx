@@ -1,13 +1,14 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search } from 'lucide-react';
+import { Mail, Search } from 'lucide-react';
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
-import { dateTime, todayIn, zonedToIso } from '../../lib/format';
+import { date, dateTime, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import { siteGet } from '../../lib/site';
+import { ConfirmationEmailTab, ThankYouEmailTab } from './SalesCallEmails';
 
 interface SalesCall {
   id: string;
@@ -25,6 +26,7 @@ interface SalesCall {
   outcome: 'follow_up' | 'conversion' | 'potential' | 'do_not_call' | null;
   outcome_notes: string | null;
   outcome_at: string | null;
+  thank_you_sent_at: string | null;
 }
 
 interface HoursInterval {
@@ -47,6 +49,8 @@ interface SalesCallSettings {
   updated_at: string;
   hours: HoursInterval[];
   host_ids: string[];
+  /** Email every admin, with an add-to-calendar invite, when someone books. */
+  email_admins: boolean;
   /** Active staff, to pick hosts and assign calls. */
   staff: Staff[];
 }
@@ -69,7 +73,9 @@ const isActive = (c: { status: string }) => c.status === 'scheduled' || c.status
 const TABS = [
   { key: 'upcoming', label: 'Upcoming' },
   { key: 'past', label: 'Past' },
-  { key: 'setup', label: 'Setup' },
+  { key: 'confirmation', label: 'Confirmation email' },
+  { key: 'thank-you', label: 'Thank you email' },
+  { key: 'setup', label: 'Booking page' },
 ] as const;
 type Tab = (typeof TABS)[number]['key'];
 
@@ -82,6 +88,8 @@ export function SalesCallsPage() {
   const [params_, setParams] = useSearchParams();
   const tab: Tab = TABS.some((t) => t.key === params_.get('tab')) ? (params_.get('tab') as Tab) : 'upcoming';
   const past = tab === 'past';
+  /** Upcoming and Past list calls; the other tabs are emails and setup. */
+  const listing = tab === 'upcoming' || tab === 'past';
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
@@ -95,7 +103,7 @@ export function SalesCallsPage() {
   const [highlight, setHighlight] = useState<string | null>(null);
   const focus = useQuery({
     queryKey: ['sales-call', focusId],
-    enabled: !!focusId,
+    enabled: !!focusId && tab !== 'thank-you',
     queryFn: () => api.get<SalesCall>(`/website/sales-calls/${focusId}`),
   });
   useEffect(() => {
@@ -119,7 +127,7 @@ export function SalesCallsPage() {
   if (q) params.set('q', q);
   const calls = useQuery({
     queryKey: ['sales-calls', past, q, offset],
-    enabled: tab !== 'setup',
+    enabled: listing,
     queryFn: () => api.get<{ items: SalesCall[]; total: number }>(`/website/sales-calls?${params}`),
     placeholderData: keepPreviousData,
   });
@@ -135,6 +143,14 @@ export function SalesCallsPage() {
       void queryClient.invalidateQueries({ queryKey: ['site', 'sales-call'] });
     },
   });
+  // Totals for the Upcoming and Past tabs (everything, not just a search), always shown.
+  const countQuery = (when: 'upcoming' | 'past') => ({
+    queryKey: ['sales-calls', 'count', when],
+    queryFn: () => api.get<{ total: number }>(`/website/sales-calls?when=${when}&limit=1`).then((r) => r.total),
+  });
+  const upcomingCount = useQuery(countQuery('upcoming'));
+  const pastCount = useQuery(countQuery('past'));
+  const counts: Record<'upcoming' | 'past', number | undefined> = { upcoming: upcomingCount.data, past: pastCount.data };
   const items = calls.data?.items ?? [];
   const columns = past ? 6 : 5;
   useEffect(() => {
@@ -147,7 +163,7 @@ export function SalesCallsPage() {
     <Page>
       <PageHeader
         title="Sales calls"
-        description="Calls booked on the website's booking page; Setup sets its text, length, availability and hosts."
+        description="Calls booked on the website's booking page; the Booking page tab sets its text, length, availability and hosts."
         actions={
           <a href="/book-a-call" target="_blank" rel="noreferrer" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-600">
             Open the booking page ↗
@@ -162,14 +178,23 @@ export function SalesCallsPage() {
               role="tab"
               aria-selected={tab === t.key}
               onClick={() => setParams(t.key === 'upcoming' ? {} : { tab: t.key }, { replace: true })}
-              className={`press rounded-full px-3 py-1.5 text-sm ${tab === t.key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+              className={`press inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium ${tab === t.key ? 'btn-gradient' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900'}`}
             >
               {t.label}
-              {t.key === tab && tab !== 'setup' && calls.data && <span className="ml-1.5 opacity-80">{total.toLocaleString()}</span>}
+              {(t.key === 'upcoming' || t.key === 'past') && (
+                // Always there (blank while loading) so the tab never changes size.
+                <span
+                  className={`inline-flex h-5 min-w-6 items-center justify-center rounded-full px-1.5 text-xs tabular-nums ${
+                    tab === t.key ? 'bg-white/25' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                >
+                  {counts[t.key]?.toLocaleString() ?? ''}
+                </span>
+              )}
             </button>
           ))}
         </div>
-        {tab !== 'setup' && (
+        {listing && (
           <div className="relative ml-auto w-72 max-w-full">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <Input
@@ -185,6 +210,10 @@ export function SalesCallsPage() {
       </div>
       {tab === 'setup' ? (
         <SetupCard editable={editable} />
+      ) : tab === 'confirmation' ? (
+        <ConfirmationEmailTab editable={editable} />
+      ) : tab === 'thank-you' ? (
+        <ThankYouEmailTab editable={editable} callId={focusId} />
       ) : (
         <Card>
           {focus.error && (
@@ -274,6 +303,15 @@ export function SalesCallsPage() {
                           ) : (
                             <span className="text-slate-400">{c.status === 'cancelled' ? '—' : 'Not logged'}</span>
                           )}
+                          {c.status !== 'cancelled' && (
+                            <span
+                              className={`mt-1 flex items-center gap-1 text-xs ${c.thank_you_sent_at ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}
+                              title={c.thank_you_sent_at ? `Thank-you email sent ${dateTime(c.thank_you_sent_at)}` : undefined}
+                            >
+                              <Mail className="size-3.5" aria-hidden="true" />
+                              {c.thank_you_sent_at ? `Thank-you sent ${date(c.thank_you_sent_at)}` : 'No thank-you yet'}
+                            </span>
+                          )}
                         </Td>
                       )}
                     </tr>
@@ -315,6 +353,11 @@ export function SalesCallsPage() {
                               {!past && isActive(c) && (
                                 <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'reschedule')} aria-expanded={isOpen(c.id, 'reschedule')}>
                                   Reschedule
+                                </Button>
+                              )}
+                              {past && (
+                                <Button size="sm" variant="ghost" onClick={() => setParams({ tab: 'thank-you', call: c.id })}>
+                                  {c.thank_you_sent_at ? 'Thank you ✓' : 'Thank you'}
                                 </Button>
                               )}
                               <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'outcome')} aria-expanded={isOpen(c.id, 'outcome')}>
@@ -536,7 +579,7 @@ function SetupCard({ editable }: { editable: boolean }) {
   }, [settings.data, form]);
   const save = useMutation({
     mutationFn: () => {
-      const { title, description, duration_minutes, meeting_url, hours, host_ids } = form!;
+      const { title, description, duration_minutes, meeting_url, hours, host_ids, email_admins } = form!;
       return api.put<SalesCallSettings>('/website/sales-call-settings', {
         title,
         description: description ?? '',
@@ -544,6 +587,7 @@ function SetupCard({ editable }: { editable: boolean }) {
         meeting_url: meeting_url ?? '',
         hours,
         host_ids,
+        email_admins,
       });
     },
     onSuccess: (s) => {
@@ -624,6 +668,16 @@ function SetupCard({ editable }: { editable: boolean }) {
                     </label>
                   ))}
                 </div>
+                <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
+                  <input type="checkbox" className="mt-0.5" checked={form.email_admins} onChange={(e) => set('email_admins', e.target.checked)} />
+                  <span>
+                    <span className="font-medium">Email admins when a call is booked</span>
+                    <span className="block text-xs text-slate-500">
+                      Each admin gets the details with an add-to-calendar invite (Google, Outlook, or the attached .ics). Admins always get a JoyBot
+                      notification.
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
             <HoursEditor hours={form.hours} onChange={(h) => set('hours', h)} />

@@ -118,7 +118,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   );
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input(props: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref<HTMLInputElement> }) {
   return <input {...props} className={cx(inputClass, props.className)} />;
 }
 

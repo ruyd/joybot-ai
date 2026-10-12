@@ -13,7 +13,9 @@ export interface OutgoingMessage {
   channel: 'email' | 'whatsapp';
   /** Email address or E.164 phone. */
   to: string;
-  template: 'contact_code' | 'invite' | 'invoice' | 'ticket' | 'sales_call';
+  template: 'contact_code' | 'invite' | 'invoice' | 'ticket' | 'sales_call' | 'sales_call_thank_you' | 'sales_call_admin';
+  /** Files to attach (e.g. an .ics invite). Resend attaches them; SES and the log sender do not. */
+  attachments?: { filename: string; content: string; contentType: string }[];
   subject: string;
   text: string;
   whatsapp?: { phoneNumberId: string; template: string; language: string; bodyParams: string[]; buttonParam?: string };
@@ -29,7 +31,7 @@ export const MESSAGE_SENDER = Symbol('MESSAGE_SENDER');
  * App email that goes through Resend once its key and a from address are saved. Sign-in and verification codes are the auth
  * provider's (contact_code keeps the default sender).
  */
-export const RESEND_TEMPLATES: ReadonlySet<OutgoingMessage['template']> = new Set(['invite', 'invoice', 'ticket', 'sales_call']);
+export const RESEND_TEMPLATES: ReadonlySet<OutgoingMessage['template']> = new Set(['invite', 'invoice', 'ticket', 'sales_call', 'sales_call_thank_you', 'sales_call_admin']);
 
 const hash = (v: string) => createHash('sha256').update(v.toLowerCase()).digest('hex');
 
@@ -73,7 +75,8 @@ export class AwsMessageSender implements MessageSender {
 export class LogMessageSender implements MessageSender {
   private readonly logger = new Logger('Messaging');
   async send(m: OutgoingMessage): Promise<{ providerMessageId?: string }> {
-    this.logger.log(`(not sent) ${m.channel} to ${m.to}: ${m.subject}\n${m.text}`);
+    const files = m.attachments?.length ? `\n(attached: ${m.attachments.map((a) => a.filename).join(', ')})` : '';
+    this.logger.log(`(not sent) ${m.channel} to ${m.to}: ${m.subject}\n${m.text}${files}`);
     return {};
   }
 }
@@ -115,6 +118,9 @@ export class MessagingService {
                 subject: message.subject,
                 text: message.text,
                 tags: [{ name: 'template', value: message.template }],
+                ...(message.attachments?.length
+                  ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: Buffer.from(a.content).toString('base64'), content_type: a.contentType })) }
+                  : {}),
               })
             ).id,
           }

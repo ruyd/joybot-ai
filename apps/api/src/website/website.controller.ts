@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, PayloadTooLargeException, Post, Put, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, PayloadTooLargeException, Post, Put, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { z } from 'zod';
 import { Can, CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
+import { previewSchema, templateCreateSchema, templateUpdateSchema, thankYouSchema, type Preview, type TemplateCreate, type TemplateUpdate, type ThankYou } from '../email/templates';
 import { createPageSchema, siteSettingsSchema, updatePageSchema, type SiteSettingsInput } from './website.schemas';
 import {
   assignSchema,
@@ -74,6 +75,52 @@ export class WebsiteController {
   @Can('read', 'website')
   salesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     return this.salesCalls.get(p, id);
+  }
+
+  // Sales call emails -------------------------------------------------------------------------
+
+  /** Templates of a kind: the confirmation (one) or the thank-you presets. */
+  @Get('email-templates')
+  @Can('read', 'website')
+  emailTemplates(@CurrentPrincipal() p: Principal, @Query('kind') kind?: string) {
+    if (kind !== 'sales_call_confirmation' && kind !== 'sales_call_thank_you') throw new BadRequestException('kind is sales_call_confirmation or sales_call_thank_you');
+    return this.salesCalls.templates(p, kind);
+  }
+
+  /** A new thank-you preset. */
+  @Post('email-templates')
+  @Can('update', 'website')
+  createEmailTemplate(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(templateCreateSchema)) body: TemplateCreate) {
+    return this.salesCalls.createThankYouPreset(p, body);
+  }
+
+  @Put('email-templates/:id')
+  @Can('update', 'website')
+  updateEmailTemplate(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(templateUpdateSchema)) body: TemplateUpdate) {
+    return this.salesCalls.updateTemplate(p, id, body);
+  }
+
+  @Delete('email-templates/:id')
+  @HttpCode(204)
+  @Can('update', 'website')
+  async deleteEmailTemplate(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    await this.salesCalls.deleteThankYouPreset(p, id);
+  }
+
+  /** A subject and body filled in for a call (or a sample call). */
+  @Post('email-templates/preview')
+  @HttpCode(200)
+  @Can('read', 'website')
+  previewEmail(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(previewSchema)) body: Preview) {
+    return this.salesCalls.preview(p, body);
+  }
+
+  /** Emails the visitor a thank-you and records it on the call. */
+  @Post('sales-calls/:id/thank-you')
+  @HttpCode(200)
+  @Can('update', 'website')
+  sendThankYou(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(thankYouSchema)) body: ThankYou) {
+    return this.salesCalls.sendThankYou(p, id, body);
   }
 
   /** Hands a booked call to a free employee (`user_id`), or unassigns it (null). */
