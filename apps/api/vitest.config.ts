@@ -35,7 +35,8 @@ export default defineConfig({
   },
   test: {
     include: ['test/**/*.test.ts', 'eval/**/*.test.ts'],
+    // A seeded template once per run; each file copies it into its worker's own database.
+    globalSetup: ['test/global-setup.ts'],
     setupFiles: ['test/reset-db.ts'],
-    fileParallelism: false,
   },
 });
