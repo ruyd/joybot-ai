@@ -48,8 +48,6 @@ Parameters:
     Type: String
   DataKeyArn:
     Type: String
-  FreshdeskSecretArn:
-    Type: String
   StripeSecretArn:
     Type: String
   CustomersUserPoolId:
@@ -187,7 +185,7 @@ Resources:
               - Sid: IntegrationSecrets
                 Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref FreshdeskSecretArn, !Ref StripeSecretArn]
+                Resource: !Ref StripeSecretArn
               - Effect: Allow
                 Action: kms:Decrypt
                 Resource: !Ref DataKeyArn
@@ -262,7 +260,6 @@ Resources:
             - { Name: EMPLOYEES_CLIENT_ID, Value: !Ref EmployeesClientId }
             - { Name: WHATSAPP_SETTINGS_PARAMETER, Value: !Ref WhatsAppSettingsParameterName }
             - { Name: MODEL_ENDPOINT, Value: !Ref ModelEndpoint }
-            - { Name: FRESHDESK_SECRET_ARN, Value: !Ref FreshdeskSecretArn }
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
             - { Name: APP_URL_PARAMETER, Value: !Sub "/joybot/${EnvironmentName}/app-url" }
             - { Name: MESSAGING_MODE, Value: live }
@@ -347,7 +344,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref FreshdeskSecretArn, !Ref StripeSecretArn]
+                Resource: !Ref StripeSecretArn
               - Effect: Allow
                 Action: kms:Decrypt
                 Resource: !Ref DataKeyArn
@@ -382,7 +379,6 @@ Resources:
             - { Name: DB_HOST, Value: !Ref DbHost }
             - { Name: DB_PORT, Value: !Ref DbPort }
             - { Name: DB_SSL, Value: "true" }
-            - { Name: FRESHDESK_SECRET_ARN, Value: !Ref FreshdeskSecretArn }
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
           Secrets:
             - { Name: WORKER_DB_PASSWORD, ValueFrom: !Sub "${WorkerDbSecretArn}:password::" }

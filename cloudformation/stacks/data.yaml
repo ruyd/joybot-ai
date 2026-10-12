@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   JoyBot data (plan.md §8.3): Aurora PostgreSQL Serverless v2 (source of truth) with per-role
-  secrets, integration secrets (Freshdesk, Stripe), the Stripe events queue, and the DB bootstrap
+  secrets, integration secrets (Stripe), the Stripe events queue, and the DB bootstrap
   custom resource that applies migrations, role logins, settings and the first admin.
 
 Parameters:
@@ -40,9 +40,6 @@ Parameters:
   SeedSampleData:
     Type: String
     AllowedValues: ["true", "false"]
-  FreshdeskApiKeySecretArn:
-    Type: String
-    Default: ""
   StripeSecretArn:
     Type: String
     Default: ""
@@ -53,7 +50,6 @@ Parameters:
 
 Conditions:
   IsProd: !Equals [!Ref EnvironmentName, prod]
-  CreateFreshdeskSecret: !Equals [!Ref FreshdeskApiKeySecretArn, ""]
   CreateStripeSecret: !Equals [!Ref StripeSecretArn, ""]
 
 Resources:
@@ -198,14 +194,6 @@ Resources:
 
   # Integration secrets: placeholders filled in after deploy (plan.md §8.4) ---------------------
 
-  FreshdeskSecret:
-    Type: AWS::SecretsManager::Secret
-    Condition: CreateFreshdeskSecret
-    Properties:
-      Name: !Sub "joybot/${EnvironmentName}/integrations/freshdesk"
-      Description: 'Freshdesk API key: {"apiKey": "..."} (read-only agent)'
-      KmsKeyId: !Ref DataKey
-      SecretString: '{"apiKey":""}'
   StripeSecret:
     Type: AWS::SecretsManager::Secret
     Condition: CreateStripeSecret
@@ -316,8 +304,6 @@ Outputs:
     Value: !Ref ReaderDbSecret
   WorkerDbSecretArn:
     Value: !Ref WorkerDbSecret
-  FreshdeskSecretArn:
-    Value: !If [CreateFreshdeskSecret, !Ref FreshdeskSecret, !Ref FreshdeskApiKeySecretArn]
   StripeSecretArn:
     Value: !If [CreateStripeSecret, !Ref StripeSecret, !Ref StripeSecretArn]
   AppliedMigrations:

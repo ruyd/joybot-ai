@@ -59,6 +59,7 @@ const tickets = () => import('./routes/portal/TicketPages');
 const MyTickets = page(tickets, 'MyTickets');
 const TicketView = page(tickets, 'TicketView');
 const Organization = page(tickets, 'Organization');
+const StaffTickets = page(tickets, 'StaffTickets');
 const account = () => import('./routes/AccountPages');
 const StaffProfile = page(account, 'StaffProfile');
 const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
@@ -114,6 +115,7 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/assistant', label: 'Assistant' },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
+  { to: '/staff/tickets', label: 'Tickets', can: ['read', 'tickets'] },
   { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
   { to: '/staff/invoices', label: 'Invoices', can: ['create', 'payments'] },
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
@@ -173,7 +175,7 @@ export function App() {
             <Route path="invoices" element={<MyInvoices />} />
             <Route path="invoices/:id" element={<MyInvoice />} />
             <Route path="tickets" element={<MyTickets />} />
-            <Route path="tickets/:id" element={<TicketView back="/portal/tickets" />} />
+            <Route path="tickets/:id" element={<TicketView />} />
             <Route path="organization" element={<Organization />} />
             <Route path="services" element={<Services />} />
             <Route path="locations" element={<Locations />} />
@@ -204,7 +206,8 @@ export function App() {
             <Route path="knowledge" element={<Knowledge />} />
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="payments" element={<Payments />} />
-            <Route path="tickets/:id" element={<TicketView back="/staff/customers" />} />
+            <Route path="tickets" element={<StaffTickets />} />
+            <Route path="tickets/:id" element={<TicketView staff />} />
             <Route path="admin" element={<Admin />} />
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="audit" element={<AuditLogPage />} />

@@ -457,8 +457,6 @@ interface Settings {
   whatsapp_phone_number_id: string | null;
   whatsapp_otp_template: string | null;
   whatsapp_invite_template: string | null;
-  freshdesk_domain: string | null;
-  freshdesk_portal_url: string | null;
 }
 
 export function Admin() {
@@ -547,32 +545,10 @@ function SettingsCard() {
             <input type="checkbox" checked={v.whatsapp_enabled} onChange={(e) => set({ whatsapp_enabled: e.target.checked })} /> Send codes over WhatsApp
           </label>
         </fieldset>
-        <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <legend className="px-1 text-sm font-medium">Freshdesk (support tickets)</legend>
-          <Field label="Freshdesk domain" hint="e.g. yourco.freshdesk.com — the API key lives in Secrets Manager">
-            <Input value={v.freshdesk_domain ?? ''} onChange={(e) => set({ freshdesk_domain: e.target.value || null })} />
-          </Field>
-          <Field label="Customer portal URL" hint="Where customers open their tickets, e.g. https://support.yourco.com">
-            <Input value={v.freshdesk_portal_url ?? ''} onChange={(e) => set({ freshdesk_portal_url: e.target.value || null })} />
-          </Field>
-          <FreshdeskTest />
-        </fieldset>
         {save.error && <ErrorBanner error={save.error} />}
         <div><Button type="submit" disabled={Object.keys(draft).length === 0 || save.isPending}>Save settings</Button></div>
       </form>
     </Card>
-  );
-}
-
-function FreshdeskTest() {
-  const api = useApi();
-  const test = useMutation({ mutationFn: () => api.post<{ ok: boolean }>('/admin/settings/freshdesk/test') });
-  return (
-    <div className="flex items-center gap-3 text-sm">
-      <Button type="button" size="sm" variant="secondary" disabled={test.isPending} onClick={() => test.mutate()}>Test connection</Button>
-      {test.isSuccess && <span className="text-emerald-700">Connected.</span>}
-      {test.error && <span className="text-red-600">{(test.error as Error).message}</span>}
-    </div>
   );
 }
 

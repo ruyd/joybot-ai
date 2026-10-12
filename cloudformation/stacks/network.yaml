@@ -303,5 +303,5 @@ Outputs:
   IsolatedSubnetIds:
     Value: !Join [",", [!Ref IsolatedSubnetA, !Ref IsolatedSubnetB]]
   EgressIps:
-    Description: NAT Elastic IPs to allowlist in external systems (Freshdesk, Stripe-restricted keys).
+    Description: NAT Elastic IPs to allowlist in external systems (e.g. Stripe restricted keys).
     Value: !If [NatPerAz, !Join [",", [!Ref NatEipA, !Ref NatEipB]], !Ref NatEipA]

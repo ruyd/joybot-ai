@@ -31,7 +31,7 @@ Metadata:
       - Label: { default: Email }
         Parameters: [SesFromAddress]
       - Label: { default: Integrations }
-        Parameters: [FreshdeskApiKeySecretArn, StripeSecretArn]
+        Parameters: [StripeSecretArn]
       - Label: { default: Network }
         Parameters:
           - VpcCidr
@@ -114,9 +114,6 @@ Parameters:
     Default: ""
     NoEcho: true
   SesFromAddress:
-    Type: String
-    Default: ""
-  FreshdeskApiKeySecretArn:
     Type: String
     Default: ""
   StripeSecretArn:
@@ -281,7 +278,6 @@ Resources:
         DefaultTimeZone: !Ref DefaultTimeZone
         DefaultCurrency: !Ref DefaultCurrency
         SeedSampleData: !Ref SeedSampleData
-        FreshdeskApiKeySecretArn: !Ref FreshdeskApiKeySecretArn
         StripeSecretArn: !Ref StripeSecretArn
         ArtifactsBucket: !Ref ArtifactsBucket
         ArtifactsVersion: !Ref ArtifactsVersion
@@ -406,7 +402,6 @@ Resources:
         ReaderDbSecretArn: !GetAtt DataStack.Outputs.ReaderDbSecretArn
         WorkerDbSecretArn: !GetAtt DataStack.Outputs.WorkerDbSecretArn
         DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
-        FreshdeskSecretArn: !GetAtt DataStack.Outputs.FreshdeskSecretArn
         StripeSecretArn: !GetAtt DataStack.Outputs.StripeSecretArn
         CustomersUserPoolId: !GetAtt AuthStack.Outputs.CustomersUserPoolId
         CustomersUserPoolArn: !GetAtt AuthStack.Outputs.CustomersUserPoolArn
@@ -484,9 +479,6 @@ Outputs:
     Value: !GetAtt DataStack.Outputs.DbEndpoint
   AppliedMigrations:
     Value: !GetAtt DataStack.Outputs.AppliedMigrations
-  FreshdeskSecretArn:
-    Description: Put the Freshdesk API key here after deploy.
-    Value: !GetAtt DataStack.Outputs.FreshdeskSecretArn
   StripeSecretArn:
     Description: Put the Stripe restricted key and webhook signing secret here after deploy.
     Value: !GetAtt DataStack.Outputs.StripeSecretArn

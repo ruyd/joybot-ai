@@ -217,7 +217,7 @@ function ActionButtons({ actions, audience, onFollow }: { actions: SuggestedActi
   );
 }
 
-const EXTERNAL_LABEL: Record<string, string> = { payment: 'receipt', ticket: 'Freshdesk' };
+const EXTERNAL_LABEL: Record<string, string> = { payment: 'receipt' };
 
 /** What to show after a source's title: its record number, or what kind of source it is. */
 function sourceLabel(c: Citation): string | null {

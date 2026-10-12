@@ -6,9 +6,9 @@ import { DbService } from '../db/db.module';
 import { WhatsAppSettingsPublisher } from './whatsapp-publisher';
 
 const PUBLIC_FIELDS = `business_name, default_time_zone, default_currency, default_locale,
-  whatsapp_enabled, whatsapp_display_number, freshdesk_portal_url, stripe_enabled`;
+  whatsapp_enabled, whatsapp_display_number, stripe_enabled`;
 const ALL_FIELDS = `${PUBLIC_FIELDS}, chat_retention_days, whatsapp_phone_number_id, whatsapp_otp_template,
-  whatsapp_invite_template, whatsapp_template_language, freshdesk_domain, manual_payment_methods,
+  whatsapp_invite_template, whatsapp_template_language, manual_payment_methods,
   bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, invoice_due_days, bank_transfer_instructions, updated_by, updated_at`;
 
 const updateSchema = z
@@ -24,8 +24,6 @@ const updateSchema = z
     whatsapp_otp_template: z.string().min(1).nullable(),
     whatsapp_invite_template: z.string().min(1).nullable(),
     whatsapp_template_language: z.string().min(2),
-    freshdesk_domain: z.string().regex(/^[a-z0-9-]+\.freshdesk\.com$/).nullable(),
-    freshdesk_portal_url: z.string().url().nullable(),
     stripe_enabled: z.boolean(),
     manual_payment_methods: z.array(z.enum(['card_pos', 'bank_transfer', 'cash', 'other'])).min(1),
     bank_transfer_due_days: z.number().int().positive(),

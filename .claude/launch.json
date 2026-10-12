@@ -19,14 +19,6 @@
         "--strictPort"
       ],
       "port": 5173
-    },
-    {
-      "name": "fake-freshdesk",
-      "runtimeExecutable": "node",
-      "runtimeArgs": [
-        "tools/fake-freshdesk.mjs"
-      ],
-      "port": 4010
     }
   ]
 }

@@ -17,7 +17,6 @@
     "dev:api": "pnpm --filter @joybot/api dev",
     "dev:worker": "pnpm --filter @joybot/worker dev",
     "dev:web": "node tools/wait-for-api.mjs && pnpm --filter @joybot/web dev",
-    "dev:freshdesk": "node tools/fake-freshdesk.mjs",
     "dev:model": "sh tools/dev-model.sh",
     "lint:cfn": "cfn-lint cloudformation/main.yaml cloudformation/stacks/*.yaml cloudformation/bootstrap/*.yaml && python3 cloudformation/scripts/check_nested.py && pnpm guard:cfn",
     "guard:cfn": "cfn-guard test --rules-file cloudformation/guard/joybot.guard --test-data cloudformation/guard/tests/joybot_tests.yaml >/dev/null && cfn-guard validate --rules cloudformation/guard --data cloudformation/main.yaml --data cloudformation/stacks --data cloudformation/bootstrap --show-summary fail",
