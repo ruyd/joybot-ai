@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, matchPath, useLocation } from 'react-router-dom';
 import { useSession, type Audience } from '../lib/auth';
 import { useBusy } from '../lib/loading';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -139,10 +139,10 @@ export function Layout({
       <header className="sticky top-0 z-10 flex h-16 items-center gap-4 bg-white/90 px-4 backdrop-blur dark:bg-slate-950/90">
         {/* The logo-coloured accent under the header doubles as the loading indicator. */}
         <div aria-hidden="true" className={`nav-accent${busy ? ' is-loading' : ''}`} />
-        <div className="flex items-center gap-2">
+        <Link to={base} className="flex shrink-0 items-center gap-2 rounded-md" aria-label={`${title} home`}>
           <BrandMark className="size-7" />
           <span className="font-semibold">{title}</span>
-        </div>
+        </Link>
         <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
           {nav.map((n) => {
             const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role);

@@ -114,12 +114,16 @@ const PORTAL_NAV: NavItem[] = [
 const STAFF_NAV: NavItem[] = [
   { to: '/staff', label: 'Home', end: true },
   { to: '/staff/calendar', label: 'Calendar', can: ['read', 'appointments'] },
-  { to: '/staff/assistant', label: 'Assistant' },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/tickets', label: 'Tickets', can: ['read', 'tickets'] },
-  { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
-  { to: '/staff/invoices', label: 'Invoices', can: ['create', 'payments'] },
+  {
+    label: 'Billing',
+    items: [
+      { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
+      { to: '/staff/invoices', label: 'Invoices', can: ['create', 'payments'] },
+    ],
+  },
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
   { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
   {
@@ -193,7 +197,7 @@ export function App() {
             element={
               <SessionProvider audience="employee">
                 <RequireSession>
-                  <Layout title="JoyBot Staff" nav={STAFF_NAV} base="/staff" assistant={{ audience: 'employee', path: '/staff/assistant' }} />
+                  <Layout title="JoyBot" nav={STAFF_NAV} base="/staff" assistant={{ audience: 'employee', path: '/staff/assistant' }} />
                 </RequireSession>
               </SessionProvider>
             }
