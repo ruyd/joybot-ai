@@ -161,10 +161,9 @@ export function ButtonsEditor({ buttons = [], onChange }: { buttons?: SiteButton
     <div className="space-y-2">
       <p className="text-sm font-medium">Buttons</p>
       {buttons.map((b, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={i} className="grid items-center gap-2 sm:grid-cols-[11rem_minmax(0,1fr)_minmax(0,2fr)_auto]">
           <Select
             aria-label={`Button ${i + 1} style`}
-            className="w-36 shrink-0"
             value={b.style ?? ''}
             onChange={(e) => set(i, { style: (e.target.value || undefined) as SiteButton['style'] })}
           >
@@ -173,8 +172,8 @@ export function ButtonsEditor({ buttons = [], onChange }: { buttons?: SiteButton
             <option value="secondary">Outlined</option>
             <option value="highlight">Highlight color</option>
           </Select>
-          <Input placeholder="Label" maxLength={60} value={b.label} onChange={(e) => set(i, { label: e.target.value })} />
-          <Input placeholder="/page, #section, https://…, mailto:…" maxLength={500} value={b.url} onChange={(e) => set(i, { url: e.target.value })} />
+          <Input aria-label={`Button ${i + 1} label`} placeholder="Label" maxLength={60} value={b.label} onChange={(e) => set(i, { label: e.target.value })} />
+          <Input aria-label={`Button ${i + 1} link`} placeholder="/page, #section, https://…, mailto:…" maxLength={500} value={b.url} onChange={(e) => set(i, { url: e.target.value })} />
           <IconButton label="Remove button" onClick={() => onChange(buttons.filter((_, j) => j !== i))}>
             ✕
           </IconButton>
