@@ -215,6 +215,63 @@
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
+/* The hero's background glow: the accent and its gradient color, soft, behind the headline. */
+.site-hero::before {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto;
+  height: 640px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(closest-side, color-mix(in oklab, var(--grad-from) 16%, transparent), transparent),
+    radial-gradient(closest-side at 70% 60%, color-mix(in oklab, var(--site-highlight, var(--grad-to)) 14%, transparent), transparent);
+}
+
+/* Arrow bullets (large cards), and a divider (---) before smaller closing text such as "Best for". */
+.site-arrows ul { @apply my-6 grid list-none gap-3 pl-0; }
+.site-arrows li { @apply relative my-0 pl-7; }
+.site-arrows li::before { content: "→"; position: absolute; left: 0; font-weight: 700; color: var(--color-brand-600); }
+.site-arrows hr { @apply mt-6 mb-5; }
+.site-arrows hr ~ * { font-size: 14px; }
+
+/* Highlighted cards: the site's highlight color (Site setup), else its gradient color. */
+.site-hl {
+  --hl: var(--site-highlight, var(--grad-to));
+  border-color: var(--hl);
+  background-image: linear-gradient(180deg, color-mix(in oklab, var(--hl) 12%, transparent), transparent 60%);
+}
+.site-hl-text { color: var(--hl); }
+.site-hl .site-arrows li::before { color: var(--hl); }
+.site-hl .site-checks li::before { background-color: var(--hl); }
+.site-hl-button { background-color: var(--hl); color: #14131a; }
+.site-hl-button:hover { background-color: color-mix(in oklab, var(--hl) 88%, black); }
+
+/* Before and after: the "after" side in the highlight color. */
+.site-theme section { --hl: var(--site-highlight, var(--grad-to)); }
+.site-compare-after { border-color: var(--hl); background-color: color-mix(in oklab, var(--hl) 8%, transparent); }
+.site-compare-core { background-color: var(--hl); color: #14131a; }
+.site-compare-chip {
+  border-color: color-mix(in oklab, var(--hl) 40%, transparent);
+  background-color: color-mix(in oklab, currentColor 8%, transparent);
+}
+
+/* Call-to-action card: from the accent toward the highlight color (lighter accent in dark mode). */
+.site-cta-card {
+  --cta-from: var(--grad-from);
+  background-image: linear-gradient(135deg, var(--cta-from), color-mix(in oklab, var(--cta-from) 55%, var(--hl)));
+}
+.dark .site-cta-card { --cta-from: var(--color-brand-500); }
+
+/* Badges (section labels) and icons in the highlight color. */
+.site-badge { background-color: color-mix(in oklab, var(--hl) 14%, transparent); color: var(--hl); }
+.site-icon-hl { background-color: color-mix(in oklab, var(--hl) 14%, transparent); color: var(--hl); }
+
+/* Dark sections: labels, highlighted words and icons in the highlight color. */
+.site-band-dark .site-eyebrow { color: var(--hl); }
+.site-band-dark .site-accent-text { background-image: none; color: var(--hl); }
+.site-band-dark .site-icon { background-color: color-mix(in oklab, var(--hl) 18%, transparent); color: var(--hl); }
+
 /* Words of a headline highlighted in the accent gradient. */
 .site-accent-text {
   background-image: linear-gradient(90deg, var(--grad-from), var(--grad-to));
@@ -255,6 +312,9 @@
   --color-on-brand: color-mix(in oklab, var(--site-accent) 30%, black);
   --grad-from: var(--site-accent);
 }
+/* The line under the header (and its loading shimmer and glow): the accent and gradient colors. */
+.site-accent .nav-accent { background-image: linear-gradient(90deg, var(--site-accent), var(--site-accent-2), var(--site-accent)); }
+.site-accent .nav-accent.is-loading { box-shadow: 0 0 10px 0 color-mix(in oklab, var(--site-accent) 60%, transparent); }
 .site-accent .btn-gradient:hover:not(:disabled) {
   --grad-from: color-mix(in oklab, var(--site-accent) 85%, black);
   --grad-to: color-mix(in oklab, var(--site-accent-2) 85%, black);

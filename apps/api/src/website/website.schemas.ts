@@ -76,20 +76,29 @@ export const SITE_ICONS = [
   'handshake', 'award', 'target', 'lightbulb', 'compass', 'repeat', 'gift', 'leaf',
 ] as const;
 
-/** Section options every module has: an anchor for "#links", a background, a small label, a heading and an intro. */
+/**
+ * Section options every module has: an anchor for "#links", a background, a small label, a heading
+ * (with words to highlight) and an intro.
+ */
 const section = {
   id: moduleId,
   /** "services" makes the section reachable at /page#services. */
   anchor: z.string().trim().max(40).regex(/^[a-z][a-z0-9-]*$/, 'Use lowercase letters, numbers and dashes, starting with a letter').optional().or(z.literal('')),
   background: z.enum(['default', 'alt', 'dark', 'accent']).optional(),
+  /** Where the label, heading and intro sit (centered by default). */
+  align: z.enum(['center', 'left']).optional(),
   eyebrow: text(80).optional(),
+  /** The label as small capitals (text) or a rounded label in the highlight color (badge). */
+  eyebrow_style: z.enum(['text', 'badge']).optional(),
   heading: text(200).optional(),
+  /** Words of the heading to highlight (accent color, the heading font's italic); ignored when not in the heading. */
+  heading_accent: text(80).optional(),
   /** Markdown. */
   intro: text(2000).optional(),
 };
 
-/** A button: the first of a pair is drawn filled, the second outlined. */
-const button = z.object({ label: text(60).min(1), url: link }).strict();
+/** A button: by default the first of a pair is drawn filled and the second outlined; style overrides that. */
+const button = z.object({ label: text(60).min(1), url: link, style: z.enum(['primary', 'secondary', 'highlight']).optional() }).strict();
 const buttons = z.array(button).max(2).optional();
 
 const columnsModule = z
@@ -146,8 +155,8 @@ const heroModule = z
     ...section,
     type: z.literal('hero'),
     heading: text(200).min(1, 'A hero needs a headline'),
-    /** Words of the headline to highlight (in the accent color and the heading font's italic). */
-    heading_accent: text(80).optional(),
+    /** A short rounded label at the start of the hero's label line, e.g. "Open source". */
+    badge: text(40).optional(),
     /** Markdown. */
     text: text(2000).optional(),
     buttons,
@@ -161,13 +170,22 @@ const cardsModule = z
   .object({
     ...section,
     type: z.literal('cards'),
-    variant: z.enum(['cards', 'numbered', 'compact']).default('cards'),
+    /** large: roomier cards with headings in the heading font, arrow bullets and button links. */
+    variant: z.enum(['cards', 'large', 'numbered', 'compact']).default('cards'),
+    /** Cards style: icons above the text, or beside it. */
+    icon_position: z.enum(['top', 'side']).default('top'),
+    /** Icons in the accent color, or the highlight color. */
+    icon_color: z.enum(['accent', 'highlight']).default('accent'),
+    /** The buttons under the cards, or beside the heading (left-aligned sections). */
+    buttons_position: z.enum(['below', 'header']).default('below'),
     columns: z.union([z.literal(2), z.literal(3), z.literal(4)]).default(3),
     items: z
       .array(
         z
           .object({
             icon: z.enum(SITE_ICONS).nullable().optional(),
+            /** Drawn in the site's highlight color (cards and large cards). */
+            highlight: z.boolean().optional(),
             eyebrow: text(80).optional(),
             heading: text(120).optional(),
             /** Markdown: lists work, for bullet points. */
@@ -209,7 +227,22 @@ const ctaModule = z
   })
   .strict();
 
-export const moduleSchema = z.discriminatedUnion('type', [columnsModule, htmlModule, imageModule, videoModule, heroModule, cardsModule, faqModule, ctaModule]);
+/** One side of a before-and-after comparison: a label, an optional bar across the top, and chips (a name with a short note). */
+const compareSide = z
+  .object({
+    label: text(80).optional(),
+    /** A solid bar above the chips, e.g. "Your core business app + AI". */
+    core: text(120).optional(),
+    items: z
+      .array(z.object({ label: text(60).min(1), /** Small text after the name, e.g. "per seat". */ note: text(40).optional() }).strict())
+      .max(16),
+  })
+  .strict();
+
+/** Before → after: chips in a dashed box, an arrow, then chips in a box in the highlight color. */
+const compareModule = z.object({ ...section, type: z.literal('compare'), before: compareSide, after: compareSide }).strict();
+
+export const moduleSchema = z.discriminatedUnion('type', [columnsModule, htmlModule, imageModule, videoModule, heroModule, cardsModule, faqModule, ctaModule, compareModule]);
 export type SiteModule = z.infer<typeof moduleSchema>;
 
 const pageFields = {
@@ -276,6 +309,8 @@ export const siteSettingsSchema = z
     logo_asset_id: z.string().uuid().nullable(),
     accent: color,
     accent_to: color,
+    /** A second brand color for highlighted cards and the hero glow; null means accent_to. */
+    highlight_color: color.nullable().or(z.literal('').transform(() => null)),
     heading_font: z.enum(SITE_FONTS),
     body_font: z.enum(SITE_FONTS),
     /** Extra header links after the pages shown in the header: "/#services", "/about", https://… */

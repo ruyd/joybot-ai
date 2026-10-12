@@ -6,7 +6,7 @@ import { fontStack, loadSiteFont, SITE_FONTS } from '../../lib/site-fonts';
  * The site's look from Website › Site setup: its accent colors (class `site-accent`, only when they
  * differ from the app's own) and fonts (loaded on demand). Wraps the public site and the editor's preview.
  */
-export function SiteTheme({ settings, className = '', children }: { settings?: Pick<SiteSettings, 'accent' | 'accent_to' | 'heading_font' | 'body_font'> | null; className?: string; children: ReactNode }) {
+export function SiteTheme({ settings, className = '', children }: { settings?: Pick<SiteSettings, 'accent' | 'accent_to' | 'heading_font' | 'body_font'> & Partial<Pick<SiteSettings, 'highlight_color'>> | null; className?: string; children: ReactNode }) {
   const s = settings ?? DEFAULT_SITE_SETTINGS;
   const custom = s.accent !== DEFAULT_SITE_SETTINGS.accent || s.accent_to !== DEFAULT_SITE_SETTINGS.accent_to;
   const heading = fontStack(s.heading_font);
@@ -17,6 +17,7 @@ export function SiteTheme({ settings, className = '', children }: { settings?: P
   }, [s.heading_font, s.body_font]);
   const style = {
     ...(custom ? { '--site-accent': s.accent, '--site-accent-2': s.accent_to } : {}),
+    ...(s.highlight_color ? { '--site-highlight': s.highlight_color } : {}),
     ...(heading ? { '--site-font-heading': heading, '--site-heading-weight': SITE_FONTS[s.heading_font]?.headingWeight ?? 600 } : {}),
     ...(body ? { '--site-font-body': body } : {}),
   } as CSSProperties;
