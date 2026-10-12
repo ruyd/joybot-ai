@@ -327,3 +327,5 @@
   font-family: var(--site-font-heading);
   font-weight: var(--site-heading-weight);
 }
+/* Headings that stay in the body font (app-like pages such as the booking page). */
+.site-theme[data-heading-font] :is(h1, h2).site-plain-heading { font-family: var(--site-font-body, inherit); font-weight: 700; }
