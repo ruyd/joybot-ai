@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ExternalLink, RefreshCw } from 'lucide-react';
+import { Check, Clock, ExternalLink, RefreshCw } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, ErrorBanner, Field, Input, PageHeader, Spinner } from '../../components/ui';
@@ -50,7 +50,7 @@ const DOMAIN_TONE: Record<string, 'green' | 'amber' | 'red' | 'slate'> = {
 
 /**
  * Admin › Email: send the app's email through Resend, set up in steps (account, API key, an
- * optional domain, the sender), with Resend's usage and domains alongside.
+ * domain, the sender, a test), with Resend's usage and domains alongside.
  */
 export function EmailPage() {
   const api = useApi();
@@ -58,8 +58,16 @@ export function EmailPage() {
   const s = settings.data;
   const hasKey = Boolean(s?.resend_key_last4);
   const usage = useQuery({ queryKey: ['email-usage'], enabled: hasKey, queryFn: () => api.get<Usage>('/admin/email/usage'), retry: false });
-  const domains = useQuery({ queryKey: ['email-domains'], enabled: hasKey, queryFn: () => api.get<Domain[]>('/admin/email/domains'), retry: false });
+  const domains = useQuery({
+    queryKey: ['email-domains'],
+    enabled: hasKey,
+    queryFn: () => api.get<Domain[]>('/admin/email/domains'),
+    retry: false,
+    // While a domain waits for DNS verification, check again every 30 seconds.
+    refetchInterval: (q) => (q.state.data?.length && !q.state.data.some((d) => d.status === 'verified') ? 30_000 : false),
+  });
   const verified = domains.data?.filter((d) => d.status === 'verified') ?? [];
+  const waiting = !verified.length ? domains.data?.[0] : undefined;
 
   return (
     <Page>
@@ -83,13 +91,20 @@ export function EmailPage() {
             <Step n={2} title="Create an API key" done={hasKey}>
               <ApiKeyStep settings={s} />
             </Step>
-            <Step n={3} title="Add your domain" optional done={verified.length > 0}>
+            <Step n={3} title="Add your domain" done={verified.length > 0} pending={Boolean(waiting)}>
               <p>
-                Without your own domain, Resend sends only from <code className="text-xs">{TEST_SENDER}</code>, and only to the email address of your Resend
-                account: fine for a test. To email customers, add your domain in Resend, add the DNS records it shows, and wait for it to verify.
+                Resend sends to your customers only from a domain you own. Add your domain in Resend, add the DNS records it shows at your domain
+                provider, then choose <strong>I've already added the records</strong> in Resend. Until then it can only send tests from{' '}
+                <code className="text-xs">{TEST_SENDER}</code> to your own Resend address.
               </p>
+              {waiting && (
+                <p role="status" className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                  <strong>{waiting.name}</strong> is added but not verified yet ({waiting.status.replaceAll('_', ' ')}). Add its DNS records and choose{' '}
+                  <strong>I've already added the records</strong> in Resend; this step turns green once Resend verifies it (it can take a few minutes).
+                </p>
+              )}
               <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className={linkButton}>
-                Add a domain in Resend <ExternalLink className="size-3.5" aria-hidden="true" />
+                {domains.data?.length ? 'Open domains in Resend' : 'Add a domain in Resend'} <ExternalLink className="size-3.5" aria-hidden="true" />
               </a>
               <DomainsBox enabled={hasKey} query={domains} />
             </Step>
@@ -110,23 +125,26 @@ export function EmailPage() {
 const linkButton =
   'press inline-flex w-fit items-center gap-1.5 rounded-full border border-slate-300 px-3.5 py-1.5 text-sm font-semibold text-brand-700 hover:bg-brand-50 dark:border-slate-700 dark:text-brand-600 dark:hover:bg-slate-800';
 
-function Step({ n, title, done, optional, children }: { n: number; title: string; done: boolean; optional?: boolean; children: ReactNode }) {
+function Step({ n, title, done, pending, children }: { n: number; title: string; done: boolean; pending?: boolean; children: ReactNode }) {
   return (
     <li className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-start gap-3">
         <span
           aria-hidden="true"
           className={`grid size-7 shrink-0 place-items-center rounded-full text-sm font-semibold ${
-            done ? 'bg-emerald-600 text-white' : 'bg-brand-50 text-brand-700 dark:bg-slate-800 dark:text-brand-100'
+            done
+              ? 'bg-emerald-600 text-white'
+              : pending
+                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200'
+                : 'bg-brand-50 text-brand-700 dark:bg-slate-800 dark:text-brand-100'
           }`}
         >
-          {done ? <Check className="size-4" /> : n}
+          {done ? <Check className="size-4" /> : pending ? <Clock className="size-4" /> : n}
         </span>
         <div className="grid min-w-0 flex-1 gap-3 text-sm text-slate-600 dark:text-slate-300">
           <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
             {n}. {title}
-            {optional && <span className="ml-2 text-xs font-normal text-slate-500">optional</span>}
-            {done && <span className="sr-only"> (done)</span>}
+            {done ? <span className="sr-only"> (done)</span> : pending && <span className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400">waiting for verification</span>}
           </h2>
           {children}
         </div>
