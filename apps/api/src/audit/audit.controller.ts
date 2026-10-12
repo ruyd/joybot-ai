@@ -43,6 +43,7 @@ const LABEL = `coalesce(
     WHEN 'api_tokens' THEN (SELECT name FROM app.api_tokens WHERE id = p.row_id::uuid)
     WHEN 'site_pages' THEN (SELECT title FROM core.site_pages WHERE id = p.row_id::uuid)
     WHEN 'site_assets' THEN (SELECT filename FROM core.site_assets WHERE id = p.row_id::uuid)
+    WHEN 'site_settings' THEN 'Website setup'
   END,
   p.diff->>'invoice_number', p.diff->>'appointment_number', p.diff->>'payment_number', p.diff->>'customer_number',
   p.diff->>'title', p.diff->>'name', p.diff->>'filename', nullif(concat_ws(' ', p.diff->>'first_name', p.diff->>'last_name'), ''))`;

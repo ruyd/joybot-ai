@@ -45,6 +45,7 @@ const TABLE_LABEL: Record<string, string> = {
   api_tokens: 'Claude token',
   site_pages: 'Website page',
   site_assets: 'Website image',
+  site_settings: 'Website setup',
 };
 
 /** Where a change came from (core.change_log.changed_via). */

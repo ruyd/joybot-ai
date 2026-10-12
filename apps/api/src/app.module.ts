@@ -45,6 +45,7 @@ import { InvoicesService } from './invoices/invoices.service';
 import { AuditController } from './audit/audit.controller';
 import { SiteController } from './website/site.controller';
 import { WebsiteController } from './website/website.controller';
+import { WebsiteService } from './website/website.service';
 import { McpController } from './mcp/mcp.controller';
 import { TokensController } from './mcp/tokens.controller';
 import { WhatsAppSettingsPublisher } from './settings/whatsapp-publisher';
@@ -101,6 +102,7 @@ export class AppModule {
         TasksService,
         InvoicesService,
         SchedulesService,
+        WebsiteService,
         WhatsAppSettingsPublisher,
         ChatToolsService,
         StripeSecrets,

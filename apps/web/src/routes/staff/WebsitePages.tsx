@@ -2,11 +2,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Page } from '../../components/Layout';
 import { SiteModules } from '../../components/site/Modules';
+import { SiteTheme } from '../../components/site/Theme';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
 import { dateTime } from '../../lib/format';
 import { useMe } from '../../lib/me';
-import { assetUrl, MODULE_LABEL, pagePath, videoEmbed, type SiteColumn, type SiteModule } from '../../lib/site';
+import { MODULE_LABEL, pagePath, videoEmbed, type SiteColumn, type SiteModule } from '../../lib/site';
+import { CardsEditor, CtaEditor, FaqEditor, HeroEditor, IconButton, ImagePicker, SectionOptions } from './WebsiteEditors';
+import { SiteSetup, useSiteSettings } from './WebsiteSetup';
 
 interface PageRow {
   id: string;
@@ -25,14 +28,6 @@ interface PageRow {
 interface PageDoc extends PageRow {
   modules: SiteModule[];
 }
-interface Asset {
-  id: string;
-  filename: string;
-  content_type: string;
-  size_bytes: number;
-  created_at: string;
-}
-
 type Draft = Pick<PageDoc, 'slug' | 'title' | 'description' | 'published' | 'show_in_header' | 'show_in_footer' | 'sort_order' | 'modules'>;
 
 const toDraft = (p: PageDoc): Draft => ({
@@ -58,13 +53,30 @@ const slugify = (s: string) =>
 
 function blankModule(type: SiteModule['type']): SiteModule {
   const id = newId();
-  if (type === 'columns') return { id, type, heading: '', columns: [{}, {}, {}] };
-  if (type === 'html') return { id, type, html: '<h2>Heading</h2>\n<p>Text</p>' };
-  if (type === 'image') return { id, type, image_id: '', alt: '', size: 'full' };
-  return { id, type, url: '' };
+  switch (type) {
+    case 'columns':
+      return { id, type, heading: '', columns: [{}, {}, {}] };
+    case 'html':
+      return { id, type, html: '<h2>Heading</h2>\n<p>Text</p>' };
+    case 'image':
+      return { id, type, image_id: '', alt: '', size: 'full' };
+    case 'video':
+      return { id, type, url: '' };
+    case 'hero':
+      return { id, type, heading: '', buttons: [] };
+    case 'cards':
+      return { id, type, variant: 'cards', columns: 3, items: [{}, {}, {}] };
+    case 'faq':
+      return { id, type, items: [{ question: '', answer: '' }] };
+    case 'cta':
+      return { id, type, heading: '', buttons: [] };
+  }
 }
 
-/** Marketing › Website: the public site's pages, each a list of modules (columns, HTML, image, video). */
+/** Site setup is chosen in the pages list like a page. */
+const SETUP = 'setup';
+
+/** Marketing › Website: site setup (look and header) and the public site's pages, each a list of modules. */
 export function WebsitePage() {
   const api = useApi();
   const { can } = useMe();
@@ -85,7 +97,7 @@ export function WebsitePage() {
     <Page>
       <PageHeader
         title="Website"
-        description="Your public site at the root of this app: pages built from modules, shown in the header and footer as you choose."
+        description="Your public site at the root of this app: pages built from modules, shown in the header and footer as you choose, in your own colors and fonts."
         actions={
           <a href="/" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-600">
             Open the site ↗
@@ -109,6 +121,17 @@ export function WebsitePage() {
             <ErrorBanner error={pages.error} />
           ) : (
             <ul className="-mx-2 space-y-0.5">
+              <li className="mb-1 border-b border-slate-200 pb-1 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => select(SETUP)}
+                  aria-current={!creating && current === SETUP ? 'page' : undefined}
+                  className={`press w-full rounded-lg px-2 py-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 ${!creating && current === SETUP ? 'bg-brand-50 dark:bg-slate-800' : ''}`}
+                >
+                  <span className="block text-sm font-medium">Site setup</span>
+                  <span className="block text-xs text-slate-500">Colors, fonts, logo and header</span>
+                </button>
+              </li>
               {pages.data?.map((p) => (
                 <li key={p.id}>
                   <button
@@ -140,6 +163,12 @@ export function WebsitePage() {
               setSelected(id);
             }}
             onCancel={() => setCreating(false)}
+          />
+        ) : current === SETUP ? (
+          <SiteSetup
+            onDirty={(d) => {
+              dirty.current = d;
+            }}
           />
         ) : current ? (
           <PageEditor key={current} id={current} onDirty={(d) => {
@@ -219,6 +248,7 @@ function PageEditor({ id, onDirty, onDeleted }: { id: string; onDirty: (dirty: b
   const queryClient = useQueryClient();
   const { can } = useMe();
   const page = useQuery({ queryKey: ['website', 'page', id], queryFn: () => api.get<PageDoc>(`/website/pages/${id}`) });
+  const settings = useSiteSettings();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [preview, setPreview] = useState(false);
   const saved = page.data ? toDraft(page.data) : null;
@@ -327,9 +357,9 @@ function PageEditor({ id, onDirty, onDeleted }: { id: string; onDirty: (dirty: b
         }
       >
         {preview ? (
-          <div className="-m-4 rounded-b-xl bg-slate-50 p-6 dark:bg-slate-950">
+          <SiteTheme settings={settings.data} className="-m-4 overflow-hidden rounded-b-xl bg-white dark:bg-slate-950">
             {form.modules.length ? <SiteModules modules={form.modules.filter((m) => m.type !== 'image' || m.image_id)} /> : <EmptyState>No modules yet.</EmptyState>}
-          </div>
+          </SiteTheme>
         ) : (
           <fieldset disabled={!editable} className="space-y-3">
             {form.modules.length === 0 && <EmptyState>No modules yet: add one below.</EmptyState>}
@@ -403,6 +433,8 @@ function Check({ label, checked, disabled, onChange }: { label: string; checked:
   );
 }
 
+const NUMBERED: Record<string, string> = { modules: 'Module', columns: 'column', items: 'item', buttons: 'button', header_links: 'Header link' };
+
 /** The API's validation issues, named the way the editor shows them ("Module 2 › column 1 › link"). */
 function SaveError({ error }: { error: unknown }) {
   if (!error) return null;
@@ -411,8 +443,8 @@ function SaveError({ error }: { error: unknown }) {
   const name = (path: string) =>
     path
       .split('.')
-      .map((part, i, all) => (all[i - 1] === 'modules' ? `Module ${Number(part) + 1}` : all[i - 1] === 'columns' ? `column ${Number(part) + 1}` : part))
-      .filter((part) => part !== 'modules' && part !== 'columns')
+      .map((part, i, all) => (NUMBERED[all[i - 1]] && /^\d+$/.test(part) ? `${NUMBERED[all[i - 1]]} ${Number(part) + 1}` : part))
+      .filter((part, i, all) => !(NUMBERED[part] && /^\d+$/.test(all[i + 1] ?? '')))
       .map((part) => part.replace(/_/g, ' '))
       .join(' › ');
   return (
@@ -466,6 +498,11 @@ function ModuleCard({
         </span>
       </header>
       <div className="space-y-3 p-3">
+        <SectionOptions module={m} onChange={onChange} />
+        {m.type === 'hero' && <HeroEditor module={m} onChange={onChange} />}
+        {m.type === 'cards' && <CardsEditor module={m} onChange={onChange} />}
+        {m.type === 'faq' && <FaqEditor module={m} onChange={onChange} />}
+        {m.type === 'cta' && <CtaEditor module={m} onChange={onChange} />}
         {m.type === 'columns' && <ColumnsEditor module={m} onChange={onChange} />}
         {m.type === 'html' && (
           <Field label="HTML" hint="Headings, paragraphs, lists, links, images and tables. Scripts, styles, forms and embeds are removed when you save.">
@@ -515,30 +552,12 @@ function ModuleCard({
   );
 }
 
-function IconButton({ label, disabled, onClick, children }: { label: string; disabled?: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="press flex size-7 items-center justify-center rounded-full text-sm text-slate-500 hover:bg-slate-100 hover:text-brand-700 disabled:opacity-30 dark:hover:bg-slate-800"
-    >
-      {children}
-    </button>
-  );
-}
-
 function ColumnsEditor({ module: m, onChange }: { module: Extract<SiteModule, { type: 'columns' }>; onChange: (m: SiteModule) => void }) {
   const setColumn = (i: number, patch: Partial<SiteColumn>) => onChange({ ...m, columns: m.columns.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
   const setCount = (n: number) => onChange({ ...m, columns: Array.from({ length: n }, (_, i) => m.columns[i] ?? {}) });
   return (
     <>
-      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_9rem]">
-        <Field label="Heading (optional)">
-          <Input maxLength={200} value={m.heading ?? ''} onChange={(e) => onChange({ ...m, heading: e.target.value })} />
-        </Field>
+      <div className="grid gap-3 sm:max-w-[9rem]">
         <Field label="Columns">
           <Select value={m.columns.length} onChange={(e) => setCount(Number(e.target.value))}>
             {[1, 2, 3, 4].map((n) => (
@@ -572,85 +591,5 @@ function ColumnsEditor({ module: m, onChange }: { module: Extract<SiteModule, { 
         ))}
       </div>
     </>
-  );
-}
-
-/** Choose an uploaded image, or upload one (PNG, JPEG, WebP or GIF, up to 5 MB). */
-function ImagePicker({ value, onChange, compact }: { value: string | null; onChange: (id: string | null) => void; compact?: boolean }) {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  const [browsing, setBrowsing] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const assets = useQuery({ queryKey: ['website', 'assets'], queryFn: () => api.get<Asset[]>('/website/assets'), enabled: browsing });
-  const upload = useMutation({
-    mutationFn: async (file: File) => {
-      if (file.size > 5 * 1024 * 1024) throw new Error('Images can be up to 5 MB');
-      const res = await api.fetch(`/website/assets?filename=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'content-type': file.type }, body: file });
-      const data = res.headers.get('content-type')?.includes('json') ? await res.json() : {};
-      if (!res.ok) throw new ApiError(res.status, data);
-      return data as Asset;
-    },
-    onSuccess: (a) => {
-      void queryClient.invalidateQueries({ queryKey: ['website', 'assets'] });
-      setBrowsing(false);
-      onChange(a.id);
-    },
-  });
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        {value && <img src={assetUrl(value)} alt="" className={`${compact ? 'h-12' : 'h-20'} rounded-md border border-slate-200 object-cover dark:border-slate-800`} />}
-        <Button type="button" size="sm" variant="secondary" disabled={upload.isPending} onClick={() => input.current?.click()}>
-          {upload.isPending ? 'Uploading…' : value ? 'Replace image' : 'Upload image'}
-        </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setBrowsing((b) => !b)} aria-expanded={browsing}>
-          {browsing ? 'Close library' : 'Choose from library'}
-        </Button>
-        {value && (
-          <Button type="button" size="sm" variant="ghost" onClick={() => onChange(null)}>
-            Remove
-          </Button>
-        )}
-        <input
-          ref={input}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) upload.mutate(file);
-          }}
-        />
-      </div>
-      {upload.error && <ErrorBanner error={upload.error} />}
-      {browsing && (
-        <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
-          {assets.isLoading ? (
-            <Spinner />
-          ) : !assets.data?.length ? (
-            <p className="p-2 text-xs text-slate-500">No images uploaded yet.</p>
-          ) : (
-            <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5">
-              {assets.data.map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  title={a.filename}
-                  onClick={() => {
-                    onChange(a.id);
-                    setBrowsing(false);
-                  }}
-                  className={`press overflow-hidden rounded-md border-2 ${a.id === value ? 'border-brand-500' : 'border-transparent hover:border-brand-200'}`}
-                >
-                  <img src={assetUrl(a.id)} alt={a.filename} loading="lazy" className="aspect-square w-full object-cover" />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

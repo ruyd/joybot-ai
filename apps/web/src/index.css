@@ -201,3 +201,69 @@
 .site-prose table { @apply my-4 w-full text-left text-sm; }
 .site-prose th, .site-prose td { @apply border-b border-slate-200 px-3 py-2 dark:border-slate-800; }
 .site-prose > :first-child { @apply mt-0; }
+/* Bullet lists in cards: check marks in the accent color. */
+.site-checks ul { @apply my-3 list-none pl-0; }
+.site-checks li { @apply relative my-1.5 pl-6; }
+.site-checks li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.3em;
+  width: 1rem;
+  height: 1rem;
+  background-color: var(--color-brand-600);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+/* Words of a headline highlighted in the accent gradient. */
+.site-accent-text {
+  background-image: linear-gradient(90deg, var(--grad-from), var(--grad-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  padding-right: 0.06em; /* italic overhang */
+}
+
+/*
+ * Website setup (Marketing › Website › Site setup). The site's accent replaces the app's blue inside
+ * the site: a scale mixed from the one color, lighter in dark mode (also in dark sections, which carry
+ * the `dark` class). Only set when the site has its own colors, so the default look is unchanged.
+ */
+.site-accent {
+  --color-brand-50: color-mix(in oklab, var(--site-accent) 7%, white);
+  --color-brand-100: color-mix(in oklab, var(--site-accent) 15%, white);
+  --color-brand-200: color-mix(in oklab, var(--site-accent) 30%, white);
+  --color-brand-300: color-mix(in oklab, var(--site-accent) 50%, white);
+  --color-brand-400: color-mix(in oklab, var(--site-accent) 75%, white);
+  --color-brand-500: color-mix(in oklab, var(--site-accent) 90%, white);
+  --color-brand-600: var(--site-accent);
+  --color-brand-700: color-mix(in oklab, var(--site-accent) 85%, black);
+  --color-brand-800: color-mix(in oklab, var(--site-accent) 70%, black);
+  --color-brand-900: color-mix(in oklab, var(--site-accent) 55%, black);
+  --color-brand-950: color-mix(in oklab, var(--site-accent) 35%, black);
+  --color-brand-teal: var(--site-accent-2);
+  --color-on-brand: #ffffff;
+  --grad-from: var(--site-accent);
+  --grad-to: var(--site-accent-2);
+}
+.dark .site-accent,
+.site-accent .dark,
+.site-accent.dark {
+  --color-brand-500: color-mix(in oklab, var(--site-accent) 70%, white);
+  --color-brand-600: color-mix(in oklab, var(--site-accent) 55%, white);
+  --color-brand-700: color-mix(in oklab, var(--site-accent) 40%, white);
+  --color-on-brand: color-mix(in oklab, var(--site-accent) 30%, black);
+  --grad-from: var(--site-accent);
+}
+.site-accent .btn-gradient:hover:not(:disabled) {
+  --grad-from: color-mix(in oklab, var(--site-accent) 85%, black);
+  --grad-to: color-mix(in oklab, var(--site-accent-2) 85%, black);
+  box-shadow: 0 6px 16px -6px color-mix(in oklab, var(--site-accent) 55%, transparent);
+}
+/* Dark sections use the dark surface for outlined buttons, whatever the page's theme. */
+.site-theme .dark { --surface: #0f172a; }
+.site-theme[data-body-font] { font-family: var(--site-font-body); }
+.site-theme[data-heading-font] :is(h1, h2, .site-heading) {
+  font-family: var(--site-font-heading);
+  font-weight: var(--site-heading-weight);
+}

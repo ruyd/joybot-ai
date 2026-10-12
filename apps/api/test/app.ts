@@ -5,6 +5,7 @@ import { config } from 'dotenv';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { loadConfig } from '../src/config/config';
+import { configureApp } from '../src/setup';
 
 export interface AppOptions {
   /** Extra environment (e.g. AUTH_MODE=cognito with fake pool ids). */
@@ -21,7 +22,7 @@ export async function createApp(options: AppOptions = {}): Promise<INestApplicat
   for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
-  app.setGlobalPrefix('api');
+  configureApp(app);
   await app.init();
   return app;
 }

@@ -3,56 +3,96 @@ import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router-dom';
 import { BrandMark } from '../../components/BrandMark';
 import { ThemeToggle } from '../../components/HeaderControls';
-import { SiteModules } from '../../components/site/Modules';
+import { SiteLink, SiteModules } from '../../components/site/Modules';
+import { SiteTheme } from '../../components/site/Theme';
 import { Spinner } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { pagePath, siteGet, type SitePage, type SitePageSummary } from '../../lib/site';
+import { assetUrl, pagePath, siteGet, type SitePage, type SitePageSummary, type SiteSettings } from '../../lib/site';
 
 interface SiteInfo {
   business_name: string | null;
+  settings: SiteSettings | null;
   pages: SitePageSummary[];
 }
 
 const useSite = () => useQuery({ queryKey: ['site'], queryFn: () => siteGet<SiteInfo>(''), staleTime: 60_000 });
 
-/** The public website at the root of the app: header (pages, customer login), page, footer. */
+/** The public website at the root of the app: header (pages, links, customer login), page, footer; in the site's own look. */
 export function SiteLayout() {
   const site = useSite();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
-  useEffect(() => setMenuOpen(false), [location.pathname]);
+  useEffect(() => setMenuOpen(false), [location.pathname, location.hash]);
   const name = site.data?.business_name ?? '';
+  const s = site.data?.settings;
   const header = site.data?.pages.filter((p) => p.show_in_header) ?? [];
+  const links = s?.header_links ?? [];
   const footer = site.data?.pages.filter((p) => p.show_in_footer) ?? [];
+  const showLogin = s?.show_customer_login ?? true;
+  const button = s?.header_button_label && s.header_button_url ? { label: s.header_button_label, url: s.header_button_url } : null;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-full px-3 py-1.5 text-sm font-medium ${isActive ? 'text-brand-700 dark:text-brand-600' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300 dark:hover:text-brand-600'}`;
+  const linkClass = navClass({ isActive: false });
+  const nav = (
+    <>
+      {header.map((p) => (
+        <NavLink key={p.slug} to={pagePath(p)} end className={navClass}>
+          {p.title}
+        </NavLink>
+      ))}
+      {links.map((l, i) => (
+        <SiteLink key={i} href={l.url} className={linkClass}>
+          {l.label}
+        </SiteLink>
+      ))}
+    </>
+  );
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <SiteTheme settings={s} className="flex min-h-dvh flex-col">
       <header className="sticky top-0 z-10 bg-white/90 backdrop-blur dark:bg-slate-950/90">
         <div aria-hidden="true" className="nav-accent" />
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-4">
           <Link to="/" className="flex min-w-0 items-center gap-2">
-            <BrandMark className="size-8 shrink-0" />
-            <span className="truncate text-lg font-semibold tracking-tight">{name}</span>
+            {s?.logo_asset_id ? <img src={assetUrl(s.logo_asset_id)} alt="" className="size-8 shrink-0 rounded-lg object-contain" /> : <BrandMark className="size-8 shrink-0" />}
+            <span className="flex min-w-0 flex-col leading-tight">
+              <span className="truncate text-lg font-semibold tracking-tight">{name}</span>
+              {s?.tagline && <span className="truncate text-xs text-slate-500 dark:text-slate-400">{s.tagline}</span>}
+            </span>
           </Link>
-          <nav aria-label="Site" className="ml-auto hidden items-center gap-1 md:flex">
-            {header.map((p) => (
-              <NavLink key={p.slug} to={pagePath(p)} end className={navClass}>
-                {p.title}
-              </NavLink>
-            ))}
+          <nav aria-label="Site" className="ml-auto hidden items-center gap-1 lg:flex">
+            {nav}
           </nav>
-          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:ml-0">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 lg:ml-0">
             <ThemeToggle />
-            <Link to="/portal" className="press btn-gradient whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold shadow-sm">
-              <span className="sm:hidden">Log in</span>
-              <span className="hidden sm:inline">Customer login</span>
-            </Link>
-            {header.length > 0 && (
+            {showLogin && (
+              <Link
+                to="/portal"
+                className={
+                  button
+                    ? 'hidden rounded-full px-3 py-2 text-sm font-medium text-slate-600 hover:text-brand-700 sm:inline dark:text-slate-300 dark:hover:text-brand-600'
+                    : 'press btn-gradient whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold shadow-sm'
+                }
+              >
+                {button ? (
+                  'Log in'
+                ) : (
+                  <>
+                    <span className="sm:hidden">Log in</span>
+                    <span className="hidden sm:inline">Customer login</span>
+                  </>
+                )}
+              </Link>
+            )}
+            {button && (
+              <SiteLink href={button.url} className="press btn-gradient whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold shadow-sm">
+                {button.label}
+              </SiteLink>
+            )}
+            {(header.length > 0 || links.length > 0 || (button && showLogin)) && (
               <button
                 type="button"
-                className="press rounded-full p-2 text-slate-600 hover:bg-slate-100 md:hidden dark:text-slate-300 dark:hover:bg-slate-800"
+                className="press rounded-full p-2 text-slate-600 hover:bg-slate-100 lg:hidden dark:text-slate-300 dark:hover:bg-slate-800"
                 aria-expanded={menuOpen}
                 aria-controls="site-menu"
                 aria-label="Menu"
@@ -66,12 +106,13 @@ export function SiteLayout() {
           </div>
         </div>
         {menuOpen && (
-          <nav id="site-menu" aria-label="Site" className="grid border-t border-slate-200 px-4 py-2 md:hidden dark:border-slate-800">
-            {header.map((p) => (
-              <NavLink key={p.slug} to={pagePath(p)} end className={navClass}>
-                {p.title}
-              </NavLink>
-            ))}
+          <nav id="site-menu" aria-label="Site" className="grid border-t border-slate-200 px-4 py-2 lg:hidden dark:border-slate-800">
+            {nav}
+            {button && showLogin && (
+              <Link to="/portal" className={`${linkClass} sm:hidden`}>
+                Customer login
+              </Link>
+            )}
           </nav>
         )}
       </header>
@@ -99,13 +140,14 @@ export function SiteLayout() {
           </p>
         </div>
       </footer>
-    </div>
+    </SiteTheme>
   );
 }
 
 /** One published page: the home page at "/", others at "/:slug". */
 export function SitePageView({ home }: { home?: boolean }) {
   const { slug } = useParams();
+  const { hash } = useLocation();
   const site = useSite();
   const page = useQuery({
     queryKey: ['site', 'page', home ? '' : slug],
@@ -124,8 +166,15 @@ export function SitePageView({ home }: { home?: boolean }) {
       document.head.append(meta);
     }
     meta.content = page.data.description ?? '';
-    window.scrollTo(0, 0);
   }, [page.data, name]);
+
+  // A new page starts at the top, or at its #section; a #section link on the same page scrolls there.
+  useEffect(() => {
+    if (!page.data) return;
+    const target = hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+    if (target) target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    else window.scrollTo(0, 0);
+  }, [page.data, hash]);
 
   if (page.isLoading) return <div className="p-10"><Spinner /></div>;
   if (page.error || !page.data) {
@@ -141,7 +190,7 @@ export function SitePageView({ home }: { home?: boolean }) {
     );
   }
   return (
-    <main className="mx-auto max-w-6xl px-4 py-12 sm:py-16">
+    <main>
       <SiteModules modules={page.data.modules} />
     </main>
   );
