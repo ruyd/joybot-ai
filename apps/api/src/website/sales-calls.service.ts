@@ -71,6 +71,15 @@ export const salesCallSettingsSchema = z
   .strict()
   .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
 
+export const OUTCOMES = ['follow_up', 'conversion', 'potential', 'do_not_call'] as const;
+export const outcomeSchema = z
+  .object({ outcome: z.enum(OUTCOMES), notes: z.string().trim().max(2000).optional() })
+  .strict();
+export type Outcome = z.infer<typeof outcomeSchema>;
+
+export const setStatusSchema = z.object({ status: z.enum(['confirmed', 'completed', 'no_show']) }).strict();
+export type SetStatus = z.infer<typeof setStatusSchema>;
+
 export const assignSchema = z.object({ user_id: z.string().uuid().nullable() }).strict();
 export type Assign = z.infer<typeof assignSchema>;
 
@@ -107,10 +116,14 @@ export interface SalesCall {
   ends_at: string;
   time_zone: string | null;
   notes: string | null;
-  status: 'booked' | 'cancelled';
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   created_at: string;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  appointment_number: string;
+  outcome: (typeof OUTCOMES)[number] | null;
+  outcome_notes: string | null;
+  outcome_at: string | null;
 }
 
 /** What the booking page shows. */
@@ -121,9 +134,14 @@ export interface SalesCallEvent {
   has_meeting_url: boolean;
 }
 
+// Sales calls are appointments of the 'sales_call' type, read under RLS with the visitor's details.
+const SALES = `(SELECT a.id, a.appointment_number, a.contact_name AS name, a.contact_email::text AS email,
+    a.scheduled_start AS starts_at, a.scheduled_end AS ends_at, a.contact_time_zone AS time_zone, a.notes_customer AS notes,
+    a.status, a.created_at, a.employee_id AS assigned_to,
+    a.outcome, a.outcome_notes, a.outcome_at
+  FROM core.appointments a JOIN core.appointment_types t ON t.id = a.type_id AND t.key = 'sales_call') c`;
 // The host's name through core.v_staff_public (null once they are inactive).
-const COLUMNS = `id, name, email, starts_at, ends_at, time_zone, notes, status, created_at, assigned_to,
-  (SELECT nullif(concat_ws(' ', s.first_name, s.last_name), '') FROM core.v_staff_public s WHERE s.id = assigned_to) AS assigned_to_name`;
+const COLUMNS = `c.*, (SELECT nullif(concat_ws(' ', s.first_name, s.last_name), '') FROM core.v_staff_public s WHERE s.id = c.assigned_to) AS assigned_to_name`;
 const SETTINGS_COLUMNS = 'title, description, duration_minutes, meeting_url, updated_at';
 
 /**
@@ -173,20 +191,21 @@ export class SalesCallsService {
   /** A page of calls with the total, optionally searched by name, email or notes. */
   list(p: Principal, f: ListSalesCalls): Promise<{ items: SalesCall[]; total: number }> {
     const upcoming = f.when === 'upcoming';
-    const where = [upcoming ? 'ends_at > now()' : 'ends_at <= now()'];
+    // Upcoming: not over and not marked completed or a no-show (cancelled ones show until their time).
+    const where = [upcoming ? `c.ends_at > now() AND c.status NOT IN ('completed', 'no_show')` : `(c.ends_at <= now() OR c.status IN ('completed', 'no_show'))`];
     const args: unknown[] = [];
     if (f.q) {
       args.push(`%${f.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
-      where.push(`(name ILIKE $1 OR email ILIKE $1 OR notes ILIKE $1)`);
+      where.push(`(c.name ILIKE $1 OR c.email ILIKE $1 OR c.notes ILIKE $1 OR c.outcome_notes ILIKE $1)`);
     }
     return this.db.as(p, async (db) => {
       const [rows, count] = await Promise.all([
         db.query<SalesCall>(
-          `SELECT ${COLUMNS} FROM core.sales_calls WHERE ${where.join(' AND ')}
-            ORDER BY starts_at ${upcoming ? 'ASC' : 'DESC'}, id LIMIT $${args.length + 1} OFFSET $${args.length + 2}`,
+          `SELECT ${COLUMNS} FROM ${SALES} WHERE ${where.join(' AND ')}
+            ORDER BY c.starts_at ${upcoming ? 'ASC' : 'DESC'}, c.id LIMIT $${args.length + 1} OFFSET $${args.length + 2}`,
           [...args, f.limit, f.offset],
         ),
-        db.query<{ total: number }>(`SELECT count(*)::int AS total FROM core.sales_calls WHERE ${where.join(' AND ')}`, args),
+        db.query<{ total: number }>(`SELECT count(*)::int AS total FROM ${SALES} WHERE ${where.join(' AND ')}`, args),
       ]);
       return { items: rows.rows, total: count.rows[0].total };
     });
@@ -194,9 +213,13 @@ export class SalesCallsService {
 
   cancel(p: Principal, id: string): Promise<SalesCall> {
     return this.db.as(p, async (db) => {
-      const row = (await db.query<SalesCall>(`UPDATE core.sales_calls SET status = 'cancelled' WHERE id = $1 AND status = 'booked' RETURNING ${COLUMNS}`, [id])).rows[0];
-      if (!row) throw new NotFoundException('No booked call with that id');
-      return row;
+      const res = await db.query(
+        `UPDATE core.appointments SET status = 'cancelled'
+          WHERE id = $1 AND status IN ('scheduled', 'confirmed') AND type_id = (SELECT id FROM core.appointment_types WHERE key = 'sales_call')`,
+        [id],
+      );
+      if (!res.rowCount) throw new NotFoundException('No booked call with that id');
+      return this.load(db, id);
     });
   }
 
@@ -206,7 +229,7 @@ export class SalesCallsService {
       .as(p, async (db) => {
         const moved = (await db.query<{ ok: boolean }>('SELECT authz.reschedule_sales_call($1, $2) AS ok', [id, input.start])).rows[0].ok;
         if (!moved) throw new NotFoundException('No booked call with that id');
-        return (await db.query<SalesCall>(`SELECT ${COLUMNS} FROM core.sales_calls WHERE id = $1`, [id])).rows[0];
+        return this.load(db, id);
       })
       .catch((err) => {
         throw this.bookingError(err);
@@ -253,8 +276,37 @@ export class SalesCallsService {
     return this.db.as(p, async (db) => {
       const ok = (await db.query<{ ok: boolean }>('SELECT authz.assign_sales_call($1, $2) AS ok', [id, input.user_id])).rows[0].ok;
       if (!ok) throw new NotFoundException('No booked call with that id');
-      return (await db.query<SalesCall>(`SELECT ${COLUMNS} FROM core.sales_calls WHERE id = $1`, [id])).rows[0];
+      return this.load(db, id);
     });
+  }
+
+  /** Logs how a call went (follow up, conversion, potential, do not call) with notes; a call that started is then completed. */
+  async outcome(p: Principal, id: string, input: Outcome): Promise<SalesCall> {
+    return this.db.as(p, async (db) => {
+      const ok = (await db.query<{ ok: boolean }>('SELECT authz.log_sales_call_outcome($1, $2, $3) AS ok', [id, input.outcome, input.notes ?? null])).rows[0].ok;
+      if (!ok) throw new NotFoundException('No sales call with that id (or it was cancelled)');
+      return this.load(db, id);
+    });
+  }
+
+  /** One call (to open it from the calendar or Home). */
+  get(p: Principal, id: string): Promise<SalesCall> {
+    return this.db.as(p, (db) => this.load(db, id));
+  }
+
+  /** Marks a call completed or a no-show (it leaves the upcoming list), or confirmed again. */
+  async setStatus(p: Principal, id: string, input: SetStatus): Promise<SalesCall> {
+    return this.db.as(p, async (db) => {
+      const ok = (await db.query<{ ok: boolean }>('SELECT authz.set_sales_call_status($1, $2) AS ok', [id, input.status])).rows[0].ok;
+      if (!ok) throw new NotFoundException('No sales call with that id (or it was cancelled)');
+      return this.load(db, id);
+    });
+  }
+
+  private async load(db: PoolClient, id: string): Promise<SalesCall> {
+    const row = (await db.query<SalesCall>(`SELECT ${COLUMNS} FROM ${SALES} WHERE c.id = $1`, [id])).rows[0];
+    if (!row) throw new NotFoundException('No sales call with that id');
+    return row;
   }
 
   private async loadSettings(db: PoolClient) {

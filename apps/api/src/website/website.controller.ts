@@ -7,11 +7,15 @@ import { createPageSchema, siteSettingsSchema, updatePageSchema, type SiteSettin
 import {
   assignSchema,
   listSalesCallsSchema,
+  outcomeSchema,
+  setStatusSchema,
   rescheduleSchema,
   salesCallSettingsSchema,
   SalesCallsService,
   type Assign,
   type ListSalesCalls,
+  type Outcome,
+  type SetStatus,
   type Reschedule,
   type SalesCallSettingsInput,
 } from './sales-calls.service';
@@ -66,11 +70,32 @@ export class WebsiteController {
     return this.salesCalls.reschedule(p, id, body);
   }
 
+  @Get('sales-calls/:id')
+  @Can('read', 'website')
+  salesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.salesCalls.get(p, id);
+  }
+
   /** Hands a booked call to a free employee (`user_id`), or unassigns it (null). */
   @Put('sales-calls/:id/assign')
   @Can('update', 'website')
   assignSalesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(assignSchema)) body: Assign) {
     return this.salesCalls.assign(p, id, body);
+  }
+
+  /** Logs a call's outcome (follow up, conversion, potential, do not call) with notes. */
+  @Post('sales-calls/:id/outcome')
+  @HttpCode(200)
+  @Can('update', 'website')
+  salesCallOutcome(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(outcomeSchema)) body: Outcome) {
+    return this.salesCalls.outcome(p, id, body);
+  }
+
+  /** Marks a call completed or a no-show, or confirmed again. */
+  @Put('sales-calls/:id/status')
+  @Can('update', 'website')
+  salesCallStatus(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(setStatusSchema)) body: SetStatus) {
+    return this.salesCalls.setStatus(p, id, body);
   }
 
   @Post('sales-calls/:id/cancel')

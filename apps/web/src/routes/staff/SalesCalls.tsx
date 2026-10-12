@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Table, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { dateTime, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -17,10 +17,14 @@ interface SalesCall {
   ends_at: string;
   time_zone: string | null;
   notes: string | null;
-  status: 'booked' | 'cancelled';
+  status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
   created_at: string;
   assigned_to: string | null;
   assigned_to_name: string | null;
+  appointment_number: string;
+  outcome: 'follow_up' | 'conversion' | 'potential' | 'do_not_call' | null;
+  outcome_notes: string | null;
+  outcome_at: string | null;
 }
 
 interface HoursInterval {
@@ -59,6 +63,9 @@ const DURATIONS = [15, 20, 30, 45, 60, 90];
 const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 
 const PAGE_SIZE = 25;
+type SettableStatus = 'confirmed' | 'completed' | 'no_show';
+/** Booked and still to happen (not completed, a no-show or cancelled). */
+const isActive = (c: { status: string }) => c.status === 'scheduled' || c.status === 'confirmed';
 const TABS = [
   { key: 'upcoming', label: 'Upcoming' },
   { key: 'past', label: 'Past' },
@@ -78,7 +85,28 @@ export function SalesCallsPage() {
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
-  const [moving, setMoving] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [panel, setPanel] = useState<{ id: string; kind: 'reschedule' | 'outcome' } | null>(null);
+  const isOpen = (id: string, kind: 'reschedule' | 'outcome') => panel?.id === id && panel.kind === kind;
+  const toggle = (id: string, kind: 'reschedule' | 'outcome') => setPanel(isOpen(id, kind) ? null : { id, kind });
+
+  // ?call=<id> (from the calendar or Home): open its tab, find the visitor and highlight the call.
+  const focusId = params_.get('call');
+  const [highlight, setHighlight] = useState<string | null>(null);
+  const focus = useQuery({
+    queryKey: ['sales-call', focusId],
+    enabled: !!focusId,
+    queryFn: () => api.get<SalesCall>(`/website/sales-calls/${focusId}`),
+  });
+  useEffect(() => {
+    const c = focus.data;
+    if (!c) return;
+    const over = Date.parse(c.ends_at) <= Date.now() || c.status === 'completed' || c.status === 'no_show';
+    setSearch(c.email);
+    setQ(c.email);
+    setHighlight(c.id);
+    setParams(over ? { tab: 'past' } : {}, { replace: true });
+  }, [focus.data, setParams]);
 
   // Search as they type, once they pause; a new search or tab starts from the first page.
   useEffect(() => {
@@ -95,16 +123,32 @@ export function SalesCallsPage() {
     queryFn: () => api.get<{ items: SalesCall[]; total: number }>(`/website/sales-calls?${params}`),
     placeholderData: keepPreviousData,
   });
-  const cancel = useMutation({
-    mutationFn: (id: string) => api.post<SalesCall>(`/website/sales-calls/${id}/cancel`),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['sales-calls'] }),
-  });
   const settings = useSalesCallSettings();
   const assign = useMutation({
     mutationFn: ({ id, user_id }: { id: string; user_id: string | null }) => api.put<SalesCall>(`/website/sales-calls/${id}/assign`, { user_id }),
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ['sales-calls'] }),
   });
+  const cancel = useMutation({
+    mutationFn: (id: string) => api.post<SalesCall>(`/website/sales-calls/${id}/cancel`),
+    onSuccess: () => {
+      setPanel(null);
+      void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
+      void queryClient.invalidateQueries({ queryKey: ['site', 'sales-call'] });
+    },
+  });
+  const setStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: SettableStatus }) => api.put<SalesCall>(`/website/sales-calls/${id}/status`, { status }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
+      void queryClient.invalidateQueries({ queryKey: ['site', 'sales-call'] });
+    },
+  });
   const items = calls.data?.items ?? [];
+  const columns = past ? 6 : 5;
+  useEffect(() => {
+    if (highlight && items.some((c) => c.id === highlight)) document.getElementById(`call-${highlight}`)?.scrollIntoView({ block: 'center' });
+  }, [highlight, items]);
+  const rowTone = (c: SalesCall) => (highlight === c.id ? 'bg-brand-50 dark:bg-slate-800' : hovered === c.id ? 'bg-slate-50 dark:bg-slate-800/60' : '');
   const total = calls.data?.total ?? 0;
 
   return (
@@ -151,6 +195,11 @@ export function SalesCallsPage() {
         <SetupCard editable={editable} />
       ) : (
         <Card>
+          {focus.error && (
+            <div className="mb-3">
+              <ErrorBanner error={focus.error} />
+            </div>
+          )}
           {calls.isLoading ? (
             <Spinner />
           ) : calls.error ? (
@@ -159,10 +208,15 @@ export function SalesCallsPage() {
             <EmptyState>{q ? `No calls match “${q}”.` : past ? 'No past calls.' : 'No upcoming calls.'}</EmptyState>
           ) : (
             <>
-              <Table head={['When', 'Name', 'Email', 'Notes', 'Assigned to', '']}>
+              <Table head={past ? ['When', 'Name', 'Email', 'Assigned to', 'Status', 'Outcome'] : ['When', 'Name', 'Email', 'Assigned to', 'Status']}>
                 {items.map((c) => (
                   <Fragment key={c.id}>
-                    <tr className={`transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 ${c.status === 'cancelled' ? 'text-slate-400' : ''}`}>
+                    <tr
+                      id={`call-${c.id}`}
+                      onMouseEnter={() => setHovered(c.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      className={`scroll-mt-24 transition-colors ${rowTone(c)} ${c.status === 'cancelled' ? 'text-slate-400' : ''}`}
+                    >
                       <Td className="whitespace-nowrap">
                         {dateTime(c.starts_at)}
                         {c.time_zone && c.time_zone !== browserZone && (
@@ -175,59 +229,119 @@ export function SalesCallsPage() {
                           {c.email}
                         </a>
                       </Td>
-                      <Td className="max-w-xs whitespace-pre-wrap">{c.notes ?? '—'}</Td>
                       <Td className="whitespace-nowrap">
-                        {editable && !past && c.status === 'booked' ? (
-                          <Select
-                            aria-label={`Assigned to, call with ${c.name}`}
-                            value={c.assigned_to ?? ''}
-                            disabled={assign.isPending}
-                            onChange={(e) => assign.mutate({ id: c.id, user_id: e.target.value || null })}
-                            className="w-40 py-1"
-                          >
-                            <option value="">Unassigned</option>
-                            {c.assigned_to && !settings.data?.staff.some((st) => st.id === c.assigned_to) && (
-                              <option value={c.assigned_to}>{c.assigned_to_name ?? 'Inactive staff'}</option>
-                            )}
-                            {settings.data?.staff.map((st) => (
-                              <option key={st.id} value={st.id}>
-                                {staffName(st)}
-                              </option>
-                            ))}
-                          </Select>
+                        {editable && !past && isActive(c) ? (
+                          <div className="w-40">
+                            <Select
+                              aria-label={`Assigned to, call with ${c.name}`}
+                              value={c.assigned_to ?? ''}
+                              disabled={assign.isPending}
+                              onChange={(e) => assign.mutate({ id: c.id, user_id: e.target.value || null })}
+                              className="py-1"
+                            >
+                              <option value="">Unassigned</option>
+                              {c.assigned_to && !settings.data?.staff.some((st) => st.id === c.assigned_to) && (
+                                <option value={c.assigned_to}>{c.assigned_to_name ?? 'Inactive staff'}</option>
+                              )}
+                              {settings.data?.staff.map((st) => (
+                                <option key={st.id} value={st.id}>
+                                  {staffName(st)}
+                                </option>
+                              ))}
+                            </Select>
+                          </div>
                         ) : (
                           (c.assigned_to_name ?? <span className="text-slate-400">Unassigned</span>)
                         )}
                       </Td>
-                      <Td className="whitespace-nowrap text-right">
-                        {c.status === 'cancelled' ? (
-                          <Badge tone="slate">cancelled</Badge>
+                      <Td className="whitespace-nowrap">
+                        {editable && c.status !== 'cancelled' ? (
+                          <div className="w-36">
+                            <Select
+                              aria-label={`Status, call with ${c.name}`}
+                              value={c.status === 'scheduled' ? 'confirmed' : c.status}
+                              disabled={setStatus.isPending}
+                              onChange={(e) => setStatus.mutate({ id: c.id, status: e.target.value as SettableStatus })}
+                              className="py-1"
+                            >
+                              <option value="confirmed">Confirmed</option>
+                              <option value="completed">Completed</option>
+                              <option value="no_show" disabled={Date.parse(c.starts_at) > Date.now()}>
+                                No show
+                              </option>
+                            </Select>
+                          </div>
                         ) : (
-                          !past &&
-                          editable && (
-                            <span className="inline-flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={() => setMoving(moving === c.id ? null : c.id)} aria-expanded={moving === c.id}>
-                                Reschedule
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={cancel.isPending}
-                                onClick={() =>
-                                  window.confirm(`Cancel the call with ${c.name}? The time opens up again. (They are not emailed.)`) && cancel.mutate(c.id)
-                                }
-                              >
-                                Cancel
-                              </Button>
-                            </span>
-                          )
+                          <StatusBadge status={c.status} />
                         )}
                       </Td>
+                      {past && (
+                        <Td className="max-w-xs">
+                          {c.outcome ? (
+                            <>
+                              <Badge tone={OUTCOME_TONE[c.outcome]}>{OUTCOME_LABEL[c.outcome]}</Badge>
+                              {c.outcome_notes && <p className="mt-1 whitespace-pre-wrap text-slate-600 dark:text-slate-300">{c.outcome_notes}</p>}
+                            </>
+                          ) : (
+                            <span className="text-slate-400">{c.status === 'cancelled' ? '—' : 'Not logged'}</span>
+                          )}
+                        </Td>
+                      )}
                     </tr>
-                    {moving === c.id && (
+                    {/* Second line: the visitor's notes, and the actions. */}
+                    <tr
+                      onMouseEnter={() => setHovered(c.id)}
+                      onMouseLeave={() => setHovered(null)}
+                      className={`border-t-0! transition-colors ${rowTone(c)} ${c.status === 'cancelled' ? 'text-slate-400' : ''}`}
+                    >
+                      <td colSpan={columns} className="px-4 pt-1 pb-3.5">
+                        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+                          <p className="min-w-0 flex-1 text-sm whitespace-pre-wrap text-slate-600 dark:text-slate-300">
+                            {c.notes ? (
+                              <>
+                                <span className="font-medium text-slate-500">Notes: </span>
+                                {c.notes}
+                              </>
+                            ) : (
+                              <span className="text-slate-400">No notes</span>
+                            )}
+                          </p>
+                          {c.status !== 'cancelled' && editable && (
+                            <span className="inline-flex shrink-0 gap-1">
+                              {!past && isActive(c) && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-red-700! hover:bg-red-50! dark:text-red-400! dark:hover:bg-red-950!"
+                                    disabled={cancel.isPending}
+                                    onClick={() =>
+                                      window.confirm(`Cancel the call with ${c.name}? The time opens up again. (They are not emailed.)`) && cancel.mutate(c.id)
+                                    }
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'reschedule')} aria-expanded={isOpen(c.id, 'reschedule')}>
+                                    Reschedule
+                                  </Button>
+                                </>
+                              )}
+                              <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'outcome')} aria-expanded={isOpen(c.id, 'outcome')}>
+                                Outcome
+                              </Button>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {panel?.id === c.id && (
                       <tr>
-                        <td colSpan={6} className="bg-slate-50 px-4 py-3 dark:bg-slate-900/60">
-                          <Reschedule call={c} onDone={() => setMoving(null)} />
+                        <td colSpan={columns} className="bg-slate-50 px-4 py-3 dark:bg-slate-900/60">
+                          {panel.kind === 'reschedule' ? (
+                            <Reschedule call={c} onDone={() => setPanel(null)} />
+                          ) : (
+                            <OutcomeForm call={c} onDone={() => setPanel(null)} />
+                          )}
                         </td>
                       </tr>
                     )}
@@ -254,7 +368,7 @@ export function SalesCallsPage() {
               </div>
             </>
           )}
-          {(cancel.error || assign.error) && <ErrorBanner error={cancel.error ?? assign.error} />}
+          {(assign.error || setStatus.error || cancel.error) && <ErrorBanner error={assign.error ?? setStatus.error ?? cancel.error} />}
         </Card>
       )}
     </Page>
@@ -317,8 +431,15 @@ function Reschedule({ call, onDone }: { call: SalesCall; onDone: () => void }) {
         <Field label="Day">
           <Input type="date" required min={todayIn(browserZone)} value={day} onChange={(e) => setDay(e.target.value)} />
         </Field>
-        <Field label="Open time" hint={`Your time (${browserZone.replaceAll('_', ' ')})`}>
-          <Select required value={start} onChange={(e) => setStart(e.target.value)} disabled={open.isLoading} className="min-w-36">
+        <Field label="Your time">
+          <Select
+            required
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            disabled={open.isLoading}
+            className="min-w-36"
+            title={`In your time zone (${browserZone.replaceAll('_', ' ')})`}
+          >
             <option value="">{open.isLoading ? 'Loading…' : open.data?.slots.length ? 'Choose a time' : 'No open times'}</option>
             {open.data?.slots.map((s) => (
               <option key={s} value={s}>
@@ -327,15 +448,82 @@ function Reschedule({ call, onDone }: { call: SalesCall; onDone: () => void }) {
             ))}
           </Select>
         </Field>
-        <label className="mb-2 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
-          Email {call.email} the new time
-        </label>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+        Email {call.email} the new time
+      </label>
       {(move.error || open.error) && <ErrorBanner error={move.error ?? open.error} />}
       <div className="flex gap-2">
         <Button type="submit" size="sm" disabled={!start || move.isPending}>
           Move call
+        </Button>
+        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+          Close
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const OUTCOMES = ['follow_up', 'conversion', 'potential', 'do_not_call'] as const;
+type Outcome = (typeof OUTCOMES)[number];
+const OUTCOME_LABEL: Record<Outcome, string> = { follow_up: 'Follow up', conversion: 'Conversion', potential: 'Potential', do_not_call: 'Do not call' };
+const OUTCOME_TONE: Record<Outcome, 'amber' | 'green' | 'brand' | 'red'> = { follow_up: 'amber', conversion: 'green', potential: 'brand', do_not_call: 'red' };
+
+/** Logs how a call went, with notes (again to change it). */
+function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [outcome, setOutcome] = useState<Outcome | ''>(call.outcome ?? '');
+  const [notes, setNotes] = useState(call.outcome_notes ?? '');
+  const save = useMutation({
+    mutationFn: () => api.post<SalesCall>(`/website/sales-calls/${call.id}/outcome`, { outcome, notes: notes.trim() || undefined }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
+      onDone();
+    },
+  });
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate();
+      }}
+      className="grid max-w-2xl gap-3"
+    >
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium">How did the call with {call.name} go?</legend>
+        <div className="flex flex-wrap gap-2">
+          {OUTCOMES.map((o) => (
+            <label
+              key={o}
+              className={`press flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${
+                outcome === o
+                  ? 'border-brand-600 bg-brand-50 font-medium text-brand-700 dark:bg-slate-800 dark:text-brand-100'
+                  : 'border-slate-300 dark:border-slate-700'
+              }`}
+            >
+              <input type="radio" name={`outcome-${call.id}`} value={o} checked={outcome === o} onChange={() => setOutcome(o)} className="sr-only" />
+              {OUTCOME_LABEL[o]}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <Field label="Notes">
+        <textarea
+          rows={3}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="What was discussed, next steps…"
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+        />
+      </Field>
+      {save.error && <ErrorBanner error={save.error} />}
+      <div className="flex gap-2">
+        <Button type="submit" size="sm" disabled={!outcome || save.isPending}>
+          Save outcome
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={onDone}>
           Close
