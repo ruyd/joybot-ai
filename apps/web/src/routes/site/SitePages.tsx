@@ -10,6 +10,8 @@ import { ApiError } from '../../lib/api';
 import { assetUrl, pagePath, siteGet, type SitePage, type SitePageSummary, type SiteSettings } from '../../lib/site';
 
 interface SiteInfo {
+  /** The site's own name, else the business name. */
+  name: string | null;
   business_name: string | null;
   settings: SiteSettings | null;
   pages: SitePageSummary[];
@@ -23,7 +25,7 @@ export function SiteLayout() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [location.pathname, location.hash]);
-  const name = site.data?.business_name ?? '';
+  const name = site.data?.name ?? '';
   const s = site.data?.settings;
   const header = site.data?.pages.filter((p) => p.show_in_header) ?? [];
   const links = s?.header_links ?? [];
@@ -154,7 +156,7 @@ export function SitePageView({ home }: { home?: boolean }) {
     queryFn: () => siteGet<SitePage>(home ? '/home' : `/pages/${encodeURIComponent(slug ?? '')}`),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   });
-  const name = site.data?.business_name;
+  const name = site.data?.name;
 
   useEffect(() => {
     if (!page.data) return;

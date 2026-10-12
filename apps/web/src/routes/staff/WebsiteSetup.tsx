@@ -12,6 +12,8 @@ import { SITE_FONTS, type SiteFontName } from '../../lib/site-fonts';
 import { IconButton, ImagePicker, ListControls, moved } from './WebsiteEditors';
 
 interface SettingsDoc extends SiteSettings {
+  /** From the business settings: the site's name when it has none of its own. */
+  business_name: string | null;
   updated_at: string;
   updated_by_name: string | null;
 }
@@ -26,6 +28,7 @@ const PRESETS: { name: string; accent: string; accent_to: string }[] = [
 ];
 
 const fields = (s: SettingsDoc): SiteSettings => ({
+  site_name: s.site_name,
   tagline: s.tagline,
   logo_asset_id: s.logo_asset_id,
   accent: s.accent,
@@ -70,7 +73,7 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
   const setLink = (i: number, patch: Partial<SiteSettings['header_links'][number]>) => set({ header_links: form.header_links.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    save.mutate({ ...form, tagline: form.tagline?.trim() || null, header_button_label: form.header_button_label?.trim() || null, header_button_url: form.header_button_url?.trim() || null });
+    save.mutate({ ...form, site_name: form.site_name?.trim() || null, tagline: form.tagline?.trim() || null, header_button_label: form.header_button_label?.trim() || null, header_button_url: form.header_button_url?.trim() || null });
   };
   const readable = contrast(form.accent, '#ffffff');
 
@@ -111,7 +114,10 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
         <Card title="Header">
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Tagline" hint="Under the business name, e.g. Software Development">
+              <Field label="Site name" hint={`In the header, the footer and page titles. Leave blank to use the business name${settings.data.business_name ? ` (${settings.data.business_name})` : ''}.`}>
+                <Input maxLength={80} placeholder={settings.data.business_name ?? ''} value={form.site_name ?? ''} onChange={(e) => set({ site_name: e.target.value })} />
+              </Field>
+              <Field label="Tagline" hint="Under the name, e.g. Software Development">
                 <Input maxLength={60} value={form.tagline ?? ''} onChange={(e) => set({ tagline: e.target.value })} />
               </Field>
               <div className="text-sm">
@@ -165,7 +171,7 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
             <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
               {form.logo_asset_id ? <img src={assetUrl(form.logo_asset_id)} alt="" className="size-7 rounded-md object-contain" /> : <BrandMark className="size-7" />}
               <span className="flex flex-col leading-tight">
-                <span className="font-semibold">Your business</span>
+                <span className="font-semibold">{form.site_name?.trim() || settings.data.business_name || 'Your business'}</span>
                 {form.tagline && <span className="text-xs text-slate-500">{form.tagline}</span>}
               </span>
               <span className="ml-auto hidden gap-3 text-sm text-slate-600 sm:flex dark:text-slate-300">

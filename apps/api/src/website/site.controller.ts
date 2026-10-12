@@ -16,7 +16,10 @@ const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in
 export class SiteController {
   constructor(@Inject(APP_POOL) private readonly pool: Pool) {}
 
-  /** The business name, the site setup (look and header) and the published pages, for the header and footer. */
+  /**
+   * The site's name (its own, else the business name), the site setup (look and header) and the
+   * published pages, for the header and footer.
+   */
   @Get()
   async site(@Res({ passthrough: true }) res: Response) {
     const [info, settings, pages] = await Promise.all([
@@ -25,7 +28,8 @@ export class SiteController {
       this.pool.query(`SELECT ${PAGE_COLUMNS} FROM core.site_pages WHERE published ORDER BY sort_order, title`),
     ]);
     res.set('Cache-Control', 'public, max-age=60');
-    return { business_name: info.rows[0]?.business_name ?? null, settings: settings.rows[0] ?? null, pages: pages.rows };
+    const business = info.rows[0]?.business_name ?? null;
+    return { name: settings.rows[0]?.site_name ?? business, business_name: business, settings: settings.rows[0] ?? null, pages: pages.rows };
   }
 
   @Get('home')

@@ -54,6 +54,8 @@ export interface SiteCard extends SiteColumn {
 
 /** Site setup (Marketing › Website › Site setup): the site's look and header. */
 export interface SiteSettings {
+  /** The name the site shows; null means the business name. */
+  site_name: string | null;
   tagline: string | null;
   logo_asset_id: string | null;
   accent: string;
@@ -68,6 +70,7 @@ export interface SiteSettings {
 
 /** The look the site has had all along: the app's own blue to teal, system fonts. */
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
+  site_name: null,
   tagline: null,
   logo_asset_id: null,
   accent: '#0878ab',

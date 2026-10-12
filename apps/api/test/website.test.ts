@@ -217,7 +217,7 @@ describe('website: sections and setup', () => {
 
   it('keeps the site setup: look and header, for editors to change and anyone to read', async () => {
     const before = (await admin().get('/api/website/settings').expect(200)).body;
-    expect(before).toMatchObject({ accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
+    expect(before).toMatchObject({ site_name: null, business_name: 'JoyBot Test', accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
 
     const logo = (
       await request(app.getHttpServer()).post('/api/website/assets?filename=logo.png').set('x-dev-principal', `employee:${U.ada}`).set('content-type', 'image/png').send(PNG).expect(201)
@@ -243,6 +243,14 @@ describe('website: sections and setup', () => {
     const site = (await visitor().get('/api/site').expect(200)).body;
     expect(site.settings).toMatchObject({ tagline: 'Software Development', logo_asset_id: logo.id, accent: '#6d5dfc', show_customer_login: false, header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }] });
     expect(site.settings.updated_by).toBeUndefined();
+    expect(site.name).toBe('JoyBot Test'); // no site name yet: the business name
+
+    // The site's own name, for website editors; blank goes back to the business name.
+    expect((await admin().put('/api/website/settings', { site_name: '  appjoy ' }).expect(200)).body).toMatchObject({ site_name: 'appjoy', business_name: 'JoyBot Test' });
+    expect((await visitor().get('/api/site').expect(200)).body).toMatchObject({ name: 'appjoy', business_name: 'JoyBot Test' });
+    await admin().put('/api/website/settings', { site_name: 'x'.repeat(81) }).expect(400);
+    await admin().put('/api/website/settings', { site_name: '' }).expect(200);
+    expect((await visitor().get('/api/site').expect(200)).body.name).toBe('JoyBot Test');
 
     await admin().put('/api/website/settings', { accent: 'purple' }).expect(400);
     await admin().put('/api/website/settings', { heading_font: 'comic-sans' }).expect(400);
