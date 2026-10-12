@@ -8,6 +8,8 @@ import { createManualPaymentSchema } from '../payments/payments.schemas';
 import type { PaymentsService } from '../payments/payments.service';
 import { timeOffSchema, type SchedulesService } from '../schedules/schedules.service';
 import { createSchema as createTaskSchema, updateSchema as updateTaskSchema, type TasksService } from '../tasks/tasks.service';
+import { createPageSchema, moduleSchema, siteSettingsSchema, updatePageSchema, type SiteModule } from '../website/website.schemas';
+import { MAX_IMAGE_BYTES } from '../website/website.service';
 import { failure, json, type ToolContext } from './mcp.tools';
 
 export interface WriteContext extends ToolContext {
@@ -283,7 +285,132 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
       return stop ?? ctx.payments.createManual(p, input);
     },
   );
+
+  // Website ---------------------------------------------------------------------------------------
+
+  const pageFields = {
+    title: z.string().max(120).optional(),
+    description: z.string().max(300).nullable().optional().describe('For search engines'),
+    published: z.boolean().optional().describe('Drafts are only seen by editors'),
+    show_in_header: z.boolean().optional(),
+    show_in_footer: z.boolean().optional(),
+    sort_order: z.number().int().optional().describe('Header and footer order, lowest first'),
+    modules: z.array(moduleSchema).max(60).optional().describe(`Replaces all of the page’s modules. ${MODULES_HELP}`),
+  };
+
+  tool(
+    'create_site_page',
+    'Create a website page',
+    'Adds a page to the public website at /slug, as a draft unless published is true.',
+    { slug: z.string().max(60).describe('Lowercase letters, numbers and dashes'), ...pageFields, title: z.string().min(1).max(120) },
+    WRITE,
+    async (a) => ctx.website.createPage(p, createPageSchema.parse(a)),
+  );
+
+  tool(
+    'update_site_page',
+    'Update a website page',
+    'Changes a page’s title, address, description, publishing, header and footer placement, or replaces its modules; make_home makes it the home page (served at /). Use set_site_module to change one module.',
+    { page_id: uuid, slug: z.string().max(60).optional(), ...pageFields, make_home: z.literal(true).optional() },
+    WRITE,
+    async ({ page_id, make_home, ...a }) => ctx.website.updatePage(p, page_id, updatePageSchema.parse({ ...a, ...(make_home ? { is_home: true } : {}) })),
+  );
+
+  tool(
+    'set_site_module',
+    'Add or replace a page module',
+    `Replaces the module with the same id on a page, or adds it (at position, 0 = first; default last). ${MODULES_HELP}`,
+    { page_id: uuid, module: moduleSchema, position: z.number().int().min(0).optional() },
+    WRITE,
+    async ({ page_id, module, position }) => {
+      const page = (await ctx.website.getPage(p, page_id)) as { modules: SiteModule[] };
+      const modules = [...page.modules];
+      const at = modules.findIndex((m) => m.id === module.id);
+      if (at >= 0) modules[at] = module as SiteModule;
+      else modules.splice(position ?? modules.length, 0, module as SiteModule);
+      return ctx.website.updatePage(p, page_id, updatePageSchema.parse({ modules }));
+    },
+  );
+
+  tool(
+    'remove_site_module',
+    'Remove a page module',
+    'Removes one module from a page by its id.',
+    { page_id: uuid, module_id: z.string().max(64) },
+    WRITE,
+    async ({ page_id, module_id }) => {
+      const page = (await ctx.website.getPage(p, page_id)) as { modules: SiteModule[] };
+      const modules = page.modules.filter((m) => m.id !== module_id);
+      if (modules.length === page.modules.length) throw new Error('No module with that id on this page');
+      return ctx.website.updatePage(p, page_id, updatePageSchema.parse({ modules }));
+    },
+  );
+
+  tool(
+    'delete_site_page',
+    'Delete a website page',
+    'Deletes a page (not the home page) and all its modules. Two calls: the first returns a preview and a confirmation id.',
+    { page_id: uuid, confirmation },
+    DESTRUCTIVE,
+    async (args) => {
+      const page = (await ctx.website.getPage(p, args.page_id)) as { slug: string; title: string; is_home: boolean; published: boolean; modules: unknown[] };
+      const stop = await gate('delete_site_page', args, async () => {
+        if (page.is_home) throw new Error('This is the home page: make another page the home page first');
+        return `Delete the page “${page.title}” (/${page.slug}, ${page.published ? 'published' : 'draft'}) and its ${page.modules.length} module(s). This cannot be undone.`;
+      });
+      if (stop) return stop;
+      await ctx.website.deletePage(p, args.page_id);
+      return { deleted: true, slug: page.slug };
+    },
+  );
+
+  tool(
+    'update_site_setup',
+    'Update website setup',
+    'Changes how the public site looks and its header: tagline under the name, logo (an uploaded image id), accent and accent_to colors (#rrggbb; buttons are a gradient between them, white text goes on accent), heading_font and body_font (names from get_site_setup), header_links (label + url such as "/#services"; replaces the list), the header button (label and url together; null removes it) and show_customer_login.',
+    {
+      tagline: z.string().max(60).nullable().optional(),
+      logo_asset_id: uuid.nullable().optional(),
+      accent: z.string().optional(),
+      accent_to: z.string().optional(),
+      heading_font: z.string().optional(),
+      body_font: z.string().optional(),
+      header_links: z.array(z.object({ label: z.string(), url: z.string() })).max(8).optional(),
+      header_button_label: z.string().max(40).nullable().optional(),
+      header_button_url: z.string().max(500).nullable().optional(),
+      show_customer_login: z.boolean().optional(),
+    },
+    { ...WRITE, idempotentHint: true },
+    async (a) => ctx.website.updateSettings(p, siteSettingsSchema.parse(a)),
+  );
+
+  tool(
+    'upload_site_image',
+    'Upload a website image',
+    'Uploads a PNG, JPEG, WebP or GIF (up to 5 MB, base64) for pages and the logo; returns its id. SVG is not accepted.',
+    {
+      filename: z.string().min(1).max(200),
+      content_type: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+      data_base64: z.string().min(1).max(Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 4),
+    },
+    WRITE,
+    async ({ filename, content_type, data_base64 }) => {
+      if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data_base64.replace(/\s/g, ''))) throw new Error('data_base64 is not base64');
+      return ctx.website.uploadAsset(p, content_type, Buffer.from(data_base64, 'base64'), filename);
+    },
+  );
 }
+
+/** What the module types hold, for the tools that take modules (the schema has the details). */
+const MODULES_HELP = [
+  'Modules are the page’s sections, top to bottom; each needs an id unique on the page (letters, numbers, - and _).',
+  'Every module may have: anchor (makes it reachable at /page#anchor), background (default, alt, dark, accent), eyebrow (a small label above the heading), heading, intro (Markdown).',
+  'Types: hero (heading with heading_accent words to highlight, text, up to 2 buttons {label, url}: the first filled, the second outlined);',
+  'cards (items: icon, eyebrow, heading, Markdown text with lists for bullets, link_label + link_url; variant cards, numbered for steps or compact; columns 2-4; up to 12 items; optional buttons);',
+  'faq (items: question, Markdown answer); cta (heading, text, buttons; looks best on background accent or dark);',
+  'columns (1-4 columns of heading, Markdown text, image, link); html (sanitized: no scripts, styles or classes); image (image_id from upload_site_image, alt, caption, size); video (YouTube or Vimeo url).',
+  'Links start with https://, /, mailto:, tel: or #. Icons and fonts: see get_site_setup.',
+].join(' ');
 
 const isResult = (v: unknown): v is CallToolResult => typeof v === 'object' && v !== null && Array.isArray((v as CallToolResult).content);
 

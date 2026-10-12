@@ -1,12 +1,41 @@
 import { ApiError } from './api';
 import { appConfig } from './config';
+import type { SiteFontName } from './site-fonts';
+import type { SiteIconName } from './site-icons';
+
+/** Section options every module has (see website.schemas.ts). */
+export interface SiteSection {
+  id: string;
+  /** "services" makes the section reachable at /page#services. */
+  anchor?: string;
+  background?: SiteBackground;
+  /** A small label above the heading. */
+  eyebrow?: string;
+  heading?: string;
+  /** Markdown. */
+  intro?: string;
+}
+export type SiteBackground = 'default' | 'alt' | 'dark' | 'accent';
+
+/** The first of a pair is drawn filled, the second outlined. */
+export interface SiteButton {
+  label: string;
+  url: string;
+}
 
 /** A page's building blocks (validated by the API: website.schemas.ts). */
-export type SiteModule =
-  | { id: string; type: 'columns'; heading?: string; columns: SiteColumn[] }
-  | { id: string; type: 'html'; html: string }
-  | { id: string; type: 'image'; image_id: string; alt: string; caption?: string; size: 'small' | 'medium' | 'full'; link_url?: string }
-  | { id: string; type: 'video'; url: string; caption?: string };
+export type SiteModule = SiteSection &
+  (
+    | { type: 'columns'; columns: SiteColumn[] }
+    | { type: 'html'; html: string }
+    | { type: 'image'; image_id: string; alt: string; caption?: string; size: 'small' | 'medium' | 'full'; link_url?: string }
+    | { type: 'video'; url: string; caption?: string }
+    | { type: 'hero'; heading: string; heading_accent?: string; text?: string; buttons?: SiteButton[]; image_id?: string | null; image_alt?: string }
+    | { type: 'cards'; variant: 'cards' | 'numbered' | 'compact'; columns: 2 | 3 | 4; items: SiteCard[]; buttons?: SiteButton[] }
+    | { type: 'faq'; items: { question: string; answer: string }[] }
+    | { type: 'cta'; heading: string; text?: string; buttons?: SiteButton[] }
+  );
+export type SiteModuleOf<T extends SiteModule['type']> = Extract<SiteModule, { type: T }>;
 
 export interface SiteColumn {
   heading?: string;
@@ -17,6 +46,39 @@ export interface SiteColumn {
   link_label?: string;
   link_url?: string;
 }
+
+export interface SiteCard extends SiteColumn {
+  icon?: SiteIconName | null;
+  eyebrow?: string;
+}
+
+/** Site setup (Marketing › Website › Site setup): the site's look and header. */
+export interface SiteSettings {
+  tagline: string | null;
+  logo_asset_id: string | null;
+  accent: string;
+  accent_to: string;
+  heading_font: SiteFontName;
+  body_font: SiteFontName;
+  header_links: { label: string; url: string }[];
+  header_button_label: string | null;
+  header_button_url: string | null;
+  show_customer_login: boolean;
+}
+
+/** The look the site has had all along: the app's own blue to teal, system fonts. */
+export const DEFAULT_SITE_SETTINGS: SiteSettings = {
+  tagline: null,
+  logo_asset_id: null,
+  accent: '#0878ab',
+  accent_to: '#34868f',
+  heading_font: 'system',
+  body_font: 'system',
+  header_links: [],
+  header_button_label: null,
+  header_button_url: null,
+  show_customer_login: true,
+};
 
 export interface SitePageSummary {
   slug: string;
@@ -33,10 +95,14 @@ export interface SitePage extends SitePageSummary {
 }
 
 export const MODULE_LABEL: Record<SiteModule['type'], string> = {
+  hero: 'Hero',
+  cards: 'Cards',
   columns: 'Columns',
   html: 'HTML',
   image: 'Image',
   video: 'Video',
+  faq: 'FAQ',
+  cta: 'Call to action',
 };
 
 export const assetUrl = (id: string) => `${appConfig().apiBase}/site/assets/${id}`;

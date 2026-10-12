@@ -24,7 +24,9 @@ afterAll(async () => {
   config({ path: path.resolve(__dirname, '../../../.env') });
   const migrator = new Client({ connectionString: process.env.MIGRATOR_DATABASE_URL });
   await migrator.connect();
-  await migrator.query(`DELETE FROM core.site_pages WHERE slug IN ('spring-offer', 'html-test', 'modules-test')`);
+  await migrator.query(`DELETE FROM core.site_pages WHERE slug IN ('spring-offer', 'html-test', 'modules-test', 'sections-test', 'big-test')`);
+  await migrator.query('DELETE FROM core.site_settings');
+  await migrator.query('INSERT INTO core.site_settings (id) VALUES (1)');
   await migrator.query(`UPDATE core.site_pages SET title = 'About us' WHERE slug = 'about'`);
   await migrator.query('DELETE FROM core.site_assets');
   await migrator.end();
@@ -162,5 +164,102 @@ describe('website: who may edit', () => {
     await api(app, employee(U.sam)).put(`/api/website/pages/${about.id}`, { title: 'About the team' }).expect(200);
     expect((await visitor().get('/api/site/pages/about').expect(200)).body.title).toBe('About the team');
     await api(app, employee(U.sam)).delete(`/api/website/pages/${about.id}`).expect(403); // no delete
+  });
+});
+
+describe('website: sections and setup', () => {
+  it('takes hero, cards, faq and cta modules with section options, and checks them', async () => {
+    const page = (await admin().post('/api/website/pages', { slug: 'sections-test', title: 'Sections', published: true }).expect(201)).body as Page;
+    const put = (modules: unknown[]) => admin().put(`/api/website/pages/${page.id}`, { modules });
+    const hero = { id: 'hero', type: 'hero', eyebrow: 'Open source', heading: 'Embrace the AI revolution', heading_accent: 'AI revolution', buttons: [{ label: 'Book a call', url: 'mailto:hello@example.com' }, { label: 'Choose your path', url: '#paths' }] };
+    const cards = {
+      id: 'paths',
+      type: 'cards',
+      anchor: 'paths',
+      background: 'alt',
+      eyebrow: 'Two ways',
+      heading: 'Build or quickstart',
+      intro: 'Either way you **own** it.',
+      columns: 2,
+      items: [
+        { icon: 'rocket', eyebrow: 'Path 1', heading: 'Custom build', text: '- Tailored\n- Integrated', link_label: 'Plan it', link_url: '/contact' },
+        { icon: 'sparkles', heading: 'Quickstart', text: 'Start fast' },
+      ],
+    };
+    const faq = { id: 'faq', type: 'faq', anchor: 'faq', heading: 'Questions', items: [{ question: 'Is this for me?', answer: 'Yes, **really**.' }] };
+    const cta = { id: 'cta', type: 'cta', background: 'accent', heading: 'Your business, your software', buttons: [{ label: 'Talk to us', url: '/contact' }] };
+
+    const saved = (await put([hero, cards, faq, cta]).expect(200)).body as Page;
+    expect(saved.modules.map((m) => m.type)).toEqual(['hero', 'cards', 'faq', 'cta']);
+    expect(saved.modules[1]).toMatchObject({ variant: 'cards', columns: 2, anchor: 'paths', background: 'alt' });
+    expect((await visitor().get('/api/site/pages/sections-test').expect(200)).body.modules[0]).toMatchObject({ heading_accent: 'AI revolution' });
+
+    await put([{ ...hero, heading: '' }]).expect(400); // a hero needs a headline
+    await put([{ ...hero, buttons: [...hero.buttons, { label: 'Third', url: '/x' }] }]).expect(400);
+    await put([{ ...hero, buttons: [{ label: 'Bad', url: 'javascript:alert(1)' }] }]).expect(400);
+    await put([{ ...cards, items: [{ icon: 'skull' }] }]).expect(400); // not in the icon set
+    await put([{ ...cards, items: Array.from({ length: 13 }, () => ({ heading: 'x' })) }]).expect(400);
+    await put([{ ...cards, columns: 5 }]).expect(400);
+    await put([{ ...cards, anchor: 'Not An Anchor' }]).expect(400);
+    await put([{ ...faq, items: [] }]).expect(400);
+    await put([{ ...cta, heading: undefined }]).expect(400);
+    await put([cards, { ...faq, anchor: 'paths' }]).expect(400); // anchors are unique on a page
+    await put([{ ...hero, background: 'neon' }]).expect(400);
+    // Section options on the original module types too.
+    await put([{ id: 'h', type: 'html', anchor: 'about', eyebrow: 'Who we are', heading: 'About', html: '<p>Hi</p>' }]).expect(200);
+  });
+
+  it('accepts pages larger than the default body limit', async () => {
+    const html = `<p>${'x'.repeat(90_000)}</p>`;
+    const modules = [1, 2, 3].map((i) => ({ id: `h${i}`, type: 'html', html }));
+    await admin().post('/api/website/pages', { slug: 'big-test', title: 'Big', modules }).expect(201);
+  });
+
+  it('keeps the site setup: look and header, for editors to change and anyone to read', async () => {
+    const before = (await admin().get('/api/website/settings').expect(200)).body;
+    expect(before).toMatchObject({ accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
+
+    const logo = (
+      await request(app.getHttpServer()).post('/api/website/assets?filename=logo.png').set('x-dev-principal', `employee:${U.ada}`).set('content-type', 'image/png').send(PNG).expect(201)
+    ).body as { id: string };
+    const saved = (
+      await admin()
+        .put('/api/website/settings', {
+          tagline: 'Software Development',
+          logo_asset_id: logo.id,
+          accent: '#6D5DFC',
+          accent_to: '#a855f7',
+          heading_font: 'instrument-serif',
+          body_font: 'inter',
+          header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }],
+          header_button_label: "Let's talk",
+          header_button_url: 'mailto:hello@example.com',
+          show_customer_login: false,
+        })
+        .expect(200)
+    ).body;
+    expect(saved).toMatchObject({ accent: '#6d5dfc', heading_font: 'instrument-serif', updated_by_name: 'Ada Admin' });
+
+    const site = (await visitor().get('/api/site').expect(200)).body;
+    expect(site.settings).toMatchObject({ tagline: 'Software Development', logo_asset_id: logo.id, accent: '#6d5dfc', show_customer_login: false, header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }] });
+    expect(site.settings.updated_by).toBeUndefined();
+
+    await admin().put('/api/website/settings', { accent: 'purple' }).expect(400);
+    await admin().put('/api/website/settings', { heading_font: 'comic-sans' }).expect(400);
+    await admin().put('/api/website/settings', { header_links: [{ label: 'x', url: 'javascript:alert(1)' }] }).expect(400);
+    await admin().put('/api/website/settings', { header_button_url: null }).expect(400); // the label is still set
+    await admin().put('/api/website/settings', { header_button_label: '', header_button_url: '' }).expect(200); // both cleared
+    await admin().put('/api/website/settings', { logo_asset_id: '00000000-0000-4000-8000-000000000000' }).expect(400);
+    await admin().put('/api/website/settings', { unknown: true }).expect(400);
+
+    // Staff as by default (another test here lets them edit pages).
+    await admin().put('/api/admin/permissions/staff', { permissions: staffPermissions }).expect(200);
+    await api(app, employee(U.sam)).get('/api/website/settings').expect(403);
+    await api(app, employee(U.sam)).put('/api/website/settings', { tagline: 'Sam' }).expect(403);
+    await api(app, customer(C.maria)).put('/api/website/settings', { tagline: 'Maria' }).expect(403);
+
+    // Deleting the logo image leaves the site without a logo rather than broken.
+    await admin().delete(`/api/website/assets/${logo.id}`).expect(204);
+    expect((await admin().get('/api/website/settings').expect(200)).body.logo_asset_id).toBeNull();
   });
 });

@@ -40,6 +40,10 @@ afterAll(async () => {
   await migrator.query(`DELETE FROM core.appointments WHERE notes_customer = 'mcp test'`);
   await migrator.query(`DELETE FROM core.tasks WHERE title LIKE 'mcp test%'`);
   await migrator.query(`DELETE FROM core.time_off WHERE reason = 'mcp test'`);
+  await migrator.query(`DELETE FROM core.site_pages WHERE slug LIKE 'mcp-%'`);
+  await migrator.query('DELETE FROM core.site_assets');
+  await migrator.query('DELETE FROM core.site_settings');
+  await migrator.query('INSERT INTO core.site_settings (id) VALUES (1)');
   await migrator.query('DELETE FROM app.api_tokens');
   await migrator.end();
   await app.close();
@@ -84,12 +88,16 @@ describe('MCP write tools', () => {
 
     const tools = (await rpc(rw, 'tools/list').expect(200)).body.result.tools as { name: string; annotations: Record<string, boolean> }[];
     const by = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
-    for (const name of ['book_appointment', 'reschedule_appointment', 'cancel_appointment', 'create_todo', 'set_todo_done', 'add_time_off', 'create_invoice_draft', 'send_invoice', 'void_invoice', 'record_payment']) {
+    for (const name of ['book_appointment', 'reschedule_appointment', 'cancel_appointment', 'create_todo', 'set_todo_done', 'add_time_off', 'create_invoice_draft', 'send_invoice', 'void_invoice', 'record_payment', 'create_site_page', 'update_site_page', 'set_site_module', 'remove_site_module', 'delete_site_page', 'update_site_setup', 'upload_site_image']) {
       expect(by[name]).toMatchObject({ readOnlyHint: false });
     }
     expect(by.cancel_appointment.destructiveHint).toBe(true);
     expect(by.void_invoice.destructiveHint).toBe(true);
     expect(by.send_invoice.openWorldHint).toBe(true);
+    expect(by.delete_site_page.destructiveHint).toBe(true);
+    expect(by.get_site_page.readOnlyHint).toBe(true);
+    expect(roTools).toEqual(expect.arrayContaining(['list_site_pages', 'get_site_page', 'get_site_setup']));
+    expect(roTools).not.toContain('update_site_setup');
     expect(by.find_customers.readOnlyHint).toBe(true); // the read tools are still there
     expect((await call(rw, 'whoami')).data.token).toMatchObject({ scope: 'read and write' });
   });
@@ -176,5 +184,62 @@ describe('MCP write tools', () => {
     expect(String(backwards.data)).toMatch(/ends_at must be after starts_at/);
     const noRef = await call(rw, 'record_payment', { customer_id: C.maria, amount: 10, method: 'card_pos' });
     expect(String(noRef.data)).toMatch(/POS reference is required/);
+  });
+
+  it('builds a website page: page, modules, images and setup, with a confirmed delete', async () => {
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const image = (await call(rw, 'upload_site_image', { filename: 'logo.png', content_type: 'image/png', data_base64: PNG })).data as { id: string };
+    expect(image.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect((await call(rw, 'upload_site_image', { filename: 'x.jpg', content_type: 'image/jpeg', data_base64: PNG })).isError).toBe(true); // bytes are a PNG
+    // Bigger than the API's default 100 kB body limit: about 1.5 MB of base64.
+    const big = Buffer.concat([Buffer.from(PNG, 'base64'), Buffer.alloc(1_100_000)]).toString('base64');
+    expect((await call(rw, 'upload_site_image', { filename: 'big.png', content_type: 'image/png', data_base64: big })).isError).toBe(false);
+
+    const page = (
+      await call(rw, 'create_site_page', {
+        slug: 'mcp-landing',
+        title: 'Landing',
+        modules: [{ id: 'hero', type: 'hero', heading: 'Embrace the AI revolution', heading_accent: 'AI revolution', buttons: [{ label: 'Book', url: '/contact' }] }],
+      })
+    ).data as { id: string; published: boolean };
+    expect(page.published).toBe(false);
+
+    const faq = { id: 'faq', type: 'faq', anchor: 'faq', items: [{ question: 'Who is this for?', answer: 'Everyone.' }] };
+    await call(rw, 'set_site_module', { page_id: page.id, module: faq });
+    await call(rw, 'set_site_module', { page_id: page.id, module: { id: 'top', type: 'cards', items: [{ icon: 'bot', heading: 'AI assistant' }] }, position: 0 });
+    const replaced = (await call(rw, 'set_site_module', { page_id: page.id, module: { ...faq, heading: 'FAQ' } })).data as { modules: { id: string; heading?: string }[] };
+    expect(replaced.modules.map((m) => m.id)).toEqual(['top', 'hero', 'faq']);
+    expect(replaced.modules[2].heading).toBe('FAQ');
+    const bad = await call(rw, 'set_site_module', { page_id: page.id, module: { id: 'x', type: 'cards', items: [{ icon: 'skull' }] } });
+    expect(bad.isError).toBe(true);
+
+    expect(((await call(rw, 'remove_site_module', { page_id: page.id, module_id: 'top' })).data as { modules: unknown[] }).modules).toHaveLength(2);
+    expect((await call(rw, 'update_site_page', { page_id: page.id, published: true, show_in_header: true })).data).toMatchObject({ published: true });
+    expect((await request(app.getHttpServer()).get('/api/site/pages/mcp-landing').expect(200)).body.modules[0].type).toBe('hero');
+    expect((await call(ro, 'get_site_page', { slug: 'mcp-landing' })).data).toMatchObject({ id: page.id, title: 'Landing' });
+
+    const setup = (
+      await call(rw, 'update_site_setup', { tagline: 'Software Development', logo_asset_id: image.id, accent: '#6d5dfc', heading_font: 'instrument-serif', header_links: [{ label: 'FAQ', url: '/mcp-landing#faq' }] })
+    ).data;
+    expect(setup).toMatchObject({ tagline: 'Software Development', accent: '#6d5dfc', heading_font: 'instrument-serif' });
+    expect((await call(rw, 'update_site_setup', { body_font: 'papyrus' })).isError).toBe(true);
+    const read = (await call(ro, 'get_site_setup')).data as { settings: { accent: string }; fonts: string[]; icons: string[]; images: { id: string }[] };
+    expect(read.settings.accent).toBe('#6d5dfc');
+    expect(read.fonts).toContain('instrument-serif');
+    expect(read.icons).toContain('bot');
+    expect(read.images.map((i) => i.id)).toContain(image.id);
+
+    const preview = (await call(rw, 'delete_site_page', { page_id: page.id })).data as { status: string; preview: string; confirmation: string };
+    expect(preview.status).toBe('confirmation_required');
+    expect(preview.preview).toContain('/mcp-landing');
+    expect((await call(rw, 'get_site_page', { page_id: page.id })).isError).toBe(false); // still there
+    expect((await call(rw, 'delete_site_page', { page_id: page.id, confirmation: preview.confirmation })).data).toMatchObject({ deleted: true });
+    expect((await call(rw, 'get_site_page', { page_id: page.id })).isError).toBe(true);
+
+    const home = ((await call(ro, 'list_site_pages')).data as { id: string; is_home: boolean }[]).find((pg) => pg.is_home)!;
+    expect(String((await call(rw, 'delete_site_page', { page_id: home.id })).data)).toMatch(/home page/);
+
+    const audit = (await api(app, employee(U.ada)).get('/api/admin/audit?via=mcp&table=site_settings').expect(200)).body as { items: { changed_via: string }[] };
+    expect(audit.items[0]).toMatchObject({ changed_via: 'mcp' });
   });
 });

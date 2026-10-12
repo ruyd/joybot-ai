@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import type { Pool } from 'pg';
 import { Public } from '../auth/principal';
 import { APP_POOL } from '../db/db.module';
+import { SETTINGS_COLUMNS } from './website.service';
 
 const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in_footer, sort_order';
 
@@ -15,15 +16,16 @@ const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in
 export class SiteController {
   constructor(@Inject(APP_POOL) private readonly pool: Pool) {}
 
-  /** The business name and the published pages, for the header and footer. */
+  /** The business name, the site setup (look and header) and the published pages, for the header and footer. */
   @Get()
   async site(@Res({ passthrough: true }) res: Response) {
-    const [info, pages] = await Promise.all([
+    const [info, settings, pages] = await Promise.all([
       this.pool.query<{ business_name: string | null }>('SELECT * FROM authz.site_info()'),
+      this.pool.query(`SELECT ${SETTINGS_COLUMNS} FROM core.site_settings WHERE id = 1`),
       this.pool.query(`SELECT ${PAGE_COLUMNS} FROM core.site_pages WHERE published ORDER BY sort_order, title`),
     ]);
     res.set('Cache-Control', 'public, max-age=60');
-    return { business_name: info.rows[0]?.business_name ?? null, pages: pages.rows };
+    return { business_name: info.rows[0]?.business_name ?? null, settings: settings.rows[0] ?? null, pages: pages.rows };
   }
 
   @Get('home')
