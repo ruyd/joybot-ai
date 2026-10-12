@@ -401,6 +401,7 @@ Resources:
         AppDbSecretArn: !GetAtt DataStack.Outputs.AppDbSecretArn
         ReaderDbSecretArn: !GetAtt DataStack.Outputs.ReaderDbSecretArn
         WorkerDbSecretArn: !GetAtt DataStack.Outputs.WorkerDbSecretArn
+        SettingsEncryptionSecretArn: !GetAtt DataStack.Outputs.SettingsEncryptionSecretArn
         DataKeyArn: !GetAtt DataStack.Outputs.DataKeyArn
         StripeSecretArn: !GetAtt DataStack.Outputs.StripeSecretArn
         CustomersUserPoolId: !GetAtt AuthStack.Outputs.CustomersUserPoolId

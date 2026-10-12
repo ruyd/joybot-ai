@@ -29,6 +29,10 @@ import { TasksController } from './tasks/tasks.controller';
 import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
+import { EmailController } from './email/email.controller';
+import { EmailService } from './email/email.service';
+import { RESEND_HTTP, ResendClient } from './email/resend';
+import { SecretBox } from './email/secret-box';
 import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
 import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
 import { InvitesController } from './profile/invites.controller';
@@ -70,6 +74,7 @@ export class AppModule {
         HealthController,
         MeController,
         SettingsController,
+        EmailController,
         LocationsController,
         ServicesController,
         OrganizationsController,
@@ -117,6 +122,10 @@ export class AppModule {
         },
         TicketsService,
         MessagingService,
+        EmailService,
+        SecretBox,
+        ResendClient,
+        { provide: RESEND_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
         {
           provide: MESSAGE_SENDER,
           useFactory: () =>

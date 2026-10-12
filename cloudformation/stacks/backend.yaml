@@ -46,6 +46,8 @@ Parameters:
     Type: String
   WorkerDbSecretArn:
     Type: String
+  SettingsEncryptionSecretArn:
+    Type: String
   DataKeyArn:
     Type: String
   StripeSecretArn:
@@ -159,7 +161,7 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref AppDbSecretArn, !Ref ReaderDbSecretArn, !Ref WorkerDbSecretArn]
+                Resource: [!Ref AppDbSecretArn, !Ref ReaderDbSecretArn, !Ref WorkerDbSecretArn, !Ref SettingsEncryptionSecretArn]
               - Effect: Allow
                 Action: kms:Decrypt
                 Resource: !Ref DataKeyArn
@@ -268,6 +270,7 @@ Resources:
           Secrets:
             - { Name: APP_DB_PASSWORD, ValueFrom: !Sub "${AppDbSecretArn}:password::" }
             - { Name: READER_DB_PASSWORD, ValueFrom: !Sub "${ReaderDbSecretArn}:password::" }
+            - { Name: SETTINGS_ENCRYPTION_KEY, ValueFrom: !Sub "${SettingsEncryptionSecretArn}:key::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:
