@@ -40,11 +40,16 @@ export class FreshdeskError extends Error {
 const MAX_RETRIES = 2;
 const MAX_RETRY_WAIT_MS = 5_000;
 
+/** How the client waits before a retry: injectable, so tests need not really wait. */
+export const FRESHDESK_RETRY_SLEEP = Symbol('FRESHDESK_RETRY_SLEEP');
+export type Sleep = (ms: number) => Promise<void>;
+export const realSleep: Sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export class FreshdeskClient {
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
-    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+    private readonly sleep: Sleep = realSleep,
   ) {}
 
   async contacts(filter: { email?: string; phone?: string; mobile?: string }): Promise<FreshdeskContact[]> {

@@ -18,6 +18,7 @@ import { ChatToolsService } from './chat/tools';
 import { CustomersController } from './customers/customers.controller';
 import { MergeController } from './customers/merge.controller';
 import { DbModule } from './db/db.module';
+import { FRESHDESK_RETRY_SLEEP, realSleep } from './freshdesk/freshdesk.client';
 import { FreshdeskService } from './freshdesk/freshdesk.service';
 import { TicketsController } from './freshdesk/tickets.controller';
 import { HealthController } from './health/health.controller';
@@ -112,6 +113,7 @@ export class AppModule {
           useFactory: (secrets: StripeSecrets) => new StripeInvoiceCheckout(secrets, config.STRIPE_API_BASE),
         },
         FreshdeskService,
+        { provide: FRESHDESK_RETRY_SLEEP, useValue: realSleep },
         MessagingService,
         {
           provide: MESSAGE_SENDER,

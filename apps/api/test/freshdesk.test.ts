@@ -8,6 +8,7 @@ import { Client } from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { phoneVariants } from '../src/freshdesk/freshdesk.client';
+import { FRESHDESK_RETRY_SLEEP } from '../src/freshdesk/freshdesk.client';
 import { api, createApp, customer, employee } from './app';
 
 const { customers: C, users: U } = SAMPLE;
@@ -100,7 +101,8 @@ describe('Freshdesk tickets', () => {
        VALUES ('Unverified', 'unverified@example.com', false, 'employee', $1)`,
       [SAMPLE.locations.nyc],
     );
-    app = await createApp({ env: { FRESHDESK_BASE_URL: base, FRESHDESK_API_KEY: KEY } });
+    // Retries wait for nothing here (the 429 test still checks the request was retried).
+    app = await createApp({ env: { FRESHDESK_BASE_URL: base, FRESHDESK_API_KEY: KEY }, overrides: [{ token: FRESHDESK_RETRY_SLEEP, value: async () => undefined }] });
     unconfigured = await createApp({ env: { FRESHDESK_BASE_URL: '', FRESHDESK_API_KEY: '' } });
   });
   afterAll(async () => {

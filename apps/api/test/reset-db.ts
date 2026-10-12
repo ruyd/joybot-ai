@@ -1,25 +1,20 @@
-import path from 'node:path';
-import { config } from 'dotenv';
 import { beforeAll } from 'vitest';
-import { bootstrapRoleLogins, migrate, resetDatabase, seedSampleData, seedSettings } from '@joybot/db';
+import { DATABASE_URLS, envFile, onServer, quoteIdent, testDatabases, withDatabase } from './test-db';
 
 /**
- * Fresh, seeded database before each test file (vitest setupFiles run once per file), so files never
- * depend on what other files changed — and pass in any order.
+ * Before each test file (vitest setupFiles run once per file): a fresh copy of the seeded template
+ * in this worker's own database, so files never depend on what other files changed, pass in any
+ * order, and run in parallel. The database URLs in this process point at that copy; dotenv never
+ * overrides variables already set, so tests that load .env themselves get it too.
  */
-async function resetDb(): Promise<void> {
-  config({ path: path.resolve(__dirname, '../../../.env') });
-  const url = process.env.MIGRATOR_DATABASE_URL!;
-  await resetDatabase(url);
-  await migrate(url, () => undefined);
-  await bootstrapRoleLogins(url, {
-    joybot_app: process.env.APP_DB_PASSWORD,
-    joybot_reader: process.env.READER_DB_PASSWORD,
-    joybot_worker: process.env.WORKER_DB_PASSWORD,
-  });
-  await seedSettings(url, { businessName: 'JoyBot Test', defaultTimeZone: 'America/New_York', defaultCurrency: 'USD' });
-  await seedSampleData(url);
+const env = envFile();
+const { migrator, template, worker } = testDatabases(env);
+const database = worker(process.env.VITEST_POOL_ID ?? '1');
+for (const name of DATABASE_URLS) {
+  const url = env[name];
+  if (url) process.env[name] = withDatabase(url, database);
 }
 
-// Runs before the tests of every file (setupFiles are loaded per test file).
-beforeAll(resetDb, 60_000);
+beforeAll(async () => {
+  await onServer(migrator, `DROP DATABASE IF EXISTS ${quoteIdent(database)} WITH (FORCE)`, `CREATE DATABASE ${quoteIdent(database)} TEMPLATE ${quoteIdent(template)}`);
+}, 60_000);

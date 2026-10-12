@@ -4,15 +4,7 @@ import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { DbService } from '../db/db.module';
-import {
-  FreshdeskClient,
-  FreshdeskError,
-  phoneVariants,
-  ticketPriority,
-  ticketStatus,
-  type FreshdeskConversation,
-  type FreshdeskTicket,
-} from './freshdesk.client';
+import { FreshdeskClient, FreshdeskError, phoneVariants, ticketPriority, ticketStatus, type FreshdeskConversation, type FreshdeskTicket, FRESHDESK_RETRY_SLEEP, type Sleep } from './freshdesk.client';
 
 export interface TicketSummary {
   id: string;
@@ -55,6 +47,7 @@ export class FreshdeskService {
   constructor(
     private readonly db: DbService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    @Inject(FRESHDESK_RETRY_SLEEP) private readonly sleep: Sleep,
   ) {}
 
   /** Ticket lists for customers in scope (RLS decides which customers are visible). */
@@ -159,7 +152,7 @@ export class FreshdeskService {
       throw new ServiceUnavailableException({ statusCode: 503, code: 'freshdesk_not_configured', message: 'Support tickets are not set up yet.' });
     }
     return {
-      client: new FreshdeskClient(base, key),
+      client: new FreshdeskClient(base, key, this.sleep),
       links: {
         portal: s?.freshdesk_portal_url ?? (s?.freshdesk_domain ? `https://${s.freshdesk_domain}` : null),
         agent: s?.freshdesk_domain ? `https://${s.freshdesk_domain}` : null,
