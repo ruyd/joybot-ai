@@ -9,13 +9,13 @@ pnpm db:up && pnpm db:reset   # Postgres 16 on :5433 (docker compose), migrate +
 pnpm test                     # all packages, one after another; API test files run in parallel, each on a fresh copy of a seeded template database
 pnpm typecheck                # builds packages/* first, then tsc everywhere
 pnpm lint:cfn                 # cfn-lint + cloudformation/scripts/check_nested.py
-pnpm dev                      # db:up + package build + every dev:* script in parallel (api, worker, web, freshdesk stub, ollama)
-pnpm dev:api | dev:worker | dev:web | dev:freshdesk | dev:model
+pnpm dev                      # db:up + package build + every dev:* script in parallel (api, worker, web, ollama)
+pnpm dev:api | dev:worker | dev:web | dev:model
 pnpm --filter @joybot/api exec vitest run test/profile.test.ts   # one file
 pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model uses MODEL_ENDPOINT
 ```
 
-- Preview servers are in `.claude/launch.json`: api on 3000, web on 5173, and fake-freshdesk on 4010.
+- Preview servers are in `.claude/launch.json`: api on 3000 and web on 5173.
 - The local `.env` is git-ignored. Copy it from `.env.example`.
 - The tool versions are pnpm 12, Node 22+, TypeScript 5.9, Vitest 3, NestJS 11, React 19, Vite 7 and Tailwind 4.
 
@@ -25,12 +25,11 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 |---|---|
 | `packages/db` | SQL migrations `migrations/NNNN_*.sql` (forward-only, run by `src/migrate.ts`), `src/scope.ts` (`withPrincipal`/`withSystem`), `src/seed.ts` (`SAMPLE` ids) |
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web app |
-| `apps/api` | NestJS: one folder per feature (`chat/`, `payments/`, `stripe/`, `freshdesk/`, `profile/`, `admin/`, …), plus `auth/` guards and `config/config.ts` (Zod) |
+| `apps/api` | NestJS: one folder per feature (`chat/`, `payments/`, `stripe/`, `tickets/`, `profile/`, `admin/`, …), plus `auth/` guards and `config/config.ts` (Zod) |
 | `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
 | `apps/web` | Portal (`routes/portal`), staff console (`routes/staff`), `lib/` (auth, api, sse, chat-state, ability) |
 | `cloudformation` | `main.yaml`, plus nested `stacks/`, Lambda `functions/` (its own pnpm package), `scripts/` and `bootstrap/artifacts.yaml` |
 | `services/model-server` | vLLM image for `google/gemma-4-E2B-it` |
-| `tools/fake-freshdesk.mjs` | Local Freshdesk stub |
 
 ## Conventions
 
@@ -67,7 +66,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - us-east-1 only, with one AWS Organization.
 - No public buckets, images or data; artifacts are shared through `aws:PrincipalOrgID`.
 - WhatsApp instead of SMS. The number and templates live in `core.settings`, not in stack parameters.
-- Freshdesk is the only ticket source. It's queried by **verified** email or phone only.
+- Support tickets are JoyBot's own (`apps/api/src/tickets/`, `core.tickets` + `core.ticket_messages`; no external help desk). Customers open and reply in the portal, staff in the console; internal notes need `notes_internal`, and a staff reply emails the customer.
 - Employee roles are admin and staff. Customers can be org admins. There's no org billing and no compliance scope for now.
 - The model is Gemma 4 E2B, the cheapest variant.
 
@@ -94,4 +93,4 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **Dockerfiles:**
   - They copy every workspace `package.json`, because `--frozen-lockfile` needs them all.
   - The RDS CA bundle lives in `/opt/rds`, not `/etc/ssl`.
-- Not verified against real services yet: Cognito hosted sign-in, Stripe test mode, a real Freshdesk account, Gemma through vLLM or Ollama, and an actual AWS deploy. The checklist is in `cloudformation/README.md`.
+- Not verified against real services yet: Cognito hosted sign-in, Stripe test mode, Gemma through vLLM or Ollama, and an actual AWS deploy. The checklist is in `cloudformation/README.md`.

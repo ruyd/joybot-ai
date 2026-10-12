@@ -1,8 +1,8 @@
 # JoyBot AI — Project Plan
 
-A chatbot for **customers and employees**, powered by a self-hosted **Gemma 4** model. JoyBot owns its **own PostgreSQL database as the source of truth**. It holds general `settings`, `locations`, employees (`users`), `organizations`, `customers`, a generic `services` price list, `appointments` and `payments`. Every question is answered from that database plus **Freshdesk** support tickets, with citations.
+A chatbot for **customers and employees**, powered by a self-hosted **Gemma 4** model. JoyBot owns its **own PostgreSQL database as the source of truth**. It holds general `settings`, `locations`, employees (`users`), `organizations`, `customers`, a generic `services` price list, `appointments` and `payments`. Every question is answered from that database plus its own **support tickets**, with citations.
 
-- **Customers** sign in with **email or phone (codes delivered over WhatsApp)**. They chat about their own appointments, payments, services and Freshdesk tickets.
+- **Customers** sign in with **email or phone (codes delivered over WhatsApp)**. They chat about their own appointments, payments, services and support tickets.
 - **Organization admins** (customers with the org-admin role) also see their organization's members, appointments and tickets.
 - **Employees** are either **admin** or **staff**. They see the customers, organizations and records the **access-control rules** allow.
 
@@ -32,10 +32,10 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
   - **Stripe** payments are mirrored automatically.
   - **Manual payments** (POS terminal, bank transfer, cash) are recorded by staff with validation, duplicate checks and an audit trail.
   - One combined view, balance and history per customer. No card data stored.
-- **Freshdesk tickets**:
-  - Looked up by the customer's **verified email and phone**.
+- **Support tickets** (JoyBot's own; Freshdesk was replaced, see §4.5):
+  - Customers open requests and reply in the portal; staff reply, add internal notes, assign and prioritize in the console.
   - Customers see their own tickets, org admins see their organization members' tickets, and employees see tickets per access rules.
-  - Private notes are never shown to customers.
+  - Internal notes are never shown to customers.
 - **WhatsApp** (not SMS) for phone verification and sign-in codes and portal invites. The WhatsApp sender number and templates are **configured in the settings table** (Admin UI), not in the stack.
 - Streaming chat with citations that link to the record (appointment, payment, service, ticket).
 - Self-hosted **Gemma 4 E2B** (cheapest variant) behind an internal, OpenAI-compatible API with tool calling and JSON output.
@@ -45,7 +45,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 - Subscriptions / packages; organization billing.
 - Handling card details inside JoyBot. Card payments run on Stripe's hosted pages (Stripe flows you already use, or Stripe Checkout for JoyBot invoices); otherwise customers pay at the POS or by bank transfer.
 - Write actions through chat (booking, cancelling, creating tickets).
-- SMS; other support systems than Freshdesk; Jira.
+- SMS; external help desks (Freshdesk was integrated, then replaced by native tickets); Jira.
 - Regulatory compliance programs; data migration / bulk import; LLM-generated SQL; fine-tuning; voice / multimodal.
 
 ---
@@ -72,7 +72,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 ┌──────────────────────────────────┐  ┌──────────────────┐  ┌───────────────────────────┐
 │ Aurora PostgreSQL — JoyBot DB    │  │ Model service    │  │ External services         │
 │  core: settings, locations,      │  │ vLLM + Gemma 4   │  │ (via NAT)                 │
-│        users, organizations,     │  │ E2B on g6.xlarge │  │  Freshdesk API v2         │
+│        users, organizations,     │  │ E2B on g6.xlarge │  │  SES, WhatsApp            │
 │        customers, services,      │  │ ECS on EC2 GPU   │  │  Stripe API (reconcile)   │
 │        appointments, payments,   │  └──────────────────┘  └───────────────────────────┘
 │        roles, permissions,       │
@@ -83,8 +83,8 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 └──────────────────────────────────┘     (number + templates read from settings via SSM)
           ▲
 ┌─────────┴─────────────────┐
-│ Worker (ECS on EC2)       │  Stripe reconciliation, webhook processing, Freshdesk
-│                           │  contact-ID refresh, invites, grant expiry, health checks
+│ Worker (ECS on EC2)       │  Stripe reconciliation, webhook processing,
+│                           │  invites, grant expiry, health checks
 └───────────────────────────┘
 ```
 
@@ -97,7 +97,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 | Identity | **Two Cognito user pools**. *Customers*: email or phone as username; phone codes over **WhatsApp** via the Cognito **Custom SMS sender** trigger. *Employees*: admin-created or SSO, MFA required | WhatsApp instead of SMS while keeping Cognito |
 | WhatsApp | **AWS End User Messaging Social**. Sender number ID and template names stored in **`core.settings`**, edited in Admin, and published to an SSM parameter for the Cognito Lambda | Configure and change without redeploying the stack |
 | Payments | **Stripe + manual** into one `payments` table (`source = stripe \| manual`). Stripe: signed webhooks + nightly reconciliation (restricted read-only key). Manual: validated staff entry for POS / bank transfer / cash, with duplicate detection | Matches how money arrives today; one balance per customer |
-| Support tickets | **Freshdesk API v2**. Contacts found by the customer's **verified email and phone**, then their tickets. Read-only API key. Ownership is checked **after fetch** | Simple mapping; no manual linking needed |
+| Support tickets | **JoyBot's own** (`core.tickets`, `core.ticket_messages`), replacing Freshdesk | One source of truth; no external account or contact matching |
 | Time | `timestamptz` (UTC); display time zone: location → person → `settings.default_time_zone` | Correct local times |
 | LLM | **Gemma 4 E2B**; E4B fallback on the same GPU at the same cost | Lowest cost |
 | Inference | **vLLM** (OpenAI-compatible, tool calling, guided JSON); Ollama for local dev | |
@@ -115,7 +115,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 ```
 joybot-ai/
 ├── apps/
-│   ├── api/                 # NestJS: auth, back-office, payments, access admin, chat, Stripe webhooks, Freshdesk, profile/invites, org area
+│   ├── api/                 # NestJS: auth, back-office, payments, access admin, chat, Stripe webhooks, tickets, profile/invites, org area
 │   ├── web/                 # React + Vite frontend (/portal + /staff)
 │   └── worker/              # Stripe event processing + reconciliation, on-demand jobs (app.worker_jobs)
 ├── packages/
@@ -130,7 +130,6 @@ joybot-ai/
 │   ├── functions/           # DB bootstrap, customer post-confirmation, employee post-authentication, WhatsApp sender, web assets
 │   ├── parameters/          # dev.json (staging/prod to add in Phase 7)
 │   └── scripts/             # publish.sh, quickcreate-link.mjs, check_nested.py
-├── tools/fake-freshdesk.mjs # local Freshdesk stub
 ├── .github/workflows/       # ci.yml, release.yml
 ├── docker-compose.yml       # postgres 16 (localhost:5433)
 ├── CLAUDE.md                # conventions for working on the code
@@ -159,9 +158,6 @@ core.settings (
   whatsapp_otp_template      text null,          -- Meta-approved authentication template name
   whatsapp_invite_template   text null,          -- Meta-approved utility template name
   whatsapp_template_language text default 'en_US',
-  -- Freshdesk (credentials live in Secrets Manager, not here)
-  freshdesk_domain           text null,          -- e.g. 'yourco.freshdesk.com'
-  freshdesk_portal_url       text null,          -- customer portal base for deep links
   -- Payments
   stripe_enabled             boolean default false,
   manual_payment_methods     text[] default '{card_pos,bank_transfer,cash}',
@@ -280,11 +276,11 @@ core.payments (
 -- unique (pos_terminal_id, pos_reference) where pos_reference is not null
 -- unique (bank_reference, customer_id)    where bank_reference is not null
 
--- Cached links to external systems (Freshdesk contact IDs found by email/phone)
+-- Cached links to external systems (was Freshdesk contact IDs; unused since native tickets)
 core.external_links (
   entity_type text check (entity_type in ('customer','organization')),
   entity_id   uuid,
-  source      text,                            -- 'freshdesk_contact' | 'freshdesk_company'
+  source      text,                            -- e.g. an external system's contact id
   external_id text,
   matched_by  text,                            -- 'email' | 'phone'
   refreshed_at timestamptz,
@@ -353,7 +349,7 @@ core.record_grants (
 | customers / organizations | CRUD `all_including_restricted` | read/create/update `location` + `assigned` | read `org` (members); update membership | read/update `self` |
 | appointments | CRUD all | CRUD `location` + `assigned` + `own` | read `org` | read `self` |
 | payments | CRUD, **void, refund** all | **create** manual + read `location` + `assigned`; update own manual entries **same day** | — (self only) | read `self` |
-| tickets (Freshdesk) | read all | read `location` + `assigned` | read `org` | read `self` |
+| tickets | read, create, update all | read, create, update `location` + `assigned` | read `org`; create, update `self` | read, create, update `self` |
 | services / locations | CRUD | read | read | read |
 | notes_internal | read/update | read/update in scope | — | — |
 | settings, users, access, audit | manage | — | — | — |
@@ -370,7 +366,7 @@ core.record_grants (
    - Each transaction runs `SET LOCAL app.principal_type / app.principal_id / app.role`.
    - RLS policies call `STABLE` functions such as `app_can_access_customer(id, action)` and `app_can_access_org(id, action)`, which read the same tables.
    - The chat path's `joybot_reader` role is SELECT-only, with RLS forced.
-3. **Freshdesk data**: after fetching, each ticket's requester must belong to the in-scope customer(s) (§4.5). Anything else is dropped.
+3. **Tickets**: RLS on `core.tickets` / `core.ticket_messages` by the ticket's customer (§4.5); internal notes only with `notes_internal`.
 4. **Audit**:
    - Permission, assignment, grant, restricted-flag and org-admin changes go to `change_log`.
    - Chat retrievals go to `retrieval_traces`.
@@ -443,22 +439,16 @@ core.record_grants (
 - **Allocation**: a payment can be linked to an appointment, and partial payments are allowed. Balances come from `v_customer_balance`, which combines Stripe and manual.
 - **Customer visibility**: method, amount, status, date and the Stripe receipt link. For bank transfers, "pending / received". Internal notes, terminal IDs and references are hidden.
 
-### 4.5 Freshdesk integration
+### 4.5 Support tickets
 
-- **Auth**: Freshdesk **API key** (Basic auth) in Secrets Manager (`joybot/<env>/freshdesk`). Use a dedicated agent with the least privilege that can still read tickets and contacts. The domain and portal URL are in `core.settings`.
-- **Finding a customer's tickets** (by email and phone):
-  1. Take the customer's **verified** email and phone. Unverified contacts are never used.
-  2. Look up Freshdesk contacts by email (`GET /api/v2/contacts?email=`), then by phone and mobile (`?phone=`, `?mobile=`).
-     - Phones are tried in E.164 and the national format, since Freshdesk stores them as free text.
-     - Matching contact IDs are cached in `core.external_links` (refreshed every 24 h, or when a contact changes).
-  3. Fetch tickets per contact (`GET /api/v2/tickets?requester_id=…&include=description`, with `updated_since` for filters), merge them and remove duplicates.
-  4. For ticket detail, fetch the ticket and its conversations, and **drop private notes** (`private: true`) for customer principals.
-- **Org admin**: runs the same lookup for each member's verified contacts (bounded, cached).
-- **Employees**: run the lookup for any customer in their scope. Organization views combine members' tickets.
-- **Ownership filter**: every returned ticket's `requester_id` must be one of the cached contact IDs for the in-scope customer(s). Anything else is dropped and logged.
-- **Caching & limits**: ticket lists are cached for 60–120 s per scope. The client respects Freshdesk's per-minute rate limits (backoff on `429` with `Retry-After`) and has a circuit breaker, so chat answers "tickets unavailable right now" instead of failing.
-- **Deep links**: customers get `{freshdesk_portal_url}/support/tickets/{id}`; staff get the agent URL.
-- **Status mapping**: Freshdesk status codes (Open, Pending, Resolved, Closed, plus custom statuses fetched from the ticket-fields API) are mapped to readable labels.
+JoyBot's own tickets replaced the Freshdesk integration (migration `0033_native_tickets.sql`; the
+Freshdesk client, settings, contact cache and stack secret were removed).
+
+- **Data**: `core.tickets` (number from #1001, customer, subject, status `open` / `pending` / `resolved` / `closed`, priority, assignee, who opened it, last activity) and `core.ticket_messages` (customer or staff author, body, `internal` for staff-only notes). Both are audited; merges move tickets to the surviving customer.
+- **Status follows the conversation**: a customer message (re)opens a ticket (`open`, waiting on staff); a staff reply to an open ticket makes it `pending` (waiting on the customer); people set `resolved` and `closed`.
+- **Access**: the `tickets` resource (read, create, update) with the usual scopes. Customers and org admins open and reply for themselves; org admins also read their organization's. Internal notes need `notes_internal` (read to see, update to write). A trigger stops customers from changing anything but the status.
+- **Notifications**: a staff reply (or a ticket staff open for a customer) emails the customer, unless turned off for that message.
+- **Chat**: `list_tickets` / `get_ticket` read through the same service as the reader role.
 
 ### 4.6 `app` schema
 ```
@@ -481,19 +471,19 @@ app.response_cache(key, tool, principal_scope_hash, payload jsonb, expires_at)
 |---|---|
 | `AuthModule` | JWTs from both pools → `Principal` (customer + `org_role`, or employee `admin`/`staff` + locations + time zone) |
 | `AccessModule` | CASL abilities from `role_permissions`, assignments, locations, grants; `@Can()` guards; RLS session; "who can access"; admin CRUD for permissions, assignments, grants |
-| `SettingsModule` | `core.settings` (incl. **WhatsApp**, Freshdesk domain, payment options) + locations; publishes WhatsApp settings to SSM; time zone resolution |
+| `SettingsModule` | `core.settings` (incl. **WhatsApp**, payment options) + locations; publishes WhatsApp settings to SSM; time zone resolution |
 | `ChatModule` / `ConversationsModule` | SSE chat, conversations, pinned scope |
-| `EntityExtractionModule` | *(employees)* Regex (email, phone, customer/org/appointment/payment numbers, **Freshdesk ticket IDs**, Stripe IDs, POS/bank references) + Gemma 4 JSON extraction for names and relative dates |
+| `EntityExtractionModule` | *(employees)* Regex (email, phone, customer/org/appointment/payment numbers, **ticket numbers**, Stripe IDs, POS/bank references) + Gemma 4 JSON extraction for names and relative dates |
 | `CustomerResolutionModule` | *(employees)* Exact → fuzzy match on customers and organizations, **filtered by ability** |
 | `ScopeModule` / `CoreToolsModule` | RLS-scoped transactions; typed read tools (5.3) |
-| `FreshdeskModule` | Contact lookup by verified email/phone, ticket list/detail, private-note filtering, ownership filter, cache, rate-limit handling |
+| `TicketsModule` | Tickets: list, detail, open, reply (internal notes for staff), status/priority/assignee, customer emails on staff replies |
 | `PaymentsModule` | **Manual payment entry** (validation, duplicate detection, same-day edit rule, void/refund by admin), pending transfers, combined history and balance |
 | `StripeModule` | Webhook endpoint, event store, processors, customer matching, unmatched queue, reconciliation job (worker) |
 | `RetrievalPlannerModule` / `ContextBuilderModule` / `LlmModule` | Tool catalog per ability, Gemma 4 tool calling + deterministic intents, evidence/citations, vLLM/Ollama providers |
 | `BackOfficeModule` | Organizations, customers, services, appointments; invites; merges; link-review queue |
 | `ProfileModule` / `OrgAdminModule` | Customer profile & contacts; org admin members and invites |
 | `MessagingModule` | Email (SES) and WhatsApp (End User Messaging Social) templates with opt-in checks; delivery log |
-| `AuditModule` / `AdminModule` / `HealthModule` | Traces, change log, admin screens, `/health` & `/ready` (DB, model, Freshdesk, Stripe, WhatsApp config) |
+| `AuditModule` / `AdminModule` / `HealthModule` | Traces, change log, admin screens, `/health` & `/ready` (DB, model, Stripe, WhatsApp config) |
 
 ### 5.2 Retrieval pipeline (per message)
 
@@ -505,11 +495,10 @@ app.response_cache(key, tool, principal_scope_hash, payload jsonb, expires_at)
 4. **Plan** with Gemma 4: local date/time, server-side date parsing, schema-validated arguments, **no model-supplied IDs**.
 5. **Execute** in parallel:
    - Core tools are RLS-scoped.
-   - Freshdesk calls go through the ownership filter.
    - Timeouts 4 s per tool, 8 s overall; partial results allowed.
 6. **Optional second round** (max 2).
 7. **Normalize**:
-   - Hide `notes_internal`, private Freshdesk notes and manual payment references from customers.
+   - Hide `notes_internal`, internal ticket notes and manual payment references from customers.
    - Show times in the location's time zone.
 8. **Generate** with `[n]` citations and stream; **persist** the message and traces.
 
@@ -523,7 +512,7 @@ app.response_cache(key, tool, principal_scope_hash, payload jsonb, expires_at)
 | `get_balance()` | self | self | per ability | |
 | `list_pending_bank_transfers(location?, overdue_only?)` | — | — | per ability | |
 | `list_unmatched_stripe_payments()` | — | — | per ability | |
-| `list_tickets(status?, updated_since?)` / `get_ticket(id)` | self | org | per ability | Freshdesk, by verified email/phone |
+| `list_tickets(status?)` / `get_ticket(id)` | self | org | per ability | JoyBot tickets (internal notes for staff) |
 | `get_organization()` / `list_organization_members()` | — | own org | per ability | |
 | `list_services(...)` / `get_service(code)` | ✓ | ✓ | ✓ | |
 | `list_locations()` / `get_location(code)` | ✓ | ✓ | ✓ | |
@@ -563,7 +552,7 @@ GET      /api/customers/:id/access · /api/organizations/:id/access
 GET      /api/review/links · POST /api/review/links/:id/resolve
 
 # Admin
-GET/PUT  /api/admin/settings · POST /api/admin/settings/whatsapp/test · POST /api/admin/settings/freshdesk/test
+GET/PUT  /api/admin/settings · POST /api/admin/settings/whatsapp/test
 GET/POST/PUT/DELETE /api/admin/locations | users | permissions | assignments | record-grants
 POST     /api/admin/stripe/reconcile · GET /api/admin/traces · /api/admin/audit
 
@@ -588,8 +577,8 @@ GET      /api/health | /api/ready
 
 ### Customer portal (`/portal`)
 - Sign up / sign in with email, or with phone (**WhatsApp code**, shown only when WhatsApp is enabled in settings). Invite links; profile completion; WhatsApp opt-in toggle.
-- **Chat**: appointments, payments (card/online via Stripe, POS, bank transfer pending/received), balance, services, locations, **Freshdesk tickets**.
-- **Pages**: My appointments, My payments (with Stripe receipts), **My tickets** (status, public replies, link to the Freshdesk portal), Services & prices, Locations, Profile.
+- **Chat**: appointments, payments (card/online via Stripe, POS, bank transfer pending/received), balance, services, locations, **support tickets**.
+- **Pages**: My appointments, My payments (with Stripe receipts), **Support** (open a request, the conversation, reply, mark resolved), Services & prices, Locations, Profile.
 - **Org admin area**: members (invite/remove), members' appointments, organization tickets.
 
 ### Staff console (`/staff`)
@@ -602,7 +591,7 @@ GET      /api/health | /api/ready
   - Void/refund (admin).
 - **Back-office**: organizations, customers, services, appointments, invites, merges, link review.
 - **Admin**:
-  - **General settings**: time zone, currency, retention, **WhatsApp number & templates + test**, **Freshdesk domain/portal + test**, Stripe on/off, manual payment methods, transfer due days.
+  - **General settings**: time zone, currency, retention, **WhatsApp number & templates + test**, Stripe on/off, manual payment methods, transfer due days.
   - Locations, employees (admin/staff), staff permissions, assignments, record grants, restricted flags, audit.
 
 ### Stack
@@ -644,7 +633,6 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 | Identity | `CustomerSelfSignUp` | `true` |
 | Identity | `EmployeeIdpType` / `EmployeeIdpMetadataUrl` | `none` \| `saml` \| `oidc` |
 | Email | `SesFromAddress` | Verified SES identity |
-| Freshdesk | `FreshdeskApiKeySecretArn` | Optional existing secret; else a placeholder is created. Domain/portal URL are set in Admin → Settings |
 | Stripe | `StripeMode` | `test` (dev) \| `live` (prod) |
 | Stripe | `StripeSecretArn` | Optional existing secret `{ restrictedKey, webhookSigningSecret }`; else a placeholder |
 | Model | `ModelVariant` | **`gemma-4-e2b`** |
@@ -664,23 +652,22 @@ WhatsApp has **no stack parameters**: the number and templates are set in `core.
 | Template | Resources |
 |---|---|
 | `network.yaml` | VPC (us-east-1, 2–3 AZs), NAT with Elastic IPs, VPC endpoints (S3, ECR, Secrets Manager, KMS, SSM, Logs, SQS, SES) |
-| `data.yaml` | Aurora PostgreSQL Serverless v2 (KMS, PITR, deletion protection in prod), role secrets (`joybot_app`, `joybot_reader`, `joybot_migrator`), **Freshdesk** and **Stripe** secrets (placeholders). Stripe events are queued in Postgres (`app.stripe_events`), not SQS |
+| `data.yaml` | Aurora PostgreSQL Serverless v2 (KMS, PITR, deletion protection in prod), role secrets (`joybot_app`, `joybot_reader`, `joybot_migrator`), the **Stripe** secret (placeholder). Stripe events are queued in Postgres (`app.stripe_events`), not SQS |
 | `messaging.yaml` | KMS key for the Cognito Custom SMS sender; **WhatsApp sender Lambda** (reads SSM `/joybot/<env>/whatsapp`; `social-messaging:SendWhatsAppMessage` on `phone-number-id/*` in this account); SSM parameter (initially disabled); SNS topic for delivery events → `app.message_deliveries`; SES configuration set |
 | `auth.yaml` | Customers pool (email/phone username, `CustomSMSSender` → WhatsApp Lambda, SES email, passwordless OTP, advanced security in prod); employees pool (MFA, groups `admin`/`staff`, optional SAML/OIDC); post-confirmation Lambda; initial admin |
 | `compute.yaml` | ECS cluster, Cloud Map, CPU (Graviton) and GPU capacity providers, SSM-resolved AMIs, IMDSv2, Session Manager |
 | `model.yaml` | vLLM (Gemma 4 E2B) on GPU, private weights bucket, scheduled scaling |
-| `backend.yaml` | `api` + `worker` services, internal ALB, auto-scaling. Task roles: role secrets, Freshdesk/Stripe secrets, **`ssm:PutParameter` on the WhatsApp parameter** (API only), End User Messaging Social send (invites), SES send. EventBridge schedule for Stripe reconciliation and Freshdesk contact refresh. DB bootstrap custom resource |
+| `backend.yaml` | `api` + `worker` services, internal ALB, auto-scaling. Task roles: role secrets, the Stripe secret, **`ssm:PutParameter` on the WhatsApp parameter** (API only), End User Messaging Social send (invites), SES send. EventBridge schedule for Stripe reconciliation. DB bootstrap custom resource |
 | `frontend.yaml` | Private site bucket, CloudFront (OAC + VPC origin), WAF (rate limits on chat, sign-up/sign-in, code resend, invites; `/api/webhooks/stripe` excluded from bot rules, size-limited), asset-deploy custom resource |
-| `observability.yaml` | Dashboard: chat latency, tool errors, access denials, WhatsApp sends/failures, **Freshdesk latency/429s**, **Stripe webhook lag / unmatched payments**, pending/overdue transfers, possible duplicates, GPU, DB. Alarms → SNS |
+| `observability.yaml` | Dashboard: chat latency, tool errors, access denials, WhatsApp sends/failures, **Stripe webhook lag / unmatched payments**, pending/overdue transfers, possible duplicates, GPU, DB. Alarms → SNS |
 
-**Root outputs:** `AppUrl`, `CustomerPortalUrl`, `StaffConsoleUrl`, `ApiUrl`, **`StripeWebhookUrl`**, user pool IDs, `DashboardUrl`, `EgressIps` (for a Freshdesk IP allowlist if enabled).
+**Root outputs:** `AppUrl`, `CustomerPortalUrl`, `StaffConsoleUrl`, `ApiUrl`, **`StripeWebhookUrl`**, user pool IDs, `DashboardUrl`, `EgressIps` (for IP allowlists in external systems).
 
 ### 8.4 Post-deploy setup (admin checklist)
 
 | Step | Where |
 |---|---|
 | Stripe: put restricted key + webhook signing secret in the Stripe secret; register `StripeWebhookUrl` in the Stripe Dashboard with the handled events; Admin → Settings → enable Stripe → "Reconcile now" | Secrets Manager, Stripe Dashboard, Admin |
-| Freshdesk: put the API key in the Freshdesk secret; Admin → Settings → Freshdesk domain + portal URL → "Test connection" | Secrets Manager, Admin |
 | WhatsApp: create a Meta Business account → WhatsApp Business Account + number in **AWS End User Messaging Social** → get templates approved → Admin → Settings → WhatsApp (number ID, templates, language) → "Send test message" → enable | Meta, AWS console, Admin |
 | Locations, staff users, staff locations/assignments, services price list | Admin / back-office |
 
@@ -692,15 +679,14 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 - **Original list:** `cfn-guard` (encryption, no public S3/ECR, public-access block, no `*` IAM, region rule, prod deletion protection).
 - **Planned (Phase 7):** `taskcat` in us-east-1 from a member account. Smoke tests:
   - Customer email sign-up → appointment question.
-  - Org admin → org tickets (stubbed Freshdesk).
+  - Org admin → org tickets.
   - Staff allowed vs denied lookups.
   - Manual bank transfer → mark received → "transfer received".
   - Stripe test webhook → payment visible and matched.
 
 ### 8.6 Security baseline
 - **Access control**: CASL + RLS from the same tables; admin/staff split; restricted records; expiring grants; "who can access"; audit; matrix tests in CI.
-- **Customer isolation**: self-only; org admin limited to members, members' appointments and tickets (no payments). Freshdesk results pass the ownership filter, and private notes are removed.
-- **Freshdesk lookup only by verified contacts**. An unverified email or phone could otherwise expose someone else's tickets.
+- **Customer isolation**: self-only; org admin limited to members, members' appointments and tickets (no payments). Ticket internal notes are hidden from customers.
 - **Payments**:
   - No card data stored.
   - Stripe webhooks are signature-verified and stored idempotently; the read-only restricted key is used for reconciliation.
@@ -726,7 +712,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
    - **CASL ↔ RLS consistency**.
    - **Manual payment rules**: validation, duplicate detection across manual and Stripe, same-day edit, void/refund permissions.
    - **Stripe webhook fixtures**: signature, idempotency, ordering, matching, refunds, disputes.
-   - **Freshdesk contract tests**: email/phone lookup, phone formats, private-note filtering, ownership filter, 429 handling.
+   - **Ticket tests**: who sees which tickets, internal notes, status flow, customers' limits, emails on staff replies.
    - WhatsApp Lambda tests.
    - `cfn-lint` + `cfn-guard`; image builds.
 2. **main → dev**: private ECR, artifacts, `aws cloudformation deploy`, Playwright E2E per role, Stripe test-mode webhook smoke test.
@@ -736,8 +722,8 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 
 ## 10. Quality & Evaluation
 
-**Status (v1):** 110 cases in [apps/api/eval/cases.ts](apps/api/eval/cases.ts), run through the real chat API against the seeded data and a Freshdesk stub.
-- **Access oracle:** written independently of the RLS rules (`score.ts`). It checks every case's evidence, citations and answer for other customers' data, internal notes, POS or bank references, private Freshdesk notes, members' payments for org admins, and staff-only tools.
+**Status (v1):** 110 cases in [apps/api/eval/cases.ts](apps/api/eval/cases.ts), run through the real chat API against the seeded data (tickets included).
+- **Access oracle:** written independently of the RLS rules (`score.ts`). It checks every case's evidence, citations and answer for other customers' data, internal notes, POS or bank references, internal ticket notes, members' payments for org admins, and staff-only tools.
 - **Evidence-only mode** runs in `pnpm test` and CI. The 97 deterministic cases must all pass; the 13 model-only cases are n/a there.
 - **Real-model mode** is `pnpm --filter @joybot/api eval:model` with `MODEL_ENDPOINT`. Only gate failures fail the run. Reports are written to `apps/api/eval/reports/`.
 - **Metrics:** tool-selection precision and recall, citation recall, resolution accuracy, and latency.
@@ -747,7 +733,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
   - **Customer questions**:
     - Appointments and balance.
     - **Card (Stripe) vs POS vs bank transfer** payment questions, "was my transfer received?"
-    - Ticket status (Freshdesk stub).
+    - Ticket status.
     - Attempts to see others' data.
   - **Org admin questions**:
     - Members' appointments and tickets.
@@ -760,7 +746,7 @@ Other deploy concerns: private artifact access (a `preflight` script is planned)
 - **Release gates**:
   - Zero cross-customer/org leaks.
   - Zero access bypasses.
-  - No internal notes, private Freshdesk notes or manual payment references shown to customers.
+  - No internal notes (appointments or tickets) or manual payment references shown to customers.
   - Injection payloads in notes and ticket text have no effect.
 - **E2B gate** → E4B fallback; k6 load test on one g6.xlarge.
 
@@ -780,7 +766,8 @@ Status as of 2026-10-11 (`main` after PR #19): ✅ done · 🟡 in progress · �
 | **5 — Feature refinements** | ✅ | ✅ Reopened conversations restore the customer or organization the chat is about (scope card), in full view and the dock. ✅ Staff to-dos: a To-dos page (assignee, due date, optional customer, notes) and a pending list with quick add on the home page; new `tasks` permission (staff: own, admin: all). ✅ Customer search matches short name prefixes (each typed word starts a word of the name; fuzzy matching still catches typos). ✅ Today's appointments across locations in several time zones read in order (times in the viewer's zone, with the location's own time when it differs). ✅ Answer wording and model-only eval cases reviewed against Gemma 4 E2B: 116/118 with no gate failures (from 107); rules for casual wording, the answer step told which lookups found nothing, customer answers in "you"/"we", saved-answer conditions kept, a record list when the model returns no text. The pinned "anything I should know?" case still plans no tool on E2B. ✅ Knowledge for the assistant: saved answers (example questions, approved text, Book/Read buttons) and help articles written in JoyBot (Help pages, searched by passage), with a Knowledge editor and "test a question"; new `knowledge` permission. ✅ Customer self-booking (Book page, requests confirmed or declined on the staff Review page). ✅ Staff calendar (day by staff member, week, month; colleagues' bookings the viewer cannot open show as busy times only, through `core.staff_busy`). ✅ Staff working hours (weekly, per location, split shifts) and time off, with a new `schedules` permission (staff: read all, change own; admin: all); the calendar shades hours outside them and booking warns (book anyway with `confirm_overlap`). ✅ Team chat in a right-hand drawer behind the staff avatar (account links on top): everyone channel, direct messages, group channels of chosen staff and a personal notifications channel (to-do assigned, appointment booked for you, booking requests at your location); messages kept per channel set in General settings (100 by default); sound and pop-up per employee; polled every few seconds. ✅ Invoices: staff draft (lines, services), send (portal + email), record payments against them and void; customers pay in the portal by card (Stripe Checkout with a restricted `checkoutKey`; the worker links the payment by `invoice_number` metadata) or by bank transfer (details in settings, invoice number as reference); paid amount and status follow the payments; access follows `payments`. Moved to later options: products and "Buy" buttons; semantic (embedding) search if keyword and fuzzy matching miss too many paraphrases |
 | **6 — MCP for deployment owners** | 🟡 | Let a business's admins use Claude (Claude Code, Desktop, claude.ai connectors) on their own JoyBot data through a remote MCP server. ✅ `/mcp` endpoint on the API (Streamable HTTP, stateless, official TypeScript SDK); tools call the existing services, never raw SQL; every call runs as the signed-in employee, so RLS, validation and conflict checks apply, and `app.via = 'mcp'` marks it in the audit log. ✅ Personal access tokens: created by an admin in Admin › Claude access (shown once, sha256 stored), read-only scope, 7 days to 1 year, revocable by any admin, last-used shown, dead as soon as the owner is no longer an active admin; rate limit per token (in memory, per API task). ✅ Read tools (MCP `readOnlyHint`): `whoami`, `find_customers`, `get_customer`, `list_appointments`, `get_calendar`, `list_payments`, `list_pending_bank_transfers`, `list_invoices`, `list_todos`, `get_staff_schedule`, `search_knowledge`, `get_business_info`, `list_site_pages`, `get_site_page`, `get_site_setup`. ✅ Write tools for `read_write` tokens (step 2): `book_appointment`, `reschedule_appointment`, `create_todo`, `set_todo_done`, `add_time_off`, `create_invoice_draft`; website edits (`create_site_page`, `update_site_page`, `set_site_module`, `remove_site_module`, `update_site_setup`, `upload_site_image`, through `WebsiteService`; the MCP route takes 8 MB bodies for base64 images); and `cancel_appointment`, `send_invoice`, `void_invoice`, `record_payment`, `delete_site_page` behind a preview plus a single-use, ten-minute confirmation tied to the token and the exact arguments (`app.mcp_confirmations`). They validate with the API's schemas and reuse its services (to-dos, invoices and time off moved into services for this). ⬜ Knowledge edits (saved answers, articles) through MCP. ⬜ Merges and access rules stay out of MCP. ✅ Server instructions tell clients that record text is data, never instructions; results use the same columns as the API. ✅ Admin › Claude access page for tokens (read only / read and write), with copy-ready Claude Code and Claude Desktop setup. ✅ Audit log for every change (`GET /api/admin/audit`, paged with the total, filtered by source, record type, person or record, with record labels; token hashes hidden; token use not logged): Admin › Audit log, and "Changes through Claude" on the Claude access page. Employees moved to their own page (Admin › Employees: invite, edit role, locations and time zone, resend the invitation, deactivate). ⬜ OAuth 2.1 through the Cognito employee pool (step 3) for claude.ai connectors (a small dynamic client registration shim, or pre-registered clients). ✅ Docs (README, Claude access) and tests (tokens, protocol, tools, rejected tokens, rate limit). ⬜ A shared rate limit across API tasks before scaling out. Tokens are per admin (decided); a business service account can come later. Customers stay out of MCP for now |
 | **6B — Website (Marketing)** | 🟡 | The business's public site at the root of the web app, edited under **Marketing › Website** (new `website` resource: admins edit, staff only when allowed in Access). ✅ Pages with a slug, title, search description, published/draft, show in header, show in footer and order; one home page at `/` (always published, not deletable, can be switched). ✅ Modules (jsonb, validated by Zod): columns (1–4, heading, Markdown text, image, link), HTML (sanitized on save with `sanitize-html` and on display with DOMPurify), image (uploaded, alt, caption, size, link), video (YouTube via youtube-nocookie, Vimeo). ✅ Images uploaded into Postgres (PNG, JPEG, WebP, GIF up to 5 MB, checked by signature; no SVG; served by `/api/site/assets/:id` with `nosniff`). ✅ Header with the pages marked for it and a customer login; footer with its pages and a staff sign-in link. ✅ Preloaded home, about us, contact us, privacy policy and terms (generic text to review). ✅ Editor with preview, reorder, unsaved-changes guard and readable validation errors. ✅ Section options on every module (anchor for `#links`, background: page, tinted, dark or accent; alignment, label, heading with highlighted words, intro) and new modules: hero (headline with highlighted words, text, two buttons, image), cards (up to 12, icons from a fixed lucide set by name, above or beside the text, styles cards / large / numbered / compact, check-mark or arrow bullets, highlighted cards in the highlight color), FAQ (`<details>`), before and after (chips with notes, a dashed box, an arrow, then a box in the highlight color), call to action (`0030_website_theme.sql`). Dark sections draw labels, highlighted words and icons in the highlight color. Section labels can be badges; buttons can be filled, outlined or in the highlight color, and sit under the cards or beside a left-aligned heading; card icons can use the highlight color. Regular cards follow appjoy.dev's sizes (smaller in rows of four). A call to action on the accent color is a rounded card fading toward the highlight color; on other backgrounds it is a band. ✅ Site setup (`core.site_settings`, one row, `website` resource): accent and gradient colors (a scale mixed in CSS, lighter in dark mode, contrast warning in the editor; default look unchanged), heading and body fonts (bundled with `@fontsource`, loaded on demand), site name (a DBA, separate from the business name; `0031_site_name.sql`), highlight color (`0032`), logo, tagline, extra header links (`/#services`), header button, customer login on or off; the public site and the editor preview draw in it. ✅ Website through MCP (Phase 6), e.g. to move an existing site's content in. ⬜ Server-side rendering or prerendering for search engines (the site is a client-rendered SPA). ⬜ Footer text and social links. ⬜ Revisions and scheduled publishing (the audit log keeps every change). ⬜ More modules (testimonials, contact form, map, services and prices from the catalog). ⬜ Image resizing and alt-text reminders |
-| **7 — Pre-launch** | ⬜ | ✅ Full eval run against Gemma 4 E2B (117/118, no gate failures; done in Phase 5). ⬜ First real AWS dev deploy. ⬜ WAF tuning, Cognito advanced security. ⬜ WhatsApp throttles and cost alarms. ⬜ Red-team and injection suite beyond eval v1. ⬜ Observability review. ⬜ Load tests. ⬜ Staging and prod parameters. ⬜ `taskcat`. ⬜ Playwright. ⬜ First private Quick-Create release. ⬜ Prod launch. Later options: products and "Buy" buttons; semantic (embedding) search; guarded write tools in chat (book/reschedule, create Freshdesk ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
+| **6C — Native support tickets** | ✅ | Freshdesk replaced by JoyBot's own tickets (`0033_native_tickets.sql`, §4.5): customers open requests, reply and mark them resolved in the portal (Support); staff work a Tickets inbox (open and waiting, assigned to me, unassigned) and the ticket page (reply or internal note, status, priority, assignee), and open tickets from the customer page; staff replies email the customer. RLS on the `tickets` resource (now read, create, update) and `notes_internal` for notes; status follows the conversation. Chat tools, eval cases and seed (#5001–#5006) moved over; the Freshdesk client, settings, contact cache, CloudFormation secret and local stub were removed. ⬜ Attachments. ⬜ Canned replies (from saved answers). ⬜ Email-in (reply by email). ⬜ SLA timers and staff notifications for new tickets. ⬜ Ticket tools in MCP |
+| **7 — Pre-launch** | ⬜ | ✅ Full eval run against Gemma 4 E2B (117/118, no gate failures; done in Phase 5). ⬜ First real AWS dev deploy. ⬜ WAF tuning, Cognito advanced security. ⬜ WhatsApp throttles and cost alarms. ⬜ Red-team and injection suite beyond eval v1. ⬜ Observability review. ⬜ Load tests. ⬜ Staging and prod parameters. ⬜ `taskcat`. ⬜ Playwright. ⬜ First private Quick-Create release. ⬜ Prod launch. Later options: products and "Buy" buttons; semantic (embedding) search; guarded write tools in chat (book/reschedule, open a ticket); WhatsApp reminders; chat over WhatsApp; CSV import; knowledge base |
 
 ### Next steps
 
@@ -788,12 +775,10 @@ Status as of 2026-10-11 (`main` after PR #19): ✅ done · 🟡 in progress · �
 2. **Keep the Gemma 4 E2B eval green** (117/118, no gate failures): `pnpm --filter @joybot/api eval:model`. Grow the set toward 200–300 cases, adding cases from real questions once in use.
 3. **Check the real integrations locally:**
    - Stripe test mode with `stripe listen`, including an invoice paid through Checkout (`STRIPE_CHECKOUT_KEY`).
-   - A Freshdesk trial account.
    - Cognito hosted sign-in (needs the first deploy, step 5).
 4. **Phase 0 items with long lead times.** Start these now:
    - Meta Business verification and WhatsApp template approval (OTP, invite).
    - The SES domain and leaving the SES sandbox.
-   - The Freshdesk API key.
 5. **First AWS deploy (dev):**
    - Run `bootstrap/artifacts.yaml`, `publish.sh` and the Quick-Create link in a member account.
    - Work through "Things to verify on the first real deployment" in `cloudformation/README.md`: Cognito `SMS_OTP` with a custom sender only, the KMS key policy, DB bootstrap reaching Secrets Manager, the Aurora version, the GPU AMI parameter, and `Authorization` forwarding through the VPC origin.
@@ -863,7 +848,6 @@ Modeled on the layout of the [Zilliz Cloud dedicated price list](https://zilliz.
 - **GPU**: ~$377–579/month per instance in prod.
 - **WhatsApp**: per message (Meta fee by country and category + AWS End User Messaging Social fee). Roughly **$0.01–0.03 per OTP/invite in the US**; confirm on the AWS and Meta pricing pages. No SMS costs.
 - **Stripe**: Stripe's processing fees on Stripe payments; webhooks and API reads are free. Manual payments have no JoyBot cost.
-- **Freshdesk**: API included in the plan; mind the per-minute rate limits for your plan tier.
 - **SES**: ~$0.10 per 1,000 emails.
 - **Cognito**: per MAU; passwordless OTP needs the Essentials tier.
 - **CPU tier**: Graviton, Spot in dev. **Aurora**: 0.5 ACU min in dev, 1+ in prod. Single NAT in dev; VPC endpoints.
@@ -875,9 +859,6 @@ Modeled on the layout of the [Zilliz Cloud dedicated price list](https://zilliz.
 | Risk | Mitigation |
 |---|---|
 | **Access-control bug** | CASL + RLS from the same tables; matrix + consistency tests; "who can access"; audit; 100% access-accuracy release gate |
-| **Freshdesk shows someone else's tickets** (shared or wrong email/phone) | Only **verified** contacts used; ownership filter on `requester_id`; read-only key; private notes removed; mismatch logging; staff can exclude a contact ID from a customer's links |
-| **Freshdesk phone matching misses** (free-text phones) | Try E.164 + national formats + mobile field; cached contact IDs; email lookup as primary |
-| **Freshdesk rate limits / outages** | Cache, backoff on 429, circuit breaker, "tickets unavailable" message |
 | **Double-counted payments** (manual entry + Stripe for the same payment) | Pre-save duplicate check across sources; `possible_duplicate_of` review list; admin void |
 | **Manual entry errors** (wrong amount/customer, missed transfer) | Required references, validation, same-day edit window, admin-only void/refund, pending-transfer worklist, `change_log` |
 | **Missed / out-of-order Stripe webhooks** | Idempotent store, ordering by `created`, nightly reconciliation, lag alarms, unmatched queue |
@@ -902,9 +883,9 @@ Modeled on the layout of the [Zilliz Cloud dedicated price list](https://zilliz.
 | Locations & time zones | Multiple locations, a time zone per location; defaults in `core.settings` |
 | Services | Generic price list; no subscriptions |
 | Employee roles | **Admin and staff only**, with record- and organization-level access control (location scope, assignments, restricted records, grants) |
-| Support tickets | **Freshdesk only**, looked up by the customer's **verified email and phone**; customers see their own tickets, org admins see their organization's |
+| Support tickets | **JoyBot's own** (Freshdesk replaced); customers see their own tickets, org admins see their organization's, staff per access rules |
 | Model | **Gemma 4 E2B**, E4B fallback |
 | Existing data / compliance | None to migrate; no compliance regime for now |
 | Region & distribution | **us-east-1**, one **AWS Organization**, private S3 + ECR, no public buckets or data |
 
-No open questions remain. Phase 0 will validate the E2B benchmark, Meta/WhatsApp approval timelines, and the Freshdesk phone formats in your account.
+No open questions remain. Phase 0 will validate the E2B benchmark, Meta/WhatsApp approval timelines,.

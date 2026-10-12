@@ -49,10 +49,6 @@ const schema = z
     STRIPE_API_BASE: optional(z.string().url()),
     /** MCP endpoint: requests per minute per access token. */
     MCP_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(120),
-    /** Freshdesk: secret with { apiKey } (AWS) or the key directly (local). BASE_URL overrides the domain (tests). */
-    FRESHDESK_SECRET_ARN: optional(z.string()),
-    FRESHDESK_API_KEY: optional(z.string()),
-    FRESHDESK_BASE_URL: optional(z.string().url()),
     /** Public app URL for links in invites: APP_URL locally, or an SSM parameter written by the frontend stack. */
     APP_URL: optional(z.string().url()),
     APP_URL_PARAMETER: optional(z.string()),

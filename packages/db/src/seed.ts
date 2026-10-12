@@ -251,6 +251,39 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
       ],
     );
 
+    // Support tickets (numbers 5001–5006, as the chat eval expects): the first message is the
+    // request; #5001 has a staff reply and an internal note customers never see.
+    const tickets: [number, string, string, string, number, string][] = [
+      [5001, S.customers.maria, 'Refund for cancelled haircut', 'open', 1, 'I cancelled my appointment on time but was still charged.'],
+      [5002, S.customers.maria, 'Change my appointment time', 'resolved', 9, 'Can I move my next appointment to the afternoon?'],
+      [5003, S.customers.john, 'Acme invoice question', 'pending', 2, 'Our accounting team needs an itemized invoice for September.'],
+      [5004, S.customers.jane, 'Parking at the Midtown office', 'closed', 20, 'Is there parking near the Midtown location?'],
+      [5006, S.customers.pat, 'Deep clean availability', 'open', 0, 'Do you have deep clean slots next week?'],
+    ];
+    for (const [number, customer, subject, status, ageDays, request] of tickets) {
+      const created = `now() - interval '${ageDays + 2} days'`;
+      const id = (
+        await client.query<{ id: string }>(
+          `INSERT INTO core.tickets (number, customer_id, subject, created_by_customer, created_at)
+           VALUES ($1, $2, $3, $2, ${created}) ON CONFLICT (number) DO NOTHING RETURNING id`,
+          [number, customer, subject],
+        )
+      ).rows[0]?.id;
+      if (!id) continue;
+      await client.query(`INSERT INTO core.ticket_messages (ticket_id, body, author_customer, created_at) VALUES ($1, $2, $3, ${created})`, [id, request, customer]);
+      if (number === 5001) {
+        await client.query(
+          `INSERT INTO core.ticket_messages (ticket_id, body, author_user, internal, created_at) VALUES
+             ($1, 'Thanks for reaching out — we are checking your payment.', $2, false, now() - interval '1 day'),
+             ($1, 'Internal: refund approved, waiting on POS reversal.', $2, true, now() - interval '12 hours')`,
+          [id, S.users.ada],
+        );
+      }
+      // Messages move the status along; set the sample's own status and activity time last.
+      await client.query(`UPDATE core.tickets SET status = $2, last_message_at = now() - make_interval(days => $3) WHERE id = $1`, [id, status, ageDays]);
+    }
+    await client.query(`SELECT setval('core.ticket_number_seq', greatest((SELECT max(number) FROM core.tickets), 1000))`);
+
     await client.query('COMMIT');
   } catch (err) {
     await client.query('ROLLBACK');

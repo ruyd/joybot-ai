@@ -3,7 +3,7 @@ import type { Resource } from '@joybot/access';
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
-import { FreshdeskService } from '../freshdesk/freshdesk.service';
+import { TicketsService } from '../tickets/tickets.service';
 import { actionsFor, searchKnowledge, type ChatAction } from '../knowledge/knowledge';
 import { formatLocal } from './time';
 
@@ -46,7 +46,7 @@ export interface Evidence {
   id: string;
   title: string;
   fields: Record<string, string | number | boolean | null>;
-  /** External link (Stripe receipt, Freshdesk ticket). */
+  /** External link (Stripe receipt). */
   url?: string;
   /** The record's customer (never shown to the model): used to link staff to the customer's page. */
   customerId?: string;
@@ -191,7 +191,7 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     needs: 'org',
   },
   list_tickets: {
-    description: 'Support tickets (Freshdesk) of the customer or organization members in scope.',
+    description: 'Support tickets of the customer or organization members in scope.',
     parameters: {
       type: 'object',
       properties: { status: { type: 'string', enum: ['open', 'pending', 'resolved', 'closed'] } },
@@ -300,7 +300,7 @@ const METHOD_LABEL: Record<string, string> = {
 export class ChatToolsService {
   constructor(
     private readonly db: DbService,
-    private readonly freshdesk: FreshdeskService,
+    private readonly ticketsService: TicketsService,
   ) {}
 
   async run(p: Principal, scope: ChatScope, name: ToolName, rawArgs: unknown): Promise<ToolResult> {
@@ -337,33 +337,26 @@ export class ChatToolsService {
     };
   }
 
-  /** Freshdesk tools: same ownership checks as the API (reader role), private notes for staff only. */
+  /** Ticket tools: the tickets service as the reader role; internal notes only for staff allowed to read them. */
   private async tickets(p: Principal, scope: ChatScope, name: 'list_tickets' | 'get_ticket', a: Record<string, unknown>): Promise<Evidence[]> {
     if (name === 'get_ticket') {
-      const hints = await this.db.read(p, async (db) =>
-        (
-          await db.query<{ id: string }>(
-            scope.organizationId ? 'SELECT id FROM core.customers WHERE organization_id = $1' : 'SELECT id FROM core.customers WHERE id = $1',
-            [scope.organizationId ?? scope.customerId ?? null],
-          )
-        ).rows.map((r) => r.id),
-      );
-      const t = await this.freshdesk.ticketDetail(p, String(a.ticket_id), 'reader', hints);
-      const replies = t.conversation.slice(-5).map((c) => `${c.from}${c.private ? ' (private note)' : ''}: ${c.body.slice(0, 400)}`);
+      const t = await this.ticketsService.detail(p, String(a.ticket_id), 'reader');
+      const [request, ...rest] = t.messages;
+      const replies = rest.slice(-5).map((m) => `${m.from}${m.internal ? ' (private note)' : ''}: ${m.body.slice(0, 400)}`);
       return [
         {
           type: 'ticket',
           id: `#${t.id}`,
           title: `${t.subject} — ${t.status}`,
-          url: t.url ?? undefined,
           fields: {
             ticket: `#${t.id}`,
             status: t.status,
             priority: t.priority,
             opened: formatLocal(t.created_at, scope.timeZone),
-            last_update: formatLocal(t.updated_at, scope.timeZone),
-            description: t.description?.slice(0, 600) ?? null,
+            last_update: formatLocal(t.last_message_at, scope.timeZone),
+            description: request?.body.slice(0, 600) ?? null,
             latest_replies: replies.join(' | ') || null,
+            ...(p.type === 'employee' ? { assigned_to: t.assigned_to_name } : {}),
           },
         },
       ];
@@ -376,17 +369,16 @@ export class ChatToolsService {
         )
       ).rows.map((r) => r.id),
     );
-    const tickets = await this.freshdesk.listTickets(p, customerIds, 'reader', a.status as string | undefined);
-    return tickets.slice(0, 10).map((t) => ({
+    const tickets = await this.ticketsService.list(p, { customerIds, status: a.status as string | undefined, limit: 10 }, 'reader');
+    return tickets.map((t) => ({
       type: 'ticket' as const,
       id: `#${t.id}`,
       title: `${t.subject} — ${t.status}`,
-      url: t.url ?? undefined,
       fields: {
         ticket: `#${t.id}`,
         status: t.status,
         priority: t.priority,
-        last_update: formatLocal(t.updated_at, scope.timeZone),
+        last_update: formatLocal(t.last_message_at, scope.timeZone),
         ...(p.type === 'employee' || scope.organizationId ? { customer: t.customer_name } : {}),
       },
     }));

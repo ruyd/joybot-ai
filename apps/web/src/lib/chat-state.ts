@@ -5,7 +5,7 @@ export interface Citation {
   type: string;
   id: string;
   title: string;
-  /** External link (Stripe receipt, Freshdesk ticket). */
+  /** External link (Stripe receipt). */
   url: string | null;
   /** Where the record opens in the app, for this user (older messages have none). */
   link?: string | null;

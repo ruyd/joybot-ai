@@ -1,6 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import net from 'node:net';
 import path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
 import { SAMPLE } from '@joybot/db';
@@ -52,17 +50,13 @@ export async function runEval(options: EvalOptions): Promise<EvalRun> {
       ? new OpenAiCompatibleProvider(required('MODEL_ENDPOINT'), process.env.MODEL_NAME || 'gemma', 120_000, process.env.MODEL_DEBUG === 'true')
       : new EvidenceOnlyProvider();
   const recorder = new RecordingProvider(inner);
-  const freshdesk = await startFakeFreshdesk();
   const migrator = new Client({ connectionString: process.env.MIGRATOR_DATABASE_URL });
   await migrator.connect();
   let app: INestApplication | undefined;
   try {
     await prepareData(migrator);
     const world = await loadWorld(migrator);
-    app = await createApp({
-      env: { FRESHDESK_BASE_URL: freshdesk.url, FRESHDESK_API_KEY: 'eval' },
-      overrides: [{ token: LLM_PROVIDER, value: recorder }],
-    });
+    app = await createApp({ overrides: [{ token: LLM_PROVIDER, value: recorder }] });
 
     const cases = CASES.filter((c) => !options.filter || c.id.startsWith(options.filter) || c.category.startsWith(options.filter));
     const results: CaseResult[] = [];
@@ -97,7 +91,6 @@ export async function runEval(options: EvalOptions): Promise<EvalRun> {
   } finally {
     await app?.close();
     await migrator.end();
-    freshdesk.process.kill();
   }
 }
 
@@ -150,7 +143,7 @@ async function send(server: unknown, who: string, conv: string, content: string)
 
 // Data -------------------------------------------------------------------------------------------
 
-/** Eval fixtures on top of the seed: two similar names, an injection payload, Freshdesk on. */
+/** Eval fixtures on top of the seed: two similar names and an injection payload (tickets come from the seed). */
 async function prepareData(db: Client) {
   await db.query(`SELECT set_config('app.via', 'seed', false)`);
   await db.query(
@@ -162,8 +155,7 @@ async function prepareData(db: Client) {
   );
   await db.query('UPDATE core.appointments SET notes_customer = $2 WHERE id = $1', [SAMPLE.appointments.mariaNext, INJECTION]);
   // The eval asks some principals many questions; quotas are tested elsewhere.
-  await db.query(`UPDATE core.settings SET freshdesk_domain = 'eval.freshdesk.com', freshdesk_portal_url = NULL,
-                                          chat_daily_limit_customer = 10000, chat_daily_limit_employee = 100000`);
+  await db.query(`UPDATE core.settings SET chat_daily_limit_customer = 10000, chat_daily_limit_employee = 100000`);
 }
 
 async function loadWorld(db: Client): Promise<World> {
@@ -203,7 +195,7 @@ async function loadWorld(db: Client): Promise<World> {
   const internal = [
     ...(await db.query(`SELECT notes_internal FROM core.appointments WHERE notes_internal IS NOT NULL`)).rows.map((r) => r.notes_internal),
     ...(await db.query(`SELECT pos_reference FROM core.payments WHERE pos_reference IS NOT NULL`)).rows.map((r) => r.pos_reference),
-    'refund approved', // Freshdesk private note on ticket 5001
+    'refund approved', // internal note on ticket 5001
   ];
   return { ids, refs, customers, internal };
 }
@@ -219,27 +211,4 @@ function required(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`${name} is required for a model run (e.g. http://localhost:11434/v1 for Ollama)`);
   return v;
-}
-
-// Freshdesk stub ---------------------------------------------------------------------------------
-
-async function startFakeFreshdesk(): Promise<{ url: string; process: ChildProcess }> {
-  const port = await freePort();
-  const child = spawn(process.execPath, [path.join(ROOT, 'tools/fake-freshdesk.mjs')], { env: { ...process.env, PORT: String(port) }, stdio: ['ignore', 'pipe', 'inherit'] });
-  await new Promise<void>((resolve, reject) => {
-    child.stdout!.once('data', () => resolve());
-    child.once('exit', (code) => reject(new Error(`fake Freshdesk exited (${code})`)));
-  });
-  return { url: `http://127.0.0.1:${port}`, process: child };
-}
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close(() => resolve(port));
-    });
-    srv.on('error', reject);
-  });
 }

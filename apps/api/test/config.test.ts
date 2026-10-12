@@ -23,7 +23,7 @@ describe('config', () => {
   });
 
   it('treats empty optional values (as CloudFormation passes them) as unset', () => {
-    const cfg = loadConfig({ ...aws, SES_FROM_ADDRESS: '', MODEL_ENDPOINT: '', APP_URL: '', FRESHDESK_BASE_URL: '' });
+    const cfg = loadConfig({ ...aws, SES_FROM_ADDRESS: '', MODEL_ENDPOINT: '', APP_URL: '' });
     expect(cfg.SES_FROM_ADDRESS).toBeUndefined();
     expect(cfg.MODEL_ENDPOINT).toBeUndefined();
   });

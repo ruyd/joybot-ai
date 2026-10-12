@@ -46,6 +46,8 @@ const TABLE_LABEL: Record<string, string> = {
   site_pages: 'Website page',
   site_assets: 'Website image',
   site_settings: 'Website setup',
+  tickets: 'Ticket',
+  ticket_messages: 'Ticket message',
 };
 
 /** Where a change came from (core.change_log.changed_via). */
