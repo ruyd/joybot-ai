@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronRight } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Page } from '../../components/Layout';
 import { SiteModules } from '../../components/site/Modules';
@@ -253,6 +254,8 @@ function PageEditor({ id, onDirty, onDeleted }: { id: string; onDirty: (dirty: b
   const settings = useSiteSettings();
   const [draft, setDraft] = useState<Draft | null>(null);
   const [preview, setPreview] = useState(false);
+  // Modules start collapsed; ones added during this edit open right away.
+  const [added, setAdded] = useState<Set<string>>(() => new Set());
   const saved = page.data ? toDraft(page.data) : null;
   const form = draft ?? saved;
   const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(saved);
@@ -368,6 +371,7 @@ function PageEditor({ id, onDirty, onDeleted }: { id: string; onDirty: (dirty: b
             {form.modules.map((m, i) => (
               <ModuleCard
                 key={m.id}
+                initialOpen={added.has(m.id)}
                 index={i}
                 module={m}
                 count={form.modules.length}
@@ -379,7 +383,11 @@ function PageEditor({ id, onDirty, onDeleted }: { id: string; onDirty: (dirty: b
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <span className="text-sm text-slate-500">Add:</span>
               {(Object.keys(MODULE_LABEL) as SiteModule['type'][]).map((t) => (
-                <Button key={t} type="button" size="sm" variant="secondary" onClick={() => set({ modules: [...form.modules, blankModule(t)] })}>
+                <Button key={t} type="button" size="sm" variant="secondary" onClick={() => {
+                    const next = blankModule(t);
+                    setAdded((a) => new Set(a).add(next.id));
+                    set({ modules: [...form.modules, next] });
+                  }}>
                   {`+ ${MODULE_LABEL[t]}`}
                 </Button>
               ))}
@@ -466,7 +474,24 @@ function SaveError({ error }: { error: unknown }) {
 
 // Modules ----------------------------------------------------------------------------------------
 
+/** A short line describing a module's content, shown on its collapsed header. */
+function moduleSummary(m: SiteModule): string {
+  const text = (v?: string | null) => (v ?? '').replace(/<[^>]*>/g, ' ').replace(/[#*_`>[\]]/g, '').replace(/\s+/g, ' ').trim();
+  const first =
+    text(m.heading) ||
+    (m.type === 'hero' || m.type === 'cta' ? text(m.text) : '') ||
+    (m.type === 'html' ? text(m.html) : '') ||
+    (m.type === 'image' ? text(m.alt) : '') ||
+    (m.type === 'video' ? m.url : '') ||
+    (m.type === 'cards' ? text(m.items[0]?.heading) : '') ||
+    (m.type === 'faq' ? text(m.items[0]?.question) : '') ||
+    (m.type === 'columns' ? text(m.columns[0]?.heading) : '') ||
+    text(m.eyebrow);
+  return first.length > 90 ? `${first.slice(0, 89)}…` : first;
+}
+
 function ModuleCard({
+  initialOpen = false,
   index,
   module: m,
   count,
@@ -474,6 +499,7 @@ function ModuleCard({
   onMove,
   onRemove,
 }: {
+  initialOpen?: boolean;
   index: number;
   module: SiteModule;
   count: number;
@@ -481,13 +507,26 @@ function ModuleCard({
   onMove: (by: number) => void;
   onRemove: () => void;
 }) {
+  const [open, setOpen] = useState(initialOpen);
+  const summary = moduleSummary(m);
+  const bodyId = `module-${m.id}`;
   return (
     <section className="rounded-xl border border-slate-200 dark:border-slate-800" aria-label={`Module ${index + 1}: ${MODULE_LABEL[m.type]}`}>
-      <header className="flex items-center gap-1 border-b border-slate-200 px-3 py-1.5 dark:border-slate-800">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {index + 1}. {MODULE_LABEL[m.type]}
-        </span>
-        <span className="ml-auto flex gap-0.5">
+      <header className={`flex items-center gap-1 px-3 py-1.5 ${open ? 'border-b border-slate-200 dark:border-slate-800' : ''}`}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          className="press -ml-1 flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60"
+        >
+          <ChevronRight aria-hidden="true" className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} />
+          <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {index + 1}. {MODULE_LABEL[m.type]}
+          </span>
+          {summary && <span className="min-w-0 truncate text-sm text-slate-600 dark:text-slate-300">{summary}</span>}
+        </button>
+        <span className="ml-auto flex shrink-0 gap-0.5">
           <IconButton label="Move up" disabled={index === 0} onClick={() => onMove(-1)}>
             ↑
           </IconButton>
@@ -499,58 +538,60 @@ function ModuleCard({
           </IconButton>
         </span>
       </header>
-      <div className="space-y-3 p-3">
-        <SectionOptions module={m} onChange={onChange} />
-        {m.type === 'hero' && <HeroEditor module={m} onChange={onChange} />}
-        {m.type === 'cards' && <CardsEditor module={m} onChange={onChange} />}
-        {m.type === 'faq' && <FaqEditor module={m} onChange={onChange} />}
-        {m.type === 'cta' && <CtaEditor module={m} onChange={onChange} />}
-        {m.type === 'compare' && <CompareEditor module={m} onChange={onChange} />}
-        {m.type === 'columns' && <ColumnsEditor module={m} onChange={onChange} />}
-        {m.type === 'html' && (
-          <Field label="HTML" hint="Headings, paragraphs, lists, links, images and tables. Scripts, styles, forms and embeds are removed when you save.">
-            <textarea
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-900"
-              rows={8}
-              value={m.html}
-              onChange={(e) => onChange({ ...m, html: e.target.value })}
-            />
-          </Field>
-        )}
-        {m.type === 'image' && (
-          <>
-            <ImagePicker value={m.image_id || null} onChange={(image_id) => onChange({ ...m, image_id: image_id ?? '' })} />
+      {open && (
+        <div id={bodyId} className="space-y-3 p-3">
+          <SectionOptions module={m} onChange={onChange} />
+          {m.type === 'hero' && <HeroEditor module={m} onChange={onChange} />}
+          {m.type === 'cards' && <CardsEditor module={m} onChange={onChange} />}
+          {m.type === 'faq' && <FaqEditor module={m} onChange={onChange} />}
+          {m.type === 'cta' && <CtaEditor module={m} onChange={onChange} />}
+          {m.type === 'compare' && <CompareEditor module={m} onChange={onChange} />}
+          {m.type === 'columns' && <ColumnsEditor module={m} onChange={onChange} />}
+          {m.type === 'html' && (
+            <Field label="HTML" hint="Headings, paragraphs, lists, links, images and tables. Scripts, styles, forms and embeds are removed when you save.">
+              <textarea
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-900"
+                rows={8}
+                value={m.html}
+                onChange={(e) => onChange({ ...m, html: e.target.value })}
+              />
+            </Field>
+          )}
+          {m.type === 'image' && (
+            <>
+              <ImagePicker value={m.image_id || null} onChange={(image_id) => onChange({ ...m, image_id: image_id ?? '' })} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Alt text" hint="Describes the image for screen readers.">
+                  <Input maxLength={300} value={m.alt} onChange={(e) => onChange({ ...m, alt: e.target.value })} />
+                </Field>
+                <Field label="Caption">
+                  <Input maxLength={300} value={m.caption ?? ''} onChange={(e) => onChange({ ...m, caption: e.target.value })} />
+                </Field>
+                <Field label="Size">
+                  <Select value={m.size} onChange={(e) => onChange({ ...m, size: e.target.value as 'small' | 'medium' | 'full' })}>
+                    <option value="small">Small</option>
+                    <option value="medium">Medium</option>
+                    <option value="full">Full width</option>
+                  </Select>
+                </Field>
+                <Field label="Link (optional)" hint="https://…, or /page on this site">
+                  <Input maxLength={500} value={m.link_url ?? ''} onChange={(e) => onChange({ ...m, link_url: e.target.value })} />
+                </Field>
+              </div>
+            </>
+          )}
+          {m.type === 'video' && (
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Alt text" hint="Describes the image for screen readers.">
-                <Input maxLength={300} value={m.alt} onChange={(e) => onChange({ ...m, alt: e.target.value })} />
+              <Field label="YouTube or Vimeo link" hint={m.url && !videoEmbed(m.url) ? 'This is not a YouTube or Vimeo link.' : 'e.g. https://www.youtube.com/watch?v=…'}>
+                <Input maxLength={500} value={m.url} onChange={(e) => onChange({ ...m, url: e.target.value })} />
               </Field>
               <Field label="Caption">
                 <Input maxLength={300} value={m.caption ?? ''} onChange={(e) => onChange({ ...m, caption: e.target.value })} />
               </Field>
-              <Field label="Size">
-                <Select value={m.size} onChange={(e) => onChange({ ...m, size: e.target.value as 'small' | 'medium' | 'full' })}>
-                  <option value="small">Small</option>
-                  <option value="medium">Medium</option>
-                  <option value="full">Full width</option>
-                </Select>
-              </Field>
-              <Field label="Link (optional)" hint="https://…, or /page on this site">
-                <Input maxLength={500} value={m.link_url ?? ''} onChange={(e) => onChange({ ...m, link_url: e.target.value })} />
-              </Field>
             </div>
-          </>
-        )}
-        {m.type === 'video' && (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="YouTube or Vimeo link" hint={m.url && !videoEmbed(m.url) ? 'This is not a YouTube or Vimeo link.' : 'e.g. https://www.youtube.com/watch?v=…'}>
-              <Input maxLength={500} value={m.url} onChange={(e) => onChange({ ...m, url: e.target.value })} />
-            </Field>
-            <Field label="Caption">
-              <Input maxLength={300} value={m.caption ?? ''} onChange={(e) => onChange({ ...m, caption: e.target.value })} />
-            </Field>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
     </section>
   );
 }
