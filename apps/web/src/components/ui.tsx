@@ -148,3 +148,101 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
 export function Td({ children, className }: { children: ReactNode; className?: string }) {
   return <td className={cx('px-4 py-2 align-top', className)}>{children}</td>;
 }
+
+/** Page numbers to show: the first, the last, and the current page with its neighbours; null is a gap. */
+export function pageList(page: number, pages: number): (number | null)[] {
+  const sorted = [...new Set([1, pages, page - 1, page, page + 1])].filter((p) => p >= 1 && p <= pages).sort((a, b) => a - b);
+  // A gap of exactly one page shows that page; longer gaps show an ellipsis.
+  return sorted.flatMap((p, i) => {
+    const gap = i > 0 ? p - sorted[i - 1] : 1;
+    return gap === 2 ? [p - 1, p] : gap > 2 ? [null, p] : [p];
+  });
+}
+
+/**
+ * Under a table: "1–25 of 506", rows per page, and page numbers with previous and next arrows.
+ * `offset` is the first row shown (0-based).
+ */
+export function Pager({
+  total,
+  offset,
+  limit,
+  onOffset,
+  onLimit,
+  sizes = [10, 25, 50, 100],
+  busy,
+  label = 'records',
+}: {
+  total: number;
+  offset: number;
+  limit: number;
+  onOffset: (offset: number) => void;
+  onLimit: (limit: number) => void;
+  sizes?: number[];
+  busy?: boolean;
+  label?: string;
+}) {
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.min(pages, Math.floor(offset / limit) + 1);
+  const go = (p: number) => onOffset((p - 1) * limit);
+  const arrow = 'press grid size-8 place-items-center rounded-full text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-transparent dark:text-slate-300 dark:hover:bg-slate-800';
+  return (
+    <nav aria-label="Pages" className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+      <div className="flex flex-wrap items-center gap-3">
+        <span aria-live="polite">
+          {total ? `${(offset + 1).toLocaleString()}–${Math.min(offset + limit, total).toLocaleString()} of ` : ''}
+          <strong className="font-semibold text-slate-700 dark:text-slate-200">{total.toLocaleString()}</strong> {label}
+        </span>
+        <label className="flex items-center gap-1.5">
+          Rows per page
+          <select
+            value={limit}
+            onChange={(e) => onLimit(Number(e.target.value))}
+            className="rounded-md border border-slate-300 bg-white py-1 pr-7 pl-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+          >
+            {sizes.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {pages > 1 && (
+        <div className="flex items-center gap-1">
+          <button type="button" className={arrow} aria-label="Previous page" disabled={page <= 1 || busy} onClick={() => go(page - 1)}>
+            <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path d="M12.5 15l-5-5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          {pageList(page, pages).map((p, i) =>
+            p === null ? (
+              <span key={`gap${i}`} className="px-1 text-slate-400" aria-hidden="true">
+                …
+              </span>
+            ) : (
+              <button
+                key={p}
+                type="button"
+                aria-label={`Page ${p}`}
+                aria-current={p === page ? 'page' : undefined}
+                disabled={busy && p !== page}
+                onClick={() => p !== page && go(p)}
+                className={`press min-w-8 rounded-full px-2 py-1 text-sm ${
+                  p === page ? 'btn-gradient font-semibold' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
+                }`}
+              >
+                {p}
+              </button>
+            ),
+          )}
+          <button type="button" className={arrow} aria-label="Next page" disabled={page >= pages || busy} onClick={() => go(page + 1)}>
+            <svg viewBox="0 0 20 20" className="size-4" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path d="M7.5 5l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      )}
+    </nav>
+  );
+}

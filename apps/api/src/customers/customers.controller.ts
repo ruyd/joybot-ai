@@ -37,6 +37,38 @@ const updateSchema = z
   .partial()
   .strict();
 
+const listSchema = z
+  .object({
+    q: z.string().trim().max(200).optional(),
+    limit: z.coerce.number().int().refine((n) => [10, 25, 50, 100].includes(n), 'limit is 10, 25, 50 or 100').default(25),
+    offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  })
+  .strict();
+type ListQuery = z.infer<typeof listSchema>;
+
+/**
+ * The search as SQL over core.customers with a full name: exact number, email or phone, every word
+ * starting a word of the name, or a close name (trigram). No term: everyone (no order of its own).
+ */
+function matching(q: string): { from: string; where: string; order?: string; args: unknown[]; whereArgs: unknown[] } {
+  const from = `SELECT *, coalesce(first_name, '') || ' ' || coalesce(last_name, '') AS full_name FROM core.customers`;
+  const term = q.trim();
+  if (!term) return { from, where: '', args: [], whereArgs: [] };
+  // LIKE patterns: typed % and _ are literal.
+  const like = (w: string) => w.replace(/[\\%_]/g, '\\$&');
+  const words = term.split(/\s+/).slice(0, 5).map(like);
+  const exact = `(customer_number = upper($1) OR email = $1 OR phone = $1)`;
+  const prefixes = `(SELECT bool_and(full_name ILIKE w || '%' OR full_name ILIKE '% ' || w || '%') FROM unnest($2::text[]) w)`;
+  return {
+    from,
+    where: `WHERE ${exact} OR ${prefixes} OR full_name % $1`,
+    order: `${exact} DESC, full_name ILIKE $3 || '%' DESC, ${prefixes} DESC, similarity(full_name, $1) DESC, full_name`,
+    args: [term, words, like(term)],
+    // The WHERE alone uses only $1 and $2 (Postgres rejects unused parameters).
+    whereArgs: [term, words],
+  };
+}
+
 type CreateCustomer = z.infer<typeof createSchema>;
 type UpdateCustomer = z.infer<typeof updateSchema>;
 
@@ -53,37 +85,32 @@ export class CustomersController {
    * Search by customer number, email, phone (exact) or name: every typed word starts a word of the
    * name ("ma", "lop", "mar lop"), or the name is close enough (fuzzy, for typos). Exact matches rank
    * first, then names starting with the term, then prefix matches, then by similarity. RLS-filtered.
+   * Used by the pickers; the Customers page uses `list` (pages and the total).
    */
   @Get()
   @Can('read', 'customers')
   search(@CurrentPrincipal() p: Principal, @Query('q') q = '', @Query('limit') limit = '20') {
     const n = Math.min(Math.max(Number(limit) || 20, 1), 100);
-    const term = q.trim();
+    const m = matching(q);
     return this.db.as(p, async (db) => {
-      if (!term) {
-        return (await db.query(`SELECT ${this.columns(p)} FROM core.customers ORDER BY updated_at DESC LIMIT $1`, [n])).rows;
-      }
-      // LIKE patterns: typed % and _ are literal.
-      const like = (w: string) => w.replace(/[\\%_]/g, '\\$&');
-      const words = term.split(/\s+/).slice(0, 5).map(like);
-      const res = await db.query(
-        `WITH m AS (
-           SELECT c.*, coalesce(c.first_name, '') || ' ' || coalesce(c.last_name, '') AS full_name
-             FROM core.customers c
-         )
-         SELECT ${this.columns(p)}, similarity(full_name, $1) AS score
-           FROM m
-          WHERE customer_number = upper($1) OR email = $1 OR phone = $1
-             OR (SELECT bool_and(full_name ILIKE w || '%' OR full_name ILIKE '% ' || w || '%') FROM unnest($3::text[]) w)
-             OR full_name % $1
-          ORDER BY (customer_number = upper($1) OR email = $1 OR phone = $1) DESC,
-                   full_name ILIKE $4 || '%' DESC,
-                   (SELECT bool_and(full_name ILIKE w || '%' OR full_name ILIKE '% ' || w || '%') FROM unnest($3::text[]) w) DESC,
-                   score DESC, full_name
-          LIMIT $2`,
-        [term, n, words, like(term)],
-      );
-      return res.rows;
+      const order = m.order ?? 'updated_at DESC';
+      return (await db.query(`SELECT ${this.columns(p)} FROM (${m.from}) c ${m.where} ORDER BY ${order} LIMIT $${m.args.length + 1}`, [...m.args, n])).rows;
+    });
+  }
+
+  /** Customers page: a page of customers (by name, or by relevance when searching) with the total. */
+  @Get('list')
+  @Can('read', 'customers')
+  list(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(listSchema)) query: ListQuery) {
+    const m = matching(query.q ?? '');
+    return this.db.as(p, async (db) => {
+      const order = m.order ?? 'last_name NULLS LAST, first_name, customer_number';
+      const args = [...m.args, query.limit, query.offset];
+      const [items, count] = await Promise.all([
+        db.query(`SELECT ${this.columns(p)} FROM (${m.from}) c ${m.where} ORDER BY ${order} LIMIT $${args.length - 1} OFFSET $${args.length}`, args),
+        db.query<{ total: number }>(`SELECT count(*)::int AS total FROM (${m.from}) c ${m.where}`, m.whereArgs),
+      ]);
+      return { items: items.rows, total: count.rows[0].total };
     });
   }
 
