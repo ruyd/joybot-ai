@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { ApiError } from './api';
 import { appConfig } from './config';
 import type { SiteFontName } from './site-fonts';
@@ -139,6 +140,25 @@ export const pagePath = (p: Pick<SitePageSummary, 'slug' | 'is_home'>) => (p.is_
 /** The public site's API: no sign-in, so no session headers. */
 export async function siteGet<T>(path: string): Promise<T> {
   const res = await fetch(`${appConfig().apiBase}/site${path}`);
+  const data = res.headers.get('content-type')?.includes('json') ? await res.json() : {};
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data as T;
+}
+
+export interface SiteInfo {
+  /** The site's own name, else the business name. */
+  name: string | null;
+  business_name: string | null;
+  settings: SiteSettings | null;
+  pages: SitePageSummary[];
+}
+
+/** The public site's name, setup and published pages (header and footer). */
+export const useSite = () => useQuery({ queryKey: ['site'], queryFn: () => siteGet<SiteInfo>(''), staleTime: 60_000 });
+
+/** POST to the public site API (no sign-in), e.g. booking a sales call. */
+export async function sitePost<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${appConfig().apiBase}/site${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : {};
   if (!res.ok) throw new ApiError(res.status, data);
   return data as T;

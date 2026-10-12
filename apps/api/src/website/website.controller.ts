@@ -4,6 +4,17 @@ import type { z } from 'zod';
 import { Can, CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import { createPageSchema, siteSettingsSchema, updatePageSchema, type SiteSettingsInput } from './website.schemas';
+import {
+  assignSchema,
+  listSalesCallsSchema,
+  rescheduleSchema,
+  salesCallSettingsSchema,
+  SalesCallsService,
+  type Assign,
+  type ListSalesCalls,
+  type Reschedule,
+  type SalesCallSettingsInput,
+} from './sales-calls.service';
 import { imageType, MAX_IMAGE_BYTES, WebsiteService } from './website.service';
 
 /** Reads an upload's bytes (image types have no body parser), up to `max`. */
@@ -22,7 +33,52 @@ async function readBody(req: Request, max: number): Promise<Buffer> {
 @Controller('website')
 @EmployeesOnly()
 export class WebsiteController {
-  constructor(private readonly website: WebsiteService) {}
+  constructor(
+    private readonly website: WebsiteService,
+    private readonly salesCalls: SalesCallsService,
+  ) {}
+
+  /** Sales calls booked on the site, a page at a time with the total: `when=upcoming|past`, `q` searches. */
+  @Get('sales-calls')
+  @Can('read', 'website')
+  salesCallList(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(listSalesCallsSchema)) q: ListSalesCalls) {
+    return this.salesCalls.list(p, q);
+  }
+
+  /** The booking page's setup: title, description, length, meeting link. */
+  @Get('sales-call-settings')
+  @Can('read', 'website')
+  salesCallSettings(@CurrentPrincipal() p: Principal) {
+    return this.salesCalls.getSettings(p);
+  }
+
+  @Put('sales-call-settings')
+  @Can('update', 'website')
+  updateSalesCallSettings(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(salesCallSettingsSchema)) body: SalesCallSettingsInput) {
+    return this.salesCalls.updateSettings(p, body);
+  }
+
+  /** Moves a booked call to another open time; emails the visitor unless `notify: false`. */
+  @Post('sales-calls/:id/reschedule')
+  @HttpCode(200)
+  @Can('update', 'website')
+  rescheduleSalesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(rescheduleSchema)) body: Reschedule) {
+    return this.salesCalls.reschedule(p, id, body);
+  }
+
+  /** Hands a booked call to a free employee (`user_id`), or unassigns it (null). */
+  @Put('sales-calls/:id/assign')
+  @Can('update', 'website')
+  assignSalesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(assignSchema)) body: Assign) {
+    return this.salesCalls.assign(p, id, body);
+  }
+
+  @Post('sales-calls/:id/cancel')
+  @HttpCode(200)
+  @Can('update', 'website')
+  cancelSalesCall(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.salesCalls.cancel(p, id);
+  }
 
   @Get('pages')
   @Can('read', 'website')

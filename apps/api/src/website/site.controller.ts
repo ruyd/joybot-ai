@@ -1,8 +1,10 @@
-import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Res } from '@nestjs/common';
+import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import type { Pool } from 'pg';
 import { Public } from '../auth/principal';
+import { ZodPipe } from '../common/zod.pipe';
 import { APP_POOL } from '../db/db.module';
+import { bookSalesCallSchema, SalesCallsService, slotsQuerySchema, type BookSalesCall, type SlotsQuery } from './sales-calls.service';
 import { SETTINGS_COLUMNS } from './website.service';
 
 const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in_footer, sort_order';
@@ -14,7 +16,10 @@ const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in
 @Controller('site')
 @Public()
 export class SiteController {
-  constructor(@Inject(APP_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(APP_POOL) private readonly pool: Pool,
+    private readonly salesCalls: SalesCallsService,
+  ) {}
 
   /**
    * The site's name (its own, else the business name), the site setup (look and header) and the
@@ -41,6 +46,18 @@ export class SiteController {
   bySlug(@Res({ passthrough: true }) res: Response, @Param('slug') slug: string) {
     if (!/^[a-z0-9-]{1,60}$/.test(slug)) throw new NotFoundException('Page not found');
     return this.page(res, 'slug = $1', [slug]);
+  }
+
+  /** The booking page (/book-a-call): the sales call and its open start times between `from` and `to`. */
+  @Get('sales-call')
+  salesCallSlots(@Query(new ZodPipe(slotsQuerySchema)) q: SlotsQuery) {
+    return this.salesCalls.slots(q);
+  }
+
+  /** A visitor books a sales call (name and email; no sign-in). */
+  @Post('sales-call')
+  bookSalesCall(@Body(new ZodPipe(bookSalesCallSchema)) body: BookSalesCall) {
+    return this.salesCalls.book(body);
   }
 
   /** An uploaded image. Ids are not guessable; images never change once uploaded, so they cache for good. */

@@ -7,17 +7,7 @@ import { SiteLink, SiteModules } from '../../components/site/Modules';
 import { SiteTheme } from '../../components/site/Theme';
 import { Spinner } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { assetUrl, pagePath, siteGet, type SitePage, type SitePageSummary, type SiteSettings } from '../../lib/site';
-
-interface SiteInfo {
-  /** The site's own name, else the business name. */
-  name: string | null;
-  business_name: string | null;
-  settings: SiteSettings | null;
-  pages: SitePageSummary[];
-}
-
-const useSite = () => useQuery({ queryKey: ['site'], queryFn: () => siteGet<SiteInfo>(''), staleTime: 60_000 });
+import { assetUrl, pagePath, siteGet, useSite, type SitePage } from '../../lib/site';
 
 /** The public website at the root of the app: header (pages, links, customer login), page, footer; in the site's own look. */
 export function SiteLayout() {

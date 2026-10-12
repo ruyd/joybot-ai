@@ -75,7 +75,9 @@ const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeA
 const site = () => import('./routes/site/SitePages');
 const SiteLayout = page(site, 'SiteLayout');
 const SitePageView = page(site, 'SitePageView');
+const BookCallPage = page(() => import('./routes/site/BookCall'), 'BookCallPage');
 const WebsitePage = page(() => import('./routes/staff/WebsitePages'), 'WebsitePage');
+const SalesCallsPage = page(() => import('./routes/staff/SalesCalls'), 'SalesCallsPage');
 const AuditLogPage = page(() => import('./routes/staff/AuditLog'), 'AuditLogPage');
 const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'EmployeesPage');
 const staffInvoices = () => import('./routes/staff/InvoicePages');
@@ -122,7 +124,10 @@ const STAFF_NAV: NavItem[] = [
   { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
   {
     label: 'Marketing',
-    items: [{ to: '/staff/website', label: 'Website', can: ['read', 'website'] }],
+    items: [
+      { to: '/staff/website', label: 'Website', can: ['read', 'website'] },
+      { to: '/staff/sales-calls', label: 'Sales calls', can: ['read', 'website'] },
+    ],
   },
   {
     label: 'Admin',
@@ -145,6 +150,7 @@ export function App() {
           {/* The public website: "/" is the home page, "/:slug" any other published page. */}
           <Route path="/" element={<SiteLayout />}>
             <Route index element={<SitePageView home />} />
+            <Route path="book-a-call" element={<BookCallPage />} />
             <Route path=":slug" element={<SitePageView />} />
           </Route>
           <Route path="/auth/callback" element={<AuthCallback />} />
@@ -212,6 +218,7 @@ export function App() {
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="website" element={<WebsitePage />} />
+            <Route path="sales-calls" element={<SalesCallsPage />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
             <Route path="profile" element={<StaffProfile />} />

@@ -45,6 +45,7 @@ import { InvoicesService } from './invoices/invoices.service';
 import { AuditController } from './audit/audit.controller';
 import { SiteController } from './website/site.controller';
 import { WebsiteController } from './website/website.controller';
+import { SalesCallsService } from './website/sales-calls.service';
 import { WebsiteService } from './website/website.service';
 import { McpController } from './mcp/mcp.controller';
 import { TokensController } from './mcp/tokens.controller';
@@ -103,6 +104,7 @@ export class AppModule {
         InvoicesService,
         SchedulesService,
         WebsiteService,
+        SalesCallsService,
         WhatsAppSettingsPublisher,
         ChatToolsService,
         StripeSecrets,

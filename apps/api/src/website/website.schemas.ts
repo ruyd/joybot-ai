@@ -252,7 +252,7 @@ const pageFields = {
     .toLowerCase()
     .max(60)
     .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'Use lowercase letters, numbers and dashes')
-    .refine((s) => !['portal', 'staff', 'auth', 'api', 'assets', 'login'].includes(s), 'This address is used by the app'),
+    .refine((s) => !['portal', 'staff', 'auth', 'api', 'assets', 'login', 'book-a-call'].includes(s), 'This address is used by the app'),
   title: text(120).min(1),
   description: text(300).nullable(),
   published: z.boolean(),
