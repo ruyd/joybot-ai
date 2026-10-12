@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, ErrorBanner, Field, Input, Select, Spinner } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
-import { assetUrl, type SiteBackground, type SiteButton, type SiteCard, type SiteModule, type SiteModuleOf } from '../../lib/site';
+import { assetUrl, type SiteBackground, type SiteButton, type SiteCard, type SiteCompareSide, type SiteModule, type SiteModuleOf } from '../../lib/site';
 import { SITE_ICONS, SiteIcon, type SiteIconName } from '../../lib/site-icons';
 
 /** Editors for Marketing › Website: section options, buttons, lists, images and the newer module types. */
@@ -85,10 +85,22 @@ export function SectionOptions({ module: m, onChange }: { module: SiteModule; on
       </button>
       {open && (
         <div className="grid gap-3 px-3 pb-3 sm:grid-cols-2">
-          <Field label={m.type === 'hero' ? 'Label (shown as a badge)' : 'Label'} hint="Small text above the heading, e.g. HOW IT WORKS">
+          <Field label="Label" hint={m.type === 'hero' ? 'The line above the headline, e.g. Meet JoyBot AI, core software for your business' : 'Small text above the heading, e.g. HOW IT WORKS'}>
             <Input maxLength={80} value={m.eyebrow ?? ''} onChange={(e) => set({ eyebrow: e.target.value })} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:col-span-2 lg:grid-cols-4">
+            <Field label="Label style">
+              <Select value={m.eyebrow_style ?? 'text'} onChange={(e) => set({ eyebrow_style: e.target.value as 'text' | 'badge' })}>
+                <option value="text">Small capitals</option>
+                <option value="badge">Badge (highlight color)</option>
+              </Select>
+            </Field>
+            <Field label="Align">
+              <Select value={m.align ?? 'center'} onChange={(e) => set({ align: e.target.value as 'center' | 'left' })}>
+                <option value="center">Centered</option>
+                <option value="left">Left</option>
+              </Select>
+            </Field>
             <Field label="Background">
               <Select value={m.background ?? (m.type === 'cta' ? 'accent' : 'default')} onChange={(e) => set({ background: e.target.value as SiteBackground })}>
                 {BACKGROUNDS.map((b) => (
@@ -118,9 +130,12 @@ export function SectionOptions({ module: m, onChange }: { module: SiteModule; on
               <Field label="Heading">
                 <Input maxLength={200} value={m.heading ?? ''} onChange={(e) => set({ heading: e.target.value })} />
               </Field>
-              <Field label="Intro" hint="Markdown: **bold**, *italic*, [links](/contact)">
-                <TextArea rows={2} maxLength={2000} value={m.intro} onChange={(intro) => set({ intro })} />
-              </Field>
+              <HighlightField heading={m.heading} value={m.heading_accent} onChange={(heading_accent) => set({ heading_accent })} />
+              <div className="sm:col-span-2">
+                <Field label="Intro" hint="Markdown: **bold**, *italic*, [links](/contact)">
+                  <TextArea rows={2} maxLength={2000} value={m.intro} onChange={(intro) => set({ intro })} />
+                </Field>
+              </div>
             </>
           )}
         </div>
@@ -129,7 +144,17 @@ export function SectionOptions({ module: m, onChange }: { module: SiteModule; on
   );
 }
 
-/** Up to two buttons: the first is drawn filled, the second outlined. */
+/** Words of a heading to highlight, with a warning when they are not in it. */
+function HighlightField({ heading, value, onChange, example = 'on demand' }: { heading?: string; value?: string; onChange: (v: string) => void; example?: string }) {
+  const missing = value && !(heading ?? '').includes(value);
+  return (
+    <Field label="Highlight" hint={missing ? 'These words are not in the heading.' : `Words of the heading in the accent color, e.g. ${example}`}>
+      <Input maxLength={80} value={value ?? ''} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  );
+}
+
+/** Up to two buttons: by default the first is drawn filled and the second outlined; each can be set. */
 export function ButtonsEditor({ buttons = [], onChange }: { buttons?: SiteButton[]; onChange: (b: SiteButton[]) => void }) {
   const set = (i: number, patch: Partial<SiteButton>) => onChange(buttons.map((b, j) => (j === i ? { ...b, ...patch } : b)));
   return (
@@ -137,7 +162,17 @@ export function ButtonsEditor({ buttons = [], onChange }: { buttons?: SiteButton
       <p className="text-sm font-medium">Buttons</p>
       {buttons.map((b, i) => (
         <div key={i} className="flex items-center gap-2">
-          <span className="w-16 shrink-0 text-xs text-slate-500">{i === 0 ? 'Filled' : 'Outlined'}</span>
+          <Select
+            aria-label={`Button ${i + 1} style`}
+            className="w-36 shrink-0"
+            value={b.style ?? ''}
+            onChange={(e) => set(i, { style: (e.target.value || undefined) as SiteButton['style'] })}
+          >
+            <option value="">{i === 0 ? 'Filled' : 'Outlined'} (default)</option>
+            <option value="primary">Filled</option>
+            <option value="secondary">Outlined</option>
+            <option value="highlight">Highlight color</option>
+          </Select>
           <Input placeholder="Label" maxLength={60} value={b.label} onChange={(e) => set(i, { label: e.target.value })} />
           <Input placeholder="/page, #section, https://…, mailto:…" maxLength={500} value={b.url} onChange={(e) => set(i, { url: e.target.value })} />
           <IconButton label="Remove button" onClick={() => onChange(buttons.filter((_, j) => j !== i))}>
@@ -155,15 +190,17 @@ export function ButtonsEditor({ buttons = [], onChange }: { buttons?: SiteButton
 }
 
 export function HeroEditor({ module: m, onChange }: { module: SiteModuleOf<'hero'>; onChange: (m: SiteModule) => void }) {
-  const accentMissing = m.heading_accent && !m.heading.includes(m.heading_accent);
   return (
     <>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <Field label="Headline">
           <Input required maxLength={200} value={m.heading} onChange={(e) => onChange({ ...m, heading: e.target.value })} />
         </Field>
-        <Field label="Highlight" hint={accentMissing ? 'These words are not in the headline.' : 'Words of the headline in the accent color, e.g. AI revolution'}>
-          <Input maxLength={80} value={m.heading_accent ?? ''} onChange={(e) => onChange({ ...m, heading_accent: e.target.value })} />
+        <HighlightField heading={m.heading} value={m.heading_accent} onChange={(heading_accent) => onChange({ ...m, heading_accent })} example="AI revolution" />
+      </div>
+      <div className="sm:max-w-xs">
+        <Field label="Badge" hint="A short rounded label before the label line, e.g. Open source">
+          <Input maxLength={40} value={m.badge ?? ''} onChange={(e) => onChange({ ...m, badge: e.target.value })} />
         </Field>
       </div>
       <Field label="Text" hint="Markdown">
@@ -183,12 +220,31 @@ export function CardsEditor({ module: m, onChange }: { module: SiteModuleOf<'car
   const setItem = (i: number, patch: Partial<SiteCard>) => onChange({ ...m, items: m.items.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
         <Field label="Style">
           <Select value={m.variant} onChange={(e) => onChange({ ...m, variant: e.target.value as SiteModuleOf<'cards'>['variant'] })}>
             <option value="cards">Cards</option>
+            <option value="large">Large cards</option>
             <option value="numbered">Numbered steps</option>
             <option value="compact">Compact list</option>
+          </Select>
+        </Field>
+        <Field label="Icons">
+          <Select value={m.icon_position ?? 'top'} disabled={m.variant !== 'cards' && m.variant !== 'large'} onChange={(e) => onChange({ ...m, icon_position: e.target.value as 'top' | 'side' })}>
+            <option value="top">Above the text</option>
+            <option value="side">Beside the text</option>
+          </Select>
+        </Field>
+        <Field label="Icon color">
+          <Select value={m.icon_color ?? 'accent'} onChange={(e) => onChange({ ...m, icon_color: e.target.value as 'accent' | 'highlight' })}>
+            <option value="accent">Accent</option>
+            <option value="highlight">Highlight</option>
+          </Select>
+        </Field>
+        <Field label="Buttons">
+          <Select value={m.buttons_position ?? 'below'} onChange={(e) => onChange({ ...m, buttons_position: e.target.value as 'below' | 'header' })}>
+            <option value="below">Under the cards</option>
+            <option value="header">Beside the heading</option>
           </Select>
         </Field>
         <Field label="Per row">
@@ -215,9 +271,21 @@ export function CardsEditor({ module: m, onChange }: { module: SiteModuleOf<'car
               />
             </div>
             {m.variant !== 'numbered' && <IconPicker value={c.icon ?? null} onChange={(icon) => setItem(i, { icon })} />}
+            {(m.variant === 'cards' || m.variant === 'large') && (
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={Boolean(c.highlight)} onChange={(e) => setItem(i, { highlight: e.target.checked || undefined })} />
+                Highlight (in the highlight color from Site setup)
+              </label>
+            )}
             <Input placeholder="Label (optional)" maxLength={80} value={c.eyebrow ?? ''} onChange={(e) => setItem(i, { eyebrow: e.target.value })} />
             <Input placeholder="Heading" maxLength={120} value={c.heading ?? ''} onChange={(e) => setItem(i, { heading: e.target.value })} />
-            <TextArea rows={4} maxLength={4000} placeholder={'Text (Markdown). Lists get check marks:\n- First point\n- Second point'} value={c.text} onChange={(text) => setItem(i, { text })} />
+            <TextArea
+              rows={m.variant === 'large' ? 7 : 4}
+              maxLength={4000}
+              placeholder={`Text (Markdown). Lists get ${m.variant === 'large' ? 'arrows' : 'check marks'}:\n- First point\n- Second point${m.variant === 'large' ? '\n\n---\n\n**Best for:** a divider, then smaller text' : ''}`}
+              value={c.text}
+              onChange={(text) => setItem(i, { text })}
+            />
             <div className="grid grid-cols-2 gap-2">
               <Input placeholder="Link label" maxLength={60} value={c.link_label ?? ''} onChange={(e) => setItem(i, { link_label: e.target.value })} />
               <Input placeholder="/page or https://…" maxLength={500} value={c.link_url ?? ''} onChange={(e) => setItem(i, { link_url: e.target.value })} />
@@ -269,14 +337,51 @@ export function FaqEditor({ module: m, onChange }: { module: SiteModuleOf<'faq'>
 export function CtaEditor({ module: m, onChange }: { module: SiteModuleOf<'cta'>; onChange: (m: SiteModule) => void }) {
   return (
     <>
-      <Field label="Heading">
-        <Input required maxLength={200} value={m.heading} onChange={(e) => onChange({ ...m, heading: e.target.value })} />
-      </Field>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <Field label="Heading">
+          <Input required maxLength={200} value={m.heading} onChange={(e) => onChange({ ...m, heading: e.target.value })} />
+        </Field>
+        <HighlightField heading={m.heading} value={m.heading_accent} onChange={(heading_accent) => onChange({ ...m, heading_accent })} example="your software" />
+      </div>
       <Field label="Text" hint="Markdown">
         <TextArea rows={2} maxLength={2000} value={m.text} onChange={(text) => onChange({ ...m, text })} />
       </Field>
       <ButtonsEditor buttons={m.buttons} onChange={(buttons) => onChange({ ...m, buttons })} />
     </>
+  );
+}
+
+export function CompareEditor({ module: m, onChange }: { module: SiteModuleOf<'compare'>; onChange: (m: SiteModule) => void }) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <CompareSideEditor title="Before" hint="Shown in a dashed box" side={m.before} onChange={(before) => onChange({ ...m, before })} />
+      <CompareSideEditor title="After" hint="Shown in the highlight color" side={m.after} onChange={(after) => onChange({ ...m, after })} />
+    </div>
+  );
+}
+
+function CompareSideEditor({ title, hint, side: s, onChange }: { title: string; hint: string; side: SiteCompareSide; onChange: (s: SiteCompareSide) => void }) {
+  const setItem = (i: number, patch: Partial<SiteCompareSide['items'][number]>) => onChange({ ...s, items: s.items.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  return (
+    <div className="space-y-2 rounded-lg bg-slate-50 p-3 dark:bg-slate-950">
+      <p className="text-xs font-semibold text-slate-500">
+        {title} <span className="font-normal">· {hint}</span>
+      </p>
+      <Input placeholder="Label, e.g. Today: rented & scattered" maxLength={80} value={s.label ?? ''} onChange={(e) => onChange({ ...s, label: e.target.value })} />
+      <Input placeholder="Bar across the top (optional), e.g. Your core business app + AI" maxLength={120} value={s.core ?? ''} onChange={(e) => onChange({ ...s, core: e.target.value })} />
+      {s.items.map((c, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input placeholder="Chip, e.g. CRM" maxLength={60} value={c.label} onChange={(e) => setItem(i, { label: e.target.value })} />
+          <Input placeholder="Note, e.g. per seat" className="w-36" maxLength={40} value={c.note ?? ''} onChange={(e) => setItem(i, { note: e.target.value })} />
+          <ListControls index={i} count={s.items.length} noun="chip" onMove={(by) => onChange({ ...s, items: moved(s.items, i, by) })} onRemove={() => onChange({ ...s, items: s.items.filter((_, j) => j !== i) })} />
+        </div>
+      ))}
+      {s.items.length < 16 && (
+        <Button type="button" size="sm" variant="secondary" onClick={() => onChange({ ...s, items: [...s.items, { label: '' }] })}>
+          + Chip
+        </Button>
+      )}
+    </div>
   );
 }
 

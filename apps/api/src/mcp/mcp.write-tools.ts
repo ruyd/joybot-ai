@@ -367,13 +367,14 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
   tool(
     'update_site_setup',
     'Update website setup',
-    'Changes how the public site looks and its header: site_name (the name shown; null for the business name), tagline under the name, logo (an uploaded image id), accent and accent_to colors (#rrggbb; buttons are a gradient between them, white text goes on accent), heading_font and body_font (names from get_site_setup), header_links (label + url such as "/#services"; replaces the list), the header button (label and url together; null removes it) and show_customer_login.',
+    'Changes how the public site looks and its header: site_name (the name shown; null for the business name), tagline under the name, logo (an uploaded image id), accent and accent_to colors (#rrggbb; buttons are a gradient between them, white text goes on accent), highlight_color (a second brand color for highlighted cards and the hero glow; null for accent_to), heading_font and body_font (names from get_site_setup), header_links (label + url such as "/#services"; replaces the list), the header button (label and url together; null removes it) and show_customer_login.',
     {
       site_name: z.string().max(80).nullable().optional(),
       tagline: z.string().max(60).nullable().optional(),
       logo_asset_id: uuid.nullable().optional(),
       accent: z.string().optional(),
       accent_to: z.string().optional(),
+      highlight_color: z.string().nullable().optional(),
       heading_font: z.string().optional(),
       body_font: z.string().optional(),
       header_links: z.array(z.object({ label: z.string(), url: z.string() })).max(8).optional(),
@@ -405,10 +406,10 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
 /** What the module types hold, for the tools that take modules (the schema has the details). */
 const MODULES_HELP = [
   'Modules are the page’s sections, top to bottom; each needs an id unique on the page (letters, numbers, - and _).',
-  'Every module may have: anchor (makes it reachable at /page#anchor), background (default, alt, dark, accent), eyebrow (a small label above the heading), heading, intro (Markdown).',
-  'Types: hero (heading with heading_accent words to highlight, text, up to 2 buttons {label, url}: the first filled, the second outlined);',
-  'cards (items: icon, eyebrow, heading, Markdown text with lists for bullets, link_label + link_url; variant cards, numbered for steps or compact; columns 2-4; up to 12 items; optional buttons);',
-  'faq (items: question, Markdown answer); cta (heading, text, buttons; looks best on background accent or dark);',
+  'Every module may have: anchor (makes it reachable at /page#anchor), background (default, alt, dark, accent), eyebrow (a small label above the heading), eyebrow_style (text, or badge: a rounded label in the highlight color), heading, heading_accent (words of the heading to highlight, e.g. "on demand"), align (center or left), intro (Markdown).',
+  'Types: hero (heading, badge (a short rounded label before the eyebrow, e.g. "Open source"), text, up to 2 buttons {label, url, style?}: by default the first filled and the second outlined, or style primary, secondary or highlight);',
+  'cards (items: icon, highlight (true: in the highlight color), eyebrow, heading, Markdown text with lists for bullets and --- for a divider, link_label + link_url; variant cards, large (heading-font headings, arrow bullets, button links), numbered for steps or compact; icon_position top or side; icon_color accent or highlight; buttons_position below or header (beside a left-aligned heading); columns 2-4; up to 12 items; optional buttons);',
+  'faq (items: question, Markdown answer); compare (before and after, each {label, core (a bar across the top, optional), items: [{label, note}]}: chips in a dashed box, an arrow, then chips in the highlight color); cta (heading, text, buttons; looks best on background accent or dark);',
   'columns (1-4 columns of heading, Markdown text, image, link); html (sanitized: no scripts, styles or classes); image (image_id from upload_site_image, alt, caption, size); video (YouTube or Vimeo url).',
   'Links start with https://, /, mailto:, tel: or #. Icons and fonts: see get_site_setup.',
 ].join(' ');

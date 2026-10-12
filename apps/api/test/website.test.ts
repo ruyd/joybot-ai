@@ -171,7 +171,7 @@ describe('website: sections and setup', () => {
   it('takes hero, cards, faq and cta modules with section options, and checks them', async () => {
     const page = (await admin().post('/api/website/pages', { slug: 'sections-test', title: 'Sections', published: true }).expect(201)).body as Page;
     const put = (modules: unknown[]) => admin().put(`/api/website/pages/${page.id}`, { modules });
-    const hero = { id: 'hero', type: 'hero', eyebrow: 'Open source', heading: 'Embrace the AI revolution', heading_accent: 'AI revolution', buttons: [{ label: 'Book a call', url: 'mailto:hello@example.com' }, { label: 'Choose your path', url: '#paths' }] };
+    const hero = { id: 'hero', type: 'hero', badge: 'Open source', eyebrow: 'Meet JoyBot AI', heading: 'Embrace the AI revolution', heading_accent: 'AI revolution', buttons: [{ label: 'Book a call', url: 'mailto:hello@example.com' }, { label: 'Choose your path', url: '#paths' }] };
     const cards = {
       id: 'paths',
       type: 'cards',
@@ -179,8 +179,10 @@ describe('website: sections and setup', () => {
       background: 'alt',
       eyebrow: 'Two ways',
       heading: 'Build or quickstart',
+      heading_accent: 'quickstart',
       intro: 'Either way you **own** it.',
       columns: 2,
+      icon_position: 'side',
       items: [
         { icon: 'rocket', eyebrow: 'Path 1', heading: 'Custom build', text: '- Tailored\n- Integrated', link_label: 'Plan it', link_url: '/contact' },
         { icon: 'sparkles', heading: 'Quickstart', text: 'Start fast' },
@@ -191,7 +193,8 @@ describe('website: sections and setup', () => {
 
     const saved = (await put([hero, cards, faq, cta]).expect(200)).body as Page;
     expect(saved.modules.map((m) => m.type)).toEqual(['hero', 'cards', 'faq', 'cta']);
-    expect(saved.modules[1]).toMatchObject({ variant: 'cards', columns: 2, anchor: 'paths', background: 'alt' });
+    expect(saved.modules[0]).toMatchObject({ badge: 'Open source' });
+    expect(saved.modules[1]).toMatchObject({ variant: 'cards', icon_position: 'side', columns: 2, anchor: 'paths', background: 'alt', heading_accent: 'quickstart' });
     expect((await visitor().get('/api/site/pages/sections-test').expect(200)).body.modules[0]).toMatchObject({ heading_accent: 'AI revolution' });
 
     await put([{ ...hero, heading: '' }]).expect(400); // a hero needs a headline
@@ -205,6 +208,43 @@ describe('website: sections and setup', () => {
     await put([{ ...cta, heading: undefined }]).expect(400);
     await put([cards, { ...faq, anchor: 'paths' }]).expect(400); // anchors are unique on a page
     await put([{ ...hero, background: 'neon' }]).expect(400);
+    await put([{ ...cards, heading_accent: 'x'.repeat(81) }]).expect(400);
+    await put([{ ...cards, icon_position: 'left' }]).expect(400);
+    // Large cards with a highlighted one, under a left-aligned heading.
+    const large = { ...cards, id: 'large', anchor: 'large', variant: 'large', align: 'left', items: [{ heading: 'Path 1' }, { heading: 'Path 2', highlight: true, text: '- one\n\n---\n\n**Best for:** you' }] };
+    expect(((await put([large]).expect(200)).body as Page).modules[0]).toMatchObject({ variant: 'large', align: 'left', items: [{ heading: 'Path 1' }, { highlight: true }] });
+    await put([{ ...large, align: 'right' }]).expect(400);
+    await put([{ ...large, variant: 'huge' }]).expect(400);
+    // Badge label, buttons beside the heading, button styles, highlight-color icons.
+    const quick = {
+      ...cards,
+      id: 'joybot',
+      anchor: 'joybot',
+      align: 'left',
+      eyebrow: '★ Open source',
+      eyebrow_style: 'badge',
+      icon_color: 'highlight',
+      buttons_position: 'header',
+      buttons: [{ label: 'View on GitHub', url: 'https://github.com/ruyd/joybot-ai', style: 'secondary' }, { label: 'Get JoyBot', url: 'mailto:hello@example.com', style: 'highlight' }],
+    };
+    expect(((await put([quick]).expect(200)).body as Page).modules[0]).toMatchObject({ eyebrow_style: 'badge', icon_color: 'highlight', buttons_position: 'header', buttons: [{ style: 'secondary' }, { style: 'highlight' }] });
+    await put([{ ...quick, eyebrow_style: 'pill' }]).expect(400);
+    await put([{ ...quick, buttons: [{ label: 'x', url: '/x', style: 'ghost' }] }]).expect(400);
+    await put([{ ...quick, buttons_position: 'top' }]).expect(400);
+    // Before and after.
+    const compare = {
+      id: 'vision',
+      type: 'compare',
+      background: 'dark',
+      before: { label: 'Today', items: [{ label: 'CRM', note: 'per seat' }] },
+      after: { label: 'With us', core: 'Your core app + AI', items: [{ label: 'Customers' }] },
+    };
+    expect(((await put([compare]).expect(200)).body as Page).modules[0]).toMatchObject({ type: 'compare', after: { core: 'Your core app + AI' } });
+    await put([{ ...compare, before: { items: [{ label: '' }] } }]).expect(400); // a chip needs a name
+    await put([{ ...compare, after: { items: Array.from({ length: 17 }, () => ({ label: 'x' })) } }]).expect(400);
+    await put([{ ...compare, before: { items: [], extra: 1 } }]).expect(400);
+    await put([{ ...hero, badge: 'x'.repeat(41) }]).expect(400);
+    await put([{ ...cta, heading_accent: 'your software' }]).expect(200); // kept even when not in the heading (it just isn't shown)
     // Section options on the original module types too.
     await put([{ id: 'h', type: 'html', anchor: 'about', eyebrow: 'Who we are', heading: 'About', html: '<p>Hi</p>' }]).expect(200);
   });
@@ -217,7 +257,7 @@ describe('website: sections and setup', () => {
 
   it('keeps the site setup: look and header, for editors to change and anyone to read', async () => {
     const before = (await admin().get('/api/website/settings').expect(200)).body;
-    expect(before).toMatchObject({ site_name: null, business_name: 'JoyBot Test', accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
+    expect(before).toMatchObject({ highlight_color: null, site_name: null, business_name: 'JoyBot Test', accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
 
     const logo = (
       await request(app.getHttpServer()).post('/api/website/assets?filename=logo.png').set('x-dev-principal', `employee:${U.ada}`).set('content-type', 'image/png').send(PNG).expect(201)
@@ -229,6 +269,7 @@ describe('website: sections and setup', () => {
           logo_asset_id: logo.id,
           accent: '#6D5DFC',
           accent_to: '#a855f7',
+          highlight_color: '#FF7A45',
           heading_font: 'instrument-serif',
           body_font: 'inter',
           header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }],
@@ -238,7 +279,7 @@ describe('website: sections and setup', () => {
         })
         .expect(200)
     ).body;
-    expect(saved).toMatchObject({ accent: '#6d5dfc', heading_font: 'instrument-serif', updated_by_name: 'Ada Admin' });
+    expect(saved).toMatchObject({ highlight_color: '#ff7a45', accent: '#6d5dfc', heading_font: 'instrument-serif', updated_by_name: 'Ada Admin' });
 
     const site = (await visitor().get('/api/site').expect(200)).body;
     expect(site.settings).toMatchObject({ tagline: 'Software Development', logo_asset_id: logo.id, accent: '#6d5dfc', show_customer_login: false, header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }] });
@@ -253,6 +294,9 @@ describe('website: sections and setup', () => {
     expect((await visitor().get('/api/site').expect(200)).body.name).toBe('JoyBot Test');
 
     await admin().put('/api/website/settings', { accent: 'purple' }).expect(400);
+    await admin().put('/api/website/settings', { highlight_color: 'orange' }).expect(400);
+    expect((await admin().put('/api/website/settings', { highlight_color: '' }).expect(200)).body.highlight_color).toBeNull(); // back to the gradient color
+    await admin().put('/api/website/settings', { highlight_color: '#ff7a45' }).expect(200);
     await admin().put('/api/website/settings', { heading_font: 'comic-sans' }).expect(400);
     await admin().put('/api/website/settings', { header_links: [{ label: 'x', url: 'javascript:alert(1)' }] }).expect(400);
     await admin().put('/api/website/settings', { header_button_url: null }).expect(400); // the label is still set

@@ -33,6 +33,7 @@ const fields = (s: SettingsDoc): SiteSettings => ({
   logo_asset_id: s.logo_asset_id,
   accent: s.accent,
   accent_to: s.accent_to,
+  highlight_color: s.highlight_color,
   heading_font: s.heading_font,
   body_font: s.body_font,
   header_links: s.header_links,
@@ -105,6 +106,15 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
             <div className="grid gap-3 sm:grid-cols-2">
               <ColorField label="Accent color" hint={readable < 4.5 ? `White text on it is hard to read (${readable.toFixed(1)}:1; aim for 4.5:1). Try a darker shade.` : 'Links, buttons and highlights.'} value={form.accent} onChange={(accent) => set({ accent })} />
               <ColorField label="Gradient to" hint="Buttons and the accent background fade from the accent to this." value={form.accent_to} onChange={(accent_to) => set({ accent_to })} />
+              <div className="sm:col-span-2">
+                <ColorField
+                  label="Highlight color"
+                  hint="A second brand color for highlighted cards and the hero glow. Off: the gradient color."
+                  value={form.highlight_color ?? form.accent_to}
+                  onChange={(highlight_color) => set({ highlight_color })}
+                  onClear={form.highlight_color ? () => set({ highlight_color: null }) : undefined}
+                />
+              </div>
               <FontField label="Heading font" value={form.heading_font} onChange={(heading_font) => set({ heading_font })} />
               <FontField label="Body font" value={form.body_font} onChange={(body_font) => set({ body_font })} body />
             </div>
@@ -184,8 +194,8 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
             <SiteModules
               modules={[
                 { id: 'p-hero', type: 'hero', eyebrow: 'A short label', heading: 'A headline with highlighted words', heading_accent: 'highlighted words', text: 'Body text in the body font, with a [link](#).', buttons: [{ label: 'Primary', url: '#' }, { label: 'Secondary', url: '#' }] },
-                { id: 'p-cards', type: 'cards', background: 'alt', variant: 'cards', columns: 3, eyebrow: 'Section label', heading: 'A section heading', items: [{ icon: 'sparkles', heading: 'A card', text: '- With a point\n- And another' }, { icon: 'calendar', heading: 'Another card', text: 'Short text.' }, { icon: 'shield-check', heading: 'A third', text: 'Short text.' }] },
-                { id: 'p-cta', type: 'cta', heading: 'A call to action', buttons: [{ label: 'Get started', url: '#' }] },
+                { id: 'p-cards', type: 'cards', background: 'alt', variant: 'cards', columns: 3, eyebrow: 'Section label', heading: 'A section heading', heading_accent: 'heading', items: [{ icon: 'sparkles', heading: 'A card', text: '- With a point\n- And another' }, { icon: 'star', highlight: true, heading: 'A highlighted card', text: '- In the highlight color' }, { icon: 'calendar', heading: 'Another card', text: 'Short text.' }] },
+                { id: 'p-cta', type: 'cta', heading: 'A call to action', heading_accent: 'action', buttons: [{ label: 'Get started', url: '#' }] },
               ]}
             />
           </SiteTheme>
@@ -210,7 +220,7 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
   );
 }
 
-function ColorField({ label, hint, value, onChange }: { label: string; hint: string; value: string; onChange: (v: string) => void }) {
+function ColorField({ label, hint, value, onChange, onClear }: { label: string; hint: string; value: string; onChange: (v: string) => void; onClear?: () => void }) {
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
@@ -226,6 +236,11 @@ function ColorField({ label, hint, value, onChange }: { label: string; hint: str
             if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) onChange(e.target.value.toLowerCase());
           }}
         />
+        {onClear && (
+          <Button type="button" size="sm" variant="ghost" onClick={onClear}>
+            Use the gradient color
+          </Button>
+        )}
       </span>
     </Field>
   );

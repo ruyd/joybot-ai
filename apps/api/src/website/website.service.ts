@@ -12,7 +12,7 @@ const LIST_COLUMNS = `p.id, p.slug, p.title, p.description, p.is_home, p.publish
   (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.users u WHERE u.id = p.updated_by) AS updated_by_name`;
 
 /** Site setup columns, as editors and the public site get them. */
-export const SETTINGS_COLUMNS = `site_name, tagline, logo_asset_id, accent, accent_to, heading_font, body_font, header_links,
+export const SETTINGS_COLUMNS = `site_name, tagline, logo_asset_id, accent, accent_to, highlight_color, heading_font, body_font, header_links,
   header_button_label, header_button_url, show_customer_login`;
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;

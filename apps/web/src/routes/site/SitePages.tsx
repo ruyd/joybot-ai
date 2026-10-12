@@ -35,6 +35,9 @@ export function SiteLayout() {
   const navClass = ({ isActive }: { isActive: boolean }) =>
     `rounded-full px-3 py-1.5 text-sm font-medium ${isActive ? 'text-brand-700 dark:text-brand-600' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300 dark:hover:text-brand-600'}`;
   const linkClass = navClass({ isActive: false });
+  // Wait for the site setup so the page never shows in the default colors first.
+  if (site.isLoading) return <div className="min-h-dvh" />;
+
   const nav = (
     <>
       {header.map((p) => (

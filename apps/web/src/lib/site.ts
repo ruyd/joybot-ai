@@ -9,9 +9,15 @@ export interface SiteSection {
   /** "services" makes the section reachable at /page#services. */
   anchor?: string;
   background?: SiteBackground;
+  /** Where the label, heading and intro sit; centered by default. */
+  align?: 'center' | 'left';
   /** A small label above the heading. */
   eyebrow?: string;
+  /** Small capitals, or a rounded label in the highlight color. */
+  eyebrow_style?: 'text' | 'badge';
   heading?: string;
+  /** Words of the heading to highlight; ignored when not in the heading. */
+  heading_accent?: string;
   /** Markdown. */
   intro?: string;
 }
@@ -21,6 +27,8 @@ export type SiteBackground = 'default' | 'alt' | 'dark' | 'accent';
 export interface SiteButton {
   label: string;
   url: string;
+  /** Overrides the default (first filled, second outlined). */
+  style?: 'primary' | 'secondary' | 'highlight';
 }
 
 /** A page's building blocks (validated by the API: website.schemas.ts). */
@@ -30,11 +38,20 @@ export type SiteModule = SiteSection &
     | { type: 'html'; html: string }
     | { type: 'image'; image_id: string; alt: string; caption?: string; size: 'small' | 'medium' | 'full'; link_url?: string }
     | { type: 'video'; url: string; caption?: string }
-    | { type: 'hero'; heading: string; heading_accent?: string; text?: string; buttons?: SiteButton[]; image_id?: string | null; image_alt?: string }
-    | { type: 'cards'; variant: 'cards' | 'numbered' | 'compact'; columns: 2 | 3 | 4; items: SiteCard[]; buttons?: SiteButton[] }
+    | { type: 'hero'; heading: string; badge?: string; text?: string; buttons?: SiteButton[]; image_id?: string | null; image_alt?: string }
+    | { type: 'cards'; variant: 'cards' | 'large' | 'numbered' | 'compact'; icon_position?: 'top' | 'side'; icon_color?: 'accent' | 'highlight'; buttons_position?: 'below' | 'header'; columns: 2 | 3 | 4; items: SiteCard[]; buttons?: SiteButton[] }
     | { type: 'faq'; items: { question: string; answer: string }[] }
     | { type: 'cta'; heading: string; text?: string; buttons?: SiteButton[] }
+    | { type: 'compare'; before: SiteCompareSide; after: SiteCompareSide }
   );
+
+/** One side of a before-and-after comparison. */
+export interface SiteCompareSide {
+  label?: string;
+  /** A solid bar above the chips. */
+  core?: string;
+  items: { label: string; note?: string }[];
+}
 export type SiteModuleOf<T extends SiteModule['type']> = Extract<SiteModule, { type: T }>;
 
 export interface SiteColumn {
@@ -49,6 +66,8 @@ export interface SiteColumn {
 
 export interface SiteCard extends SiteColumn {
   icon?: SiteIconName | null;
+  /** Drawn in the site's highlight color. */
+  highlight?: boolean;
   eyebrow?: string;
 }
 
@@ -60,6 +79,8 @@ export interface SiteSettings {
   logo_asset_id: string | null;
   accent: string;
   accent_to: string;
+  /** Highlighted cards and the hero glow; null means accent_to. */
+  highlight_color: string | null;
   heading_font: SiteFontName;
   body_font: SiteFontName;
   header_links: { label: string; url: string }[];
@@ -75,6 +96,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   logo_asset_id: null,
   accent: '#0878ab',
   accent_to: '#34868f',
+  highlight_color: null,
   heading_font: 'system',
   body_font: 'system',
   header_links: [],
@@ -105,6 +127,7 @@ export const MODULE_LABEL: Record<SiteModule['type'], string> = {
   image: 'Image',
   video: 'Video',
   faq: 'FAQ',
+  compare: 'Before and after',
   cta: 'Call to action',
 };
 

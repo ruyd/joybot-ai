@@ -8,7 +8,7 @@ import { ApiError, useApi } from '../../lib/api';
 import { dateTime } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import { MODULE_LABEL, pagePath, videoEmbed, type SiteColumn, type SiteModule } from '../../lib/site';
-import { CardsEditor, CtaEditor, FaqEditor, HeroEditor, IconButton, ImagePicker, SectionOptions } from './WebsiteEditors';
+import { CardsEditor, CompareEditor, CtaEditor, FaqEditor, HeroEditor, IconButton, ImagePicker, SectionOptions } from './WebsiteEditors';
 import { SiteSetup, useSiteSettings } from './WebsiteSetup';
 
 interface PageRow {
@@ -70,6 +70,8 @@ function blankModule(type: SiteModule['type']): SiteModule {
       return { id, type, items: [{ question: '', answer: '' }] };
     case 'cta':
       return { id, type, heading: '', buttons: [] };
+    case 'compare':
+      return { id, type, before: { label: 'Before', items: [{ label: '' }] }, after: { label: 'After', items: [{ label: '' }] } };
   }
 }
 
@@ -503,6 +505,7 @@ function ModuleCard({
         {m.type === 'cards' && <CardsEditor module={m} onChange={onChange} />}
         {m.type === 'faq' && <FaqEditor module={m} onChange={onChange} />}
         {m.type === 'cta' && <CtaEditor module={m} onChange={onChange} />}
+        {m.type === 'compare' && <CompareEditor module={m} onChange={onChange} />}
         {m.type === 'columns' && <ColumnsEditor module={m} onChange={onChange} />}
         {m.type === 'html' && (
           <Field label="HTML" hint="Headings, paragraphs, lists, links, images and tables. Scripts, styles, forms and embeds are removed when you save.">
