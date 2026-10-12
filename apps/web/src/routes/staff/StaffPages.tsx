@@ -1,8 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Pager, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
 import { date, dateTime, fullName, METHOD_LABEL, money } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -15,12 +15,45 @@ import { AssignmentsCard, GrantsCard } from './AccessPages';
 
 // Customers ----------------------------------------------------------------------------------
 
+const PAGE_SIZES = [10, 25, 50, 100];
+
+/** Customers: everyone the employee can see, a page at a time with the total; search by name, email, phone or number. */
 export function Customers() {
   const api = useApi();
-  const [params] = useSearchParams();
-  const [q, setQ] = useState(params.get('q') ?? '');
-  const [term, setTerm] = useState(params.get('q') ?? '');
-  const query = useQuery({ queryKey: ['customers', term], queryFn: () => api.get<Customer[]>(`/customers?q=${encodeURIComponent(term)}`) });
+  const [params, setParams] = useSearchParams();
+  const term = params.get('q') ?? '';
+  const limit = PAGE_SIZES.includes(Number(params.get('size'))) ? Number(params.get('size')) : 25;
+  const page = Math.max(1, Math.floor(Number(params.get('page')) || 1));
+  const offset = (page - 1) * limit;
+  const [q, setQ] = useState(term);
+  // Search, page and page size live in the address (back and reload keep them); only non-defaults are written.
+  // Typing replaces the history entry; turning pages and changing the size add one.
+  const update = (next: { q?: string; page?: number; size?: number }, replace = false) => {
+    const v = { q: term, page, size: limit, ...next };
+    const out: Record<string, string> = {};
+    if (v.q) out.q = v.q;
+    if (v.page > 1) out.page = String(v.page);
+    if (v.size !== 25) out.size = String(v.size);
+    setParams(out, { replace });
+  };
+  // Search as you type from 2 characters (100 ms after the last key); clearing the box shows everyone.
+  // Enter searches right away, whatever the length.
+  useEffect(() => {
+    const t = q.trim();
+    if (t === term || (t.length > 0 && t.length < 2)) return;
+    const timer = setTimeout(() => update({ q: t, page: 1 }, true), 100);
+    return () => clearTimeout(timer);
+  }, [q]); // only typing starts a search
+  // Back and forward: the box follows the address.
+  useEffect(() => setQ((current) => (current.trim() === term ? current : term)), [term]);
+  const query = useQuery({
+    queryKey: ['customers', 'list', term, limit, offset],
+    queryFn: () => api.get<{ items: Customer[]; total: number }>(`/customers/list?${new URLSearchParams({ ...(term ? { q: term } : {}), limit: String(limit), offset: String(offset) })}`),
+    placeholderData: keepPreviousData,
+  });
+  const items = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+
   return (
     <Page>
       <PageHeader title="Customers" description="Only customers you have access to are shown." />
@@ -28,35 +61,66 @@ export function Customers() {
         className="mb-4 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          setTerm(q.trim());
+          update({ q: q.trim(), page: 1 }, true);
         }}
       >
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name, email, phone or customer number" aria-label="Search customers" />
-        <Button type="submit">Search</Button>
+        <Input
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search by name, email, phone or customer number"
+          aria-label="Search customers"
+        />
+        {term && (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setQ('');
+              update({ q: '', page: 1 }, true);
+            }}
+          >
+            Clear
+          </Button>
+        )}
       </form>
       <Card>
         {query.isLoading ? (
           <Spinner />
         ) : query.error ? (
           <ErrorBanner error={query.error} />
-        ) : !query.data?.length ? (
-          <EmptyState>No customers found.</EmptyState>
+        ) : !items.length ? (
+          <EmptyState>{term ? `No customers match “${term}”.` : 'No customers found.'}</EmptyState>
         ) : (
-          <Table head={['Customer', 'Number', 'Contact', 'Status']}>
-            {query.data.map((c) => (
-              <tr key={c.id}>
-                <Td>
-                  <Link to={`/staff/customers/${c.id}`} className="font-medium text-brand-600 hover:underline">
-                    {fullName(c)}
-                  </Link>
-                  {c.restricted && <span className="ml-2"><Badge tone="red">restricted</Badge></span>}
-                </Td>
-                <Td>{c.customer_number}</Td>
-                <Td className="text-slate-500">{[c.email, c.phone].filter(Boolean).join(' · ')}</Td>
-                <Td><StatusBadge status={c.status} /></Td>
-              </tr>
-            ))}
-          </Table>
+          <div className={query.isPlaceholderData ? 'opacity-60 transition-opacity' : undefined}>
+            <Table head={['Customer', 'Number', 'Contact', 'Status']}>
+              {items.map((c) => (
+                <tr key={c.id} className="transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                  <Td>
+                    <Link to={`/staff/customers/${c.id}`} className="font-medium text-brand-600 hover:underline">
+                      {fullName(c)}
+                    </Link>
+                    {c.restricted && <span className="ml-2"><Badge tone="red">restricted</Badge></span>}
+                  </Td>
+                  <Td>{c.customer_number}</Td>
+                  <Td className="text-slate-500">{[c.email, c.phone].filter(Boolean).join(' · ')}</Td>
+                  <Td><StatusBadge status={c.status} /></Td>
+                </tr>
+              ))}
+            </Table>
+          </div>
+        )}
+        {query.data && (total > 0 || offset > 0) && (
+          <Pager
+            total={total}
+            offset={offset}
+            limit={limit}
+            sizes={PAGE_SIZES}
+            busy={query.isFetching}
+            label={total === 1 ? 'customer' : 'customers'}
+            onOffset={(o) => update({ page: Math.floor(o / limit) + 1 })}
+            onLimit={(size) => update({ size, page: 1 })}
+          />
         )}
       </Card>
     </Page>
