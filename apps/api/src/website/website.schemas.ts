@@ -270,6 +270,8 @@ const optional = (max: number) =>
 /** Site setup: how the public site looks and what its header holds. */
 export const siteSettingsSchema = z
   .object({
+    /** The name the site shows; null means the business name. */
+    site_name: optional(80),
     tagline: optional(60),
     logo_asset_id: z.string().uuid().nullable(),
     accent: color,

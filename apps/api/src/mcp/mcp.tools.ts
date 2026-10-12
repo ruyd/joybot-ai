@@ -246,7 +246,7 @@ export function registerTools(server: McpServer, ctx: ToolContext) {
   tool(
     'get_site_setup',
     'Website setup',
-    'How the public site looks and what its header holds (tagline, logo, accent colors, fonts, header links and button), plus the fonts and card icons that can be used and the uploaded images (ids for image fields).',
+    'How the public site looks and what its header holds (site name, tagline, logo, accent colors, fonts, header links and button), plus the fonts and card icons that can be used and the uploaded images (ids for image fields).',
     {},
     async () => ({ settings: await ctx.website.getSettings(p), fonts: SITE_FONTS, icons: SITE_ICONS, images: await ctx.website.listAssets(p) }),
   );
