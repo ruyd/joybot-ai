@@ -6,7 +6,7 @@ JoyBot AI is a chatbot for customers and employees. Its own Postgres database is
 
 ```bash
 pnpm db:up && pnpm db:reset   # Postgres 16 on :5433 (docker compose), migrate + seed
-pnpm test                     # all packages, one after another; API test files run in parallel, each on a fresh copy of a seeded template database
+pnpm test                     # all packages, one after another, each on its own test databases (never the dev database in .env)
 pnpm typecheck                # builds packages/* first, then tsc everywhere
 pnpm lint:cfn                 # cfn-lint + cloudformation/scripts/check_nested.py
 pnpm dev                      # db:up + package build + every dev:* script in parallel (api, worker, web, ollama)
@@ -75,7 +75,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **Setup:** Vitest. The API uses a TypeScript-transpile plugin for decorator metadata, because SWC's native binary fails macOS code-signing.
 - **API tests:**
   - `test/app.ts` provides `createApp({ env, overrides })` and `api(app, employee(id) | customer(id))`.
-  - `test/global-setup.ts` builds `<db>_test_template` (migrated, seeded) once per run; `test/reset-db.ts` copies it into the worker's own `<db>_test_<n>` before each file (`CREATE DATABASE … TEMPLATE`) and points the `*_DATABASE_URL`s there, so files run in parallel and the development database is never touched. Cluster-level state (roles) is shared: tests must not change it.
+  - `test/global-setup.ts` builds `<db>_test_template` (migrated, seeded) once per run; `test/reset-db.ts` copies it into the worker's own `<db>_test_<n>` before each file (`CREATE DATABASE … TEMPLATE`) and points the `*_DATABASE_URL`s there, so files run in parallel. The `db` and `worker` packages use one seeded database each (`<db>_test_db`, `<db>_test_worker`, see their `test/database.ts`). Helpers are in `packages/db/src/testing.ts`. The development database is never touched. Cluster-level state (roles) is shared: tests must not change it.
   - Tests must pass with `--sequence.shuffle.files`. If a test changes shared settings, restore them in `afterAll`.
 - **Chat changes:** add or adjust cases in `apps/api/eval/cases.ts`. Every case also runs through the access oracle in `eval/score.ts`, which lists who may see which sample customers. Update it when the seed changes. Never loosen it to make a case pass.
 - **Access tests:** test the access matrix (allowed and denied) for any new data path, using the sample principals in `SAMPLE`.
