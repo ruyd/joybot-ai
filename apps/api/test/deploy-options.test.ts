@@ -62,6 +62,9 @@ describe('CORS_ORIGINS', () => {
     expect(() => loadConfig({ ...base, CORS_ORIGINS: 'https://appjoy.dev/app' })).toThrow(/origins only/);
     expect(() => loadConfig({ ...base, CORS_ORIGINS: 'appjoy.dev' })).toThrow();
     expect(loadConfig({ ...base, CORS_ORIGINS: '' }).CORS_ORIGINS).toBeUndefined();
+    // .env.example leaves the free-tier settings empty (CI copies it): empty means unset.
+    const empty = loadConfig({ ...base, MESSAGING_MODE: '', DB_SSL_CA: '', DB_SSL_CA_FILE: '', SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', SUPABASE_JWT_SECRET: '' });
+    expect([empty.MESSAGING_MODE, empty.DB_SSL_CA, empty.SUPABASE_URL]).toEqual([undefined, undefined, undefined]);
   });
 });
 

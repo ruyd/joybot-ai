@@ -81,7 +81,7 @@ const schema = z
      * every email, verification codes included, through Resend (Admin › Email) and has no WhatsApp
      * (hosts without AWS). Defaults to 'log' with AUTH_MODE=dev, else 'live'.
      */
-    MESSAGING_MODE: z.enum(['log', 'live', 'resend']).optional(),
+    MESSAGING_MODE: optional(z.enum(['log', 'live', 'resend'])),
     SES_FROM_ADDRESS: optional(z.string().email()),
     SES_CONFIGURATION_SET: optional(z.string()),
     /**
