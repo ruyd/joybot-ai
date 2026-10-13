@@ -4,8 +4,13 @@ import { z } from 'zod';
 import type { Principal } from '../auth/principal';
 import { APP_POOL, DbService } from '../db/db.module';
 import { MessagingService } from '../messaging/messaging.service';
+import { VideoService } from '../video/video.service';
 import { googleCalendarLink, ics, outlookCalendarLink, type CalendarEvent } from '../email/calendar';
 import { assertKnownFields, render, type Fields, type Preview, type TemplateCreate, type TemplateUpdate, type ThankYou } from '../email/templates';
+
+/** How sales calls are handled (also checked in SQL). */
+export const CALL_METHODS = ['video', 'phone'] as const;
+export type CallMethod = (typeof CALL_METHODS)[number];
 
 /** The lengths a sales call can have (also checked in SQL). */
 export const SALES_CALL_DURATIONS = [15, 20, 30, 45, 60, 90] as const;
@@ -29,6 +34,13 @@ export const bookSalesCallSchema = z
     /** The visitor's time zone (IANA), for the confirmation. */
     time_zone: z.string().max(64).optional(),
     notes: z.string().trim().max(2000).optional(),
+    /** A number to call back on (required while calls are callbacks; also checked in SQL). */
+    phone: z
+      .string()
+      .trim()
+      .regex(/^\+?[0-9][0-9 ().-]{5,30}$/, 'Enter a phone number, e.g. +1 555 123 4567')
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
   })
   .strict();
 
@@ -42,13 +54,8 @@ export const salesCallSettingsSchema = z
       .nullable()
       .transform((v) => v || null),
     duration_minutes: z.number().int().refine((d) => (SALES_CALL_DURATIONS as readonly number[]).includes(d), `Choose ${SALES_CALL_DURATIONS.join(', ')} minutes`),
-    meeting_url: z
-      .string()
-      .trim()
-      .max(500)
-      .regex(/^https:\/\/\S+$/, 'Use an https:// link')
-      .nullable()
-      .or(z.literal('').transform(() => null)),
+    /** How calls are handled: video meetings (once meeting links are set up, else callbacks) or a callback number. */
+    call_method: z.enum(CALL_METHODS),
     /** General availability: weekly intervals in the business time zone (weekday 0 = Sunday), replacing the current ones. */
     hours: z
       .array(
@@ -129,6 +136,10 @@ export interface SalesCall {
   outcome_notes: string | null;
   outcome_at: string | null;
   thank_you_sent_at: string | null;
+  /** The call's own Meet link (Setup meeting links), when it has one. */
+  meeting_url: string | null;
+  /** The number to call the visitor back on (callbacks). */
+  phone: string | null;
 }
 
 /** What the booking page shows. */
@@ -136,14 +147,15 @@ export interface SalesCallEvent {
   title: string;
   description: string | null;
   duration_minutes: number;
-  has_meeting_url: boolean;
+  /** In effect: video (a Meet link by email) or phone (the visitor leaves a number). */
+  call_method: CallMethod;
 }
 
 // Sales calls are appointments of the 'sales_call' type, read under RLS with the visitor's details.
 const SALES = `(SELECT a.id, a.appointment_number, a.contact_name AS name, a.contact_email::text AS email,
     a.scheduled_start AS starts_at, a.scheduled_end AS ends_at, a.contact_time_zone AS time_zone, a.notes_customer AS notes,
     a.status, a.created_at, a.employee_id AS assigned_to,
-    a.outcome, a.outcome_notes, a.outcome_at, a.thank_you_sent_at
+    a.outcome, a.outcome_notes, a.outcome_at, a.thank_you_sent_at, a.meeting_url, a.contact_phone AS phone
   FROM core.appointments a JOIN core.appointment_types t ON t.id = a.type_id AND t.key = 'sales_call') c`;
 // The host's name through core.v_staff_public (null once they are inactive).
 const COLUMNS = `c.*, (SELECT nullif(concat_ws(' ', s.first_name, s.last_name), '') FROM core.v_staff_public s WHERE s.id = c.assigned_to) AS assigned_to_name`;
@@ -161,9 +173,12 @@ interface CallFacts {
   meeting_url: string | null;
   site_name: string | null;
   host_name: string | null;
+  phone: string | null;
 }
 
-const SETTINGS_COLUMNS = 'title, description, duration_minutes, meeting_url, email_admins, updated_at';
+// meet_ready: video meetings are possible (a Google account is connected), else calls are callbacks.
+const SETTINGS_COLUMNS = `title, description, duration_minutes, call_method, email_admins, updated_at,
+  coalesce((SELECT v.google_connected_at IS NOT NULL FROM core.video_settings v WHERE v.id = 1), false) AS meet_ready`;
 
 /**
  * Sales calls booked from the public site (/book-a-call). Visitors have no principal: they see the
@@ -178,6 +193,7 @@ export class SalesCallsService {
     @Inject(APP_POOL) private readonly pool: Pool,
     private readonly db: DbService,
     private readonly messaging: MessagingService,
+    private readonly video: VideoService,
   ) {}
 
   /** The event and its open start times in a range. */
@@ -193,20 +209,32 @@ export class SalesCallsService {
     let id: string;
     try {
       id = (
-        await this.pool.query<{ id: string }>('SELECT authz.book_sales_call($1, $2, $3, $4, $5) AS id', [
+        await this.pool.query<{ id: string }>('SELECT authz.book_sales_call($1, $2, $3, $4, $5, $6) AS id', [
           input.name,
           input.email,
           input.start,
           input.time_zone ?? null,
           input.notes ?? null,
+          input.phone ?? null,
         ])
       ).rows[0].id;
     } catch (err) {
       throw this.bookingError(err);
     }
+    // Video meetings (in effect only with a Google account connected): the call gets its own Meet link
+    // before the confirmation goes out. Callbacks: the host calls the number the visitor left.
+    const event = (await this.pool.query<SalesCallEvent>('SELECT * FROM authz.sales_call_event()')).rows[0];
+    const booked = (await this.pool.query<CallFacts>('SELECT * FROM authz.sales_call_details($1)', [id])).rows[0];
+    if (booked && event.call_method === 'video') {
+      await this.video.createForSalesCall(id, {
+        summary: `${booked.title}: ${booked.name}`,
+        description: [`${booked.name} <${booked.email}>`, input.notes ? `Notes: ${input.notes}` : '', `Booked on the website (JoyBot).`].filter(Boolean).join('\n'),
+        start: booked.starts_at,
+        end: booked.ends_at,
+      });
+    }
     const call = await this.email(id, 'booked');
     if (call) await this.emailAdmins(id, call, input.notes);
-    const event = (await this.pool.query<SalesCallEvent>('SELECT * FROM authz.sales_call_event()')).rows[0];
     return { id, event, starts_at: call?.starts_at.toISOString() ?? input.start, ends_at: call?.ends_at.toISOString() };
   }
 
@@ -218,7 +246,7 @@ export class SalesCallsService {
     const args: unknown[] = [];
     if (f.q) {
       args.push(`%${f.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
-      where.push(`(c.name ILIKE $1 OR c.email ILIKE $1 OR c.notes ILIKE $1 OR c.outcome_notes ILIKE $1)`);
+      where.push(`(c.name ILIKE $1 OR c.email ILIKE $1 OR c.phone ILIKE $1 OR c.notes ILIKE $1 OR c.outcome_notes ILIKE $1)`);
     }
     return this.db.as(p, async (db) => {
       const [rows, count] = await Promise.all([
@@ -233,16 +261,18 @@ export class SalesCallsService {
     });
   }
 
-  cancel(p: Principal, id: string): Promise<SalesCall> {
-    return this.db.as(p, async (db) => {
+  async cancel(p: Principal, id: string): Promise<SalesCall> {
+    await this.db.as(p, async (db) => {
       const res = await db.query(
         `UPDATE core.appointments SET status = 'cancelled'
           WHERE id = $1 AND status IN ('scheduled', 'confirmed') AND type_id = (SELECT id FROM core.appointment_types WHERE key = 'sales_call')`,
         [id],
       );
       if (!res.rowCount) throw new NotFoundException('No booked call with that id');
-      return this.load(db, id);
     });
+    // Its Meet event goes too.
+    await this.video.cancelForSalesCall(id);
+    return this.db.as(p, (db) => this.load(db, id));
   }
 
   /** Moves a booked call to another open time (same length); emails the visitor unless told not to. */
@@ -256,6 +286,7 @@ export class SalesCallsService {
       .catch((err) => {
         throw this.bookingError(err);
       });
+    await this.video.moveForSalesCall(id);
     if (input.notify !== false) await this.email(id, 'rescheduled');
     return row;
   }
@@ -349,6 +380,7 @@ export class SalesCallsService {
 
   private bookingError(err: unknown) {
     if (err instanceof DatabaseError && (err.code === '23505' || err.code === '23P01')) return new ConflictException('That time was just booked; please choose another');
+    if (err instanceof DatabaseError && err.code === '23514' && err.constraint?.includes('phone')) return new BadRequestException('Please check your phone number');
     if (err instanceof DatabaseError && err.code === '23514' && err.constraint) return new BadRequestException('Please check your name and email');
     return err;
   }
@@ -393,6 +425,7 @@ export class SalesCallsService {
         end: call.ends_at,
         description: [
           `${call.name} <${call.email}>`,
+          call.phone ? `Call back on: ${call.phone}` : '',
           call.host_name ? `Host: ${call.host_name}` : 'No host yet',
           notes ? `Notes: ${notes}` : '',
           call.meeting_url ? `Join: ${call.meeting_url}` : '',
@@ -400,7 +433,7 @@ export class SalesCallsService {
         ]
           .filter(Boolean)
           .join('\n'),
-        location: call.meeting_url ?? undefined,
+        location: call.meeting_url ?? (call.phone ? `Phone: ${call.phone}` : undefined),
         url: link,
       };
       const invite = { filename: 'sales-call.ics', content: ics(event), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' };
@@ -419,6 +452,7 @@ export class SalesCallsService {
               `${call.host_name ? `Host: ${call.host_name}` : 'No host is assigned yet.'}\n` +
               (notes ? `Notes: ${notes}\n` : '') +
               (call.meeting_url ? `Meeting link: ${call.meeting_url}\n` : '') +
+              (call.phone ? `Call them back on: ${call.phone}\n` : '') +
               `\nAdd it to your calendar:\n` +
               `Google Calendar: ${googleCalendarLink(event)}\n` +
               `Outlook: ${outlookCalendarLink(event)}\n` +
@@ -506,7 +540,7 @@ export class SalesCallsService {
       (
         await db.query<CallFacts>(
           `SELECT a.contact_name AS name, a.contact_email::text AS email, a.scheduled_start AS starts_at, a.scheduled_end AS ends_at,
-                  a.contact_time_zone AS time_zone, s.title, s.meeting_url,
+                  a.contact_time_zone AS time_zone, s.title, a.meeting_url, a.contact_phone AS phone,
                   coalesce((SELECT ss.site_name FROM core.site_settings ss WHERE ss.id = 1), (SELECT st.business_name FROM core.settings st WHERE st.id = 1)) AS site_name,
                   (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.v_staff_public u WHERE u.id = a.employee_id) AS host_name
              FROM core.appointments a
@@ -521,16 +555,21 @@ export class SalesCallsService {
     return row;
   }
 
-  /** A sample call (tomorrow at 10:00, the employee as host) for previews. */
+  /** A sample call (tomorrow at 10:00, the employee as host; a sample Meet link or phone number by the method in effect) for previews. */
   private async sampleFields(p: Principal, appUrl: string): Promise<Fields> {
     const facts = await this.db.as(p, async (db) =>
       (
-        await db.query<{ title: string; meeting_url: string | null; duration: number; site_name: string | null; host_name: string | null; tz: string }>(
-          `SELECT s.title, s.meeting_url, s.duration_minutes AS duration,
+        await db.query<{ title: string; meeting_url: string | null; phone: string | null; duration: number; site_name: string | null; host_name: string | null; tz: string }>(
+          `SELECT s.title, CASE WHEN m.method = 'video' THEN 'https://meet.google.com/abc-defg-hij' END AS meeting_url,
+                  CASE WHEN m.method = 'phone' THEN '+1 555 010 0100' END AS phone,
+                  s.duration_minutes AS duration,
                   coalesce((SELECT ss.site_name FROM core.site_settings ss WHERE ss.id = 1), (SELECT st.business_name FROM core.settings st WHERE st.id = 1)) AS site_name,
                   (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.v_staff_public u WHERE u.id = $1) AS host_name,
                   (SELECT default_time_zone FROM core.settings WHERE id = 1) AS tz
-             FROM core.sales_call_settings s WHERE s.id = 1`,
+             FROM core.sales_call_settings s,
+                  LATERAL (SELECT CASE WHEN s.call_method = 'video' AND EXISTS (SELECT 1 FROM core.video_settings v WHERE v.id = 1 AND v.google_connected_at IS NOT NULL)
+                                       THEN 'video' ELSE 'phone' END AS method) m
+            WHERE s.id = 1`,
           [p.id],
         )
       ).rows[0],
@@ -538,7 +577,7 @@ export class SalesCallsService {
     const start = new Date(Date.now() + 86_400_000);
     start.setUTCHours(15, 0, 0, 0);
     return this.fields(
-      { name: 'Pat Example', email: 'pat@example.com', starts_at: start, ends_at: new Date(start.getTime() + facts.duration * 60_000), time_zone: facts.tz, title: facts.title, meeting_url: facts.meeting_url, site_name: facts.site_name, host_name: facts.host_name },
+      { name: 'Pat Example', email: 'pat@example.com', starts_at: start, ends_at: new Date(start.getTime() + facts.duration * 60_000), time_zone: facts.tz, title: facts.title, meeting_url: facts.meeting_url, phone: facts.phone, site_name: facts.site_name, host_name: facts.host_name },
       appUrl,
     );
   }
@@ -557,7 +596,12 @@ export class SalesCallsService {
       host_name: call.host_name ?? site,
       site_name: site,
       meeting_link: call.meeting_url ?? '',
-      meeting_details: call.meeting_url ? `Join the call here: ${call.meeting_url}` : "We'll send the meeting details before the call.",
+      phone: call.phone ?? '',
+      meeting_details: call.meeting_url
+        ? `Join the call here: ${call.meeting_url}`
+        : call.phone
+          ? `${call.host_name ?? 'We'} will call you on ${call.phone} at that time.`
+          : "We'll send the meeting details before the call.",
       booking_link: `${appUrl}/book-a-call`,
     };
   }

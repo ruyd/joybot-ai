@@ -35,6 +35,7 @@ const FIELDS: [string, string][] = [
   ['host_name', 'Host'],
   ['site_name', 'Site name'],
   ['meeting_link', 'Meeting link'],
+  ['phone', 'Phone'],
   ['meeting_details', 'Meeting details'],
   ['booking_link', 'Booking link'],
 ];

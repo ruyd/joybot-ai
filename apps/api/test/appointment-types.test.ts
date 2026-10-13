@@ -106,7 +106,7 @@ describe('sales calls are appointments', () => {
   it('on the calendar (online, the visitor named), and they block the host like any appointment', async () => {
     await admin().put('/api/website/sales-call-settings', { host_ids: [U.sam] }).expect(200);
     const start = await openSlot(14);
-    const booked = (await visitor().post('/api/site/sales-call').send({ name: 'Cal Endar', email: 'cal@example.com', start }).expect(201)).body as { id: string };
+    const booked = (await visitor().post('/api/site/sales-call').send({ name: 'Cal Endar', email: 'cal@example.com', start, phone: '+1 555 010 0001' }).expect(201)).body as { id: string };
 
     const from = new Date(Date.parse(start) - 3_600_000).toISOString();
     const to = new Date(Date.parse(start) + 3_600_000).toISOString();
@@ -142,7 +142,7 @@ describe('sales calls are appointments', () => {
 describe('sales call outcomes', () => {
   it('staff log follow up, conversion, potential or do not call with notes; a call that took place is then completed', async () => {
     const start = await openSlot(20);
-    const call = (await visitor().post('/api/site/sales-call').send({ name: 'Out Come', email: 'outcome@example.com', start }).expect(201)).body as { id: string };
+    const call = (await visitor().post('/api/site/sales-call').send({ name: 'Out Come', email: 'outcome@example.com', start, phone: '+1 555 010 0002' }).expect(201)).body as { id: string };
 
     await api(app, employee(U.sam)).post(`/api/website/sales-calls/${call.id}/outcome`, { outcome: 'potential' }).expect(403);
     await admin().post(`/api/website/sales-calls/${call.id}/outcome`, { outcome: 'maybe' }).expect(400);
@@ -162,7 +162,7 @@ describe('sales call outcomes', () => {
 
     // Not for cancelled calls.
     const later = await openSlot(25);
-    const other = (await visitor().post('/api/site/sales-call').send({ name: 'Gone', email: 'gone@example.com', start: later }).expect(201)).body as { id: string };
+    const other = (await visitor().post('/api/site/sales-call').send({ name: 'Gone', email: 'gone@example.com', start: later, phone: '+1 555 010 0003' }).expect(201)).body as { id: string };
     await admin().post(`/api/website/sales-calls/${other.id}/cancel`).expect(200);
     await admin().post(`/api/website/sales-calls/${other.id}/outcome`, { outcome: 'do_not_call' }).expect(404);
   });
@@ -171,7 +171,7 @@ describe('sales call outcomes', () => {
 describe('sales call status', () => {
   it('staff mark a call completed (it leaves upcoming) or a no-show once started, or confirm it again', async () => {
     const start = await openSlot(30);
-    const call = (await visitor().post('/api/site/sales-call').send({ name: 'Stat Us', email: 'status@example.com', start }).expect(201)).body as { id: string };
+    const call = (await visitor().post('/api/site/sales-call').send({ name: 'Stat Us', email: 'status@example.com', start, phone: '+1 555 010 0004' }).expect(201)).body as { id: string };
     const upcoming = async () => ((await admin().get('/api/website/sales-calls?limit=100').expect(200)).body.items as { id: string }[]).map((c) => c.id);
     const past = async () => ((await admin().get('/api/website/sales-calls?when=past&limit=100').expect(200)).body.items as { id: string }[]).map((c) => c.id);
     expect(await upcoming()).toContain(call.id);

@@ -61,6 +61,8 @@ const schema = z
      * generated secret; locally, AUTH_MODE=dev falls back to a fixed development key.
      */
     SETTINGS_ENCRYPTION_KEY: optional(z.string().min(32)),
+    /** The API's public origin, for OAuth redirects (e.g. https://app.example.com). Unset: the request's own origin. */
+    API_PUBLIC_URL: optional(z.string().url()),
     /** Resend's API (tests point it elsewhere). */
     RESEND_API_BASE: optional(z.string().url()),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */

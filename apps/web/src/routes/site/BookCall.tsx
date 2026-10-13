@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, CircleCheck, Clock, Globe, Video } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, CircleCheck, Clock, Globe, Phone, Video } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BrandMark } from '../../components/BrandMark';
 import { ErrorBanner, Spinner } from '../../components/ui';
@@ -11,8 +11,8 @@ interface SalesCallEvent {
   title: string;
   description: string | null;
   duration_minutes: number;
-  /** A meeting link goes out in the confirmation email. */
-  has_meeting_url: boolean;
+  /** Video: a Meet link goes out in the confirmation email. Phone: the visitor leaves a number to be called on. */
+  call_method: 'video' | 'phone';
 }
 interface Slots {
   event: SalesCallEvent;
@@ -75,6 +75,7 @@ export function BookCallPage() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [notes, setNotes] = useState('');
+  const [phone, setPhone] = useState('');
 
   const [y, m] = month.split('-').map(Number);
   const firstMonth = today.slice(0, 7);
@@ -99,7 +100,7 @@ export function BookCallPage() {
       return siteGet<Slots>(`/sales-call?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     },
   });
-  const event: SalesCallEvent = slots.data?.event ?? { title: 'Sales call', description: null, duration_minutes: 30, has_meeting_url: false };
+  const event: SalesCallEvent = slots.data?.event ?? { title: 'Sales call', description: null, duration_minutes: 30, call_method: 'video' };
 
   // Open times by local day.
   const byDay = useMemo(() => {
@@ -127,7 +128,15 @@ export function BookCallPage() {
   }, [event.title, name_]);
 
   const book = useMutation({
-    mutationFn: () => sitePost<Booked>('/sales-call', { name, email, start: slot, time_zone: timeZone, notes: notes.trim() || undefined }),
+    mutationFn: () =>
+      sitePost<Booked>('/sales-call', {
+        name,
+        email,
+        start: slot,
+        time_zone: timeZone,
+        notes: notes.trim() || undefined,
+        phone: event.call_method === 'phone' ? phone.trim() : undefined,
+      }),
     onSuccess: () => setStep('done'),
     onError: (err) => {
       // Someone else took the time meanwhile: back to the times, refreshed.
@@ -176,7 +185,19 @@ export function BookCallPage() {
             </div>
             <ul className="grid gap-3 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <li className="flex items-center gap-2.5"><Clock className="size-5 shrink-0" aria-hidden="true" />{event.duration_minutes} min</li>
-              <li className="flex items-center gap-2.5"><Video className="size-5 shrink-0" aria-hidden="true" />{event.has_meeting_url ? 'Video call, link by email' : 'Video call, details by email'}</li>
+              <li className="flex items-center gap-2.5">
+                {event.call_method === 'phone' ? (
+                  <>
+                    <Phone className="size-5 shrink-0" aria-hidden="true" />
+                    Phone call, we'll call you
+                  </>
+                ) : (
+                  <>
+                    <Video className="size-5 shrink-0" aria-hidden="true" />
+                    Video call, link by email
+                  </>
+                )}
+              </li>
               {step !== 'pick' && when && (
                 <li className="flex items-start gap-2.5"><CalendarDays className="size-5 shrink-0" aria-hidden="true" />{when}</li>
               )}
@@ -321,6 +342,22 @@ export function BookCallPage() {
                 <span>Email <span aria-hidden="true">*</span></span>
                 <input required type="email" maxLength={254} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-3 font-normal focus:border-brand-600 dark:border-slate-700 dark:bg-slate-950" />
               </label>
+              {event.call_method === 'phone' && (
+                <label className="grid gap-1.5 text-sm font-semibold">
+                  <span>Phone number <span aria-hidden="true">*</span></span>
+                  <input
+                    required
+                    type="tel"
+                    maxLength={32}
+                    autoComplete="tel"
+                    placeholder="+1 555 123 4567"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-3 font-normal focus:border-brand-600 dark:border-slate-700 dark:bg-slate-950"
+                  />
+                  <span className="text-xs font-normal text-slate-500">We'll call you on this number at the time you pick.</span>
+                </label>
+              )}
               <label className="grid gap-1.5 text-sm font-semibold">
                 <span>Please share anything that will help prepare for our meeting.</span>
                 <textarea rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-normal focus:border-brand-600 dark:border-slate-700 dark:bg-slate-950" />
@@ -340,6 +377,12 @@ export function BookCallPage() {
               <h2 className="site-plain-heading text-2xl font-bold tracking-tight">You're scheduled</h2>
               <p className="text-slate-600 dark:text-slate-300">
                 Your {event.title.toLowerCase()} is booked for <strong>{when}</strong> ({zoneLabel(timeZone)}). We sent a confirmation to <strong>{email}</strong>.
+                {book.data.event.call_method === 'phone' && phone.trim() && (
+                  <>
+                    {' '}
+                    We'll call you on <strong>{phone.trim()}</strong>.
+                  </>
+                )}
               </p>
             </div>
           )}

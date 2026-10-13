@@ -30,7 +30,7 @@ const DAY = 86_400_000;
 const range = (days = 14) => `from=${new Date().toISOString()}&to=${new Date(Date.now() + days * DAY).toISOString()}`;
 const slots = async (days = 14) => (await visitor().get(`/api/site/sales-call?${range(days)}`).expect(200)).body.slots as string[];
 const book = (start: string, name = 'Pat Prospect', email = 'pat@example.com', extra: object = {}) =>
-  visitor().post('/api/site/sales-call').send({ name, email, start, time_zone: 'America/Chicago', ...extra });
+  visitor().post('/api/site/sales-call').send({ name, email, start, time_zone: 'America/Chicago', phone: '+1 555 010 0100', ...extra });
 
 /** Wall-clock weekday and time in the business's time zone (the test settings: New York). */
 const local = (iso: string) => {
@@ -42,7 +42,7 @@ const local = (iso: string) => {
 describe('sales calls: open times', () => {
   it('half hours on weekdays from 9:00 to 16:30 in the business time zone, at least two hours ahead', async () => {
     const res = (await visitor().get(`/api/site/sales-call?${range()}`).expect(200)).body as { event: { title: string; duration_minutes: number }; slots: string[] };
-    expect(res.event).toEqual({ title: 'Sales call', description: expect.stringContaining('Tell us about your project'), duration_minutes: 30, has_meeting_url: false });
+    expect(res.event).toEqual({ title: 'Sales call', description: expect.stringContaining('Tell us about your project'), duration_minutes: 30, call_method: 'phone' });
     expect(res.slots.length).toBeGreaterThan(40);
     for (const s of res.slots) {
       const { weekday, time } = local(s);
@@ -98,39 +98,65 @@ describe('sales calls: booking', () => {
 });
 
 describe('sales calls: setup', () => {
-  it('staff who may read the website see the setup; those who may update it change title, text, length and meeting link', async () => {
+  it('staff who may read the website see the setup; those who may update it change title, text and length (no fixed meeting link)', async () => {
     await api(app, employee(U.sam)).get('/api/website/sales-call-settings').expect(403);
     await api(app, employee(U.sam)).put('/api/website/sales-call-settings', { title: 'x' }).expect(403);
-    expect((await api(app, employee(U.ada)).get('/api/website/sales-call-settings').expect(200)).body).toMatchObject({ title: 'Sales call', duration_minutes: 30, meeting_url: null });
+    expect((await api(app, employee(U.ada)).get('/api/website/sales-call-settings').expect(200)).body).toMatchObject({ title: 'Sales call', duration_minutes: 30 });
 
     const saved = (await api(app, employee(U.ada))
-      .put('/api/website/sales-call-settings', { title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60, meeting_url: 'https://meet.example.com/appjoy' })
+      .put('/api/website/sales-call-settings', { title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60 })
       .expect(200)).body;
-    expect(saved).toMatchObject({ title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60, meeting_url: 'https://meet.example.com/appjoy' });
+    expect(saved).toMatchObject({ title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60 });
+    expect(saved).not.toHaveProperty('meeting_url');
 
-    // The page shows the new event (never the link), and hour-long calls end by 17:00.
+    // The page shows the new event (no Meet links set up, so callbacks), and hour-long calls end by 17:00.
     const res = (await visitor().get(`/api/site/sales-call?${range()}`).expect(200)).body as { event: Record<string, unknown>; slots: string[] };
-    expect(res.event).toEqual({ title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60, has_meeting_url: true });
+    expect(res.event).toEqual({ title: 'Discovery call', description: 'Let us talk.', duration_minutes: 60, call_method: 'phone' });
     expect(res.slots.map((t) => local(t).time)).not.toContain('16:30');
     expect(res.slots.map((t) => local(t).time)).toContain('16:00');
 
-    // The confirmation carries the meeting link; the call lasts an hour.
+    // A callback: the confirmation says who calls which number; the call lasts an hour.
     const booked = (await book(res.slots[0], 'Lee Long', 'lee@example.com').expect(201)).body;
     expect(Date.parse(booked.ends_at) - Date.parse(booked.starts_at)).toBe(60 * 60_000);
     const toLee = sender.sent.findLast((m) => m.to === 'lee@example.com')!;
     expect(toLee).toMatchObject({ subject: expect.stringContaining('Discovery call') });
-    expect(toLee.text).toContain('https://meet.example.com/appjoy');
+    expect(toLee.text).toMatch(/will call you on \+1 555 010 0100 at that time\./);
     // A half-hour start inside it is taken too.
     expect(await slots()).not.toContain(new Date(Date.parse(res.slots[0]) + 30 * 60_000).toISOString());
     await api(app, employee(U.ada)).post(`/api/website/sales-calls/${booked.id}/cancel`).expect(200);
 
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { duration_minutes: 25 }).expect(400);
-    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { meeting_url: 'http://insecure.example.com' }).expect(400);
+    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { meeting_url: 'https://meet.example.com/appjoy' }).expect(400); // gone
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { title: '' }).expect(400);
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', {}).expect(400);
-    // Back to the defaults for the tests below (the meeting link cleared with '').
-    const reset = (await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { title: 'Sales call', duration_minutes: 30, meeting_url: '' }).expect(200)).body;
-    expect(reset.meeting_url).toBeNull();
+    // Back to the defaults for the tests below.
+    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { title: 'Sales call', duration_minutes: 30 }).expect(200);
+  });
+
+  it('how calls are handled: video meetings fall back to a callback number until meeting links are set up', async () => {
+    const s = (await api(app, employee(U.ada)).get('/api/website/sales-call-settings').expect(200)).body;
+    expect(s).toMatchObject({ call_method: 'video', meet_ready: false });
+    // Video chosen, but no Google account: the page asks for a number.
+    expect((await visitor().get(`/api/site/sales-call?${range()}`).expect(200)).body.event.call_method).toBe('phone');
+    const open = await slots();
+    const noPhone = await book(open[0], 'No Phone', 'nophone@example.com', { phone: undefined }).expect(400);
+    expect(noPhone.body.message).toContain('phone number');
+    await book(open[0], 'Bad Phone', 'badphone@example.com', { phone: 'call me maybe' }).expect(400);
+
+    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { call_method: 'fax' }).expect(400);
+    await api(app, employee(U.sam)).put('/api/website/sales-call-settings', { call_method: 'phone' }).expect(403);
+    expect((await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { call_method: 'phone' }).expect(200)).body.call_method).toBe('phone');
+
+    // The number is kept on the call, shown to staff, searchable, and in the admin email and invite.
+    const before = sender.sent.length;
+    const call = (await book(open[0], 'Pho Ne', 'phone@example.com', { phone: ' +1 (555) 010-0300 ' }).expect(201)).body as { id: string };
+    const listed = (await api(app, employee(U.ada)).get('/api/website/sales-calls?q=010-0300').expect(200)).body.items as { id: string; phone: string; meeting_url: string | null }[];
+    expect(listed).toEqual([expect.objectContaining({ id: call.id, phone: '+1 (555) 010-0300', meeting_url: null })]);
+    const toAdmin = sender.sent.slice(before).find((m) => m.template === 'sales_call_admin');
+    if (toAdmin) expect(toAdmin.text).toContain('Call them back on: +1 (555) 010-0300');
+    await api(app, employee(U.ada)).post(`/api/website/sales-calls/${call.id}/cancel`).expect(200);
+
+    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { call_method: 'video' }).expect(200);
   });
 });
 
