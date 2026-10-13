@@ -22,12 +22,12 @@ services:
     domains:
       - api.appjoy.dev
     envVars:
-      # Sign-in with Supabase Auth (email codes); one user pool for staff and customers.
+      # Sign-in with Google through Supabase Auth; one user pool for staff and customers.
       - key: AUTH_MODE
         value: supabase
       - key: SUPABASE_URL
         sync: false
-      # Manages logins (invite, ban, contacts). Server-side only; never in the web app.
+      # Secret key (sb_secret_…) or legacy service_role: bans logins, sets contacts. Server-side only.
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       # Supabase transaction pooler (port 6543), one login per role (user joybot_app.<project-ref>, …).

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { takeSignOutReason, useSession } from '../lib/auth';
 import { appConfig } from '../lib/config';
 import { BrandMark } from './BrandMark';
@@ -47,7 +47,7 @@ function SignIn() {
         </p>
       )}
       {mode === 'supabase' ? (
-        <EmailCodeSignIn />
+        <GoogleSignIn />
       ) : !dev ? (
         <Card>
           <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
@@ -91,98 +91,34 @@ function SignIn() {
   );
 }
 
-/** Supabase: an email, then the 6-digit code sent to it. */
-function EmailCodeSignIn() {
+/** Supabase: Google sign-in (staff with their work Google account). */
+function GoogleSignIn() {
   const session = useSession();
-  const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
-  const [sentTo, setSentTo] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const staff = session.audience === 'employee';
-
-  const run = async (e: Pick<FormEvent, 'preventDefault'>, step: () => Promise<void>) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await step();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '';
-      // Network failures surface as "Failed to fetch" (browser) or Supabase's retryable fetch error.
-      setError(
-        !message || /failed to fetch|fetch failed|networkerror|load failed/i.test(message)
-          ? "Couldn't reach the sign-in service. Check your connection and try again."
-          : message,
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!sentTo) {
-    return (
-      <Card>
-        <form
-          className="grid gap-4"
-          onSubmit={(e) =>
-            void run(e, async () => {
-              const to = email.trim().toLowerCase();
-              await session.sendCode!(to);
-              setSentTo(to);
-            })
-          }
-        >
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            {staff ? 'Sign in with your work email. We email you a code.' : 'Sign in or create your account with your email. We email you a code.'}
-          </p>
-          <Field label="Email">
-            <Input type="email" required autoComplete="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
-          </Field>
-          {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
-          <Button type="submit" className="w-full" disabled={busy || !email.trim()}>
-            {busy ? 'Sending…' : 'Email me a code'}
-          </Button>
-        </form>
-      </Card>
-    );
-  }
-
   return (
     <Card>
-      <form className="grid gap-4" onSubmit={(e) => void run(e, () => session.verifyCode!(sentTo, code.trim()))}>
+      <div className="grid gap-4">
         <p className="text-sm text-slate-600 dark:text-slate-300">
-          We sent a code to <strong className="text-slate-900 dark:text-slate-100">{sentTo}</strong>. It expires in an hour.
+          {staff ? 'Sign in with the Google account of your work email.' : 'Sign in or create your account with Google.'}
         </p>
-        <Field label="Code">
-          <Input
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6,10}"
-            required
-            autoFocus
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          />
-        </Field>
         {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy || code.trim().length < 6}>
-          {busy ? 'Signing in…' : 'Sign in'}
+        <Button
+          className="w-full"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError(null);
+            session.signIn().catch((err: unknown) => {
+              setBusy(false);
+              setError(err instanceof Error && !/fetch/i.test(err.message) ? err.message : "Couldn't reach the sign-in service. Check your connection and try again.");
+            });
+          }}
+        >
+          {busy ? 'Opening Google…' : 'Continue with Google'}
         </Button>
-        <div className="flex justify-between text-sm">
-          <button type="button" className="text-brand-700 hover:underline dark:text-brand-600" onClick={() => (setSentTo(null), setCode(''), setError(null))}>
-            Use another email
-          </button>
-          <button
-            type="button"
-            className="text-brand-700 hover:underline disabled:opacity-50 dark:text-brand-600"
-            disabled={busy}
-            onClick={(e) => void run(e, () => session.sendCode!(sentTo))}
-          >
-            Send a new code
-          </button>
-        </div>
-      </form>
+      </div>
     </Card>
   );
 }

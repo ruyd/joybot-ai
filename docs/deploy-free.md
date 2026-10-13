@@ -5,7 +5,7 @@ of it. Every change is opt-in by environment variables whose defaults keep today
 AWS stacks, Lambdas and defaults (`AUTH_MODE=cognito`, SES, Secrets Manager, images in Postgres) stay as
 they are. Branch: `supabase`.
 
-Status: items 1, 2, 3 (code), 4, 5 and the Render part of 8 are built on this branch; the rest is
+Status: items 1, 2, 3, 4, 5 and the Render part of 8 are built on this branch; the rest is
 still a plan. Free-plan limits quoted here change; check each
 provider's current pricing page before relying on a number.
 
@@ -14,7 +14,7 @@ provider's current pricing page before relying on a number.
 | Piece | Where | Free plan | Replaces (AWS) |
 |---|---|---|---|
 | Database | **Supabase** Postgres | 500 MB, ~5 GB egress/month, no backups, paused after a week idle | RDS |
-| Sign-in | **Supabase Auth** (email codes; Google optional) | 50k MAU | Cognito (2 pools) + 2 Lambda triggers |
+| Sign-in | **Supabase Auth** with Google | 50k MAU | Cognito (2 pools) + 2 Lambda triggers |
 | API (NestJS) + worker | **Render** web service (`deploy/render/Dockerfile`: both processes in one container) | 512 MB, sleeps after 15 min idle (~1 min to wake), 750 h/month | ECS + worker service |
 | Web app (site, booking, portal, staff) | **Cloudflare Pages** | Unlimited static bandwidth | S3 + CloudFront |
 | Website images | **Cloudflare R2**, public bucket on `cdn.appjoy.dev` | 10 GB, no egress fees, 10M reads/month | `core.site_asset_data` (bytes in Postgres) |
@@ -31,7 +31,7 @@ API. Check the imported records (Resend DKIM/SPF, Firebase verification) before 
 - **The API is not on Supabase.** Edge Functions are short-lived Deno functions (CPU/time/bundle
   limits); the NestJS API with streamed chat does not fit. Render runs the existing container.
 - **Supabase Auth over Firebase Auth:** linking logins to customers/employees stays in SQL we already
-  have; email codes like today; one vendor with the database; auth email through Resend SMTP.
+  have; one vendor with the database. **Google sign-in only**, which needs no auth email at all.
 - **No Vercel:** Hobby is non-commercial. **Cloudflare Pages over Firebase Spark:** unlimited static
   bandwidth vs 360 MB/day. Same origin is not needed: the web app calls `api.appjoy.dev` with CORS.
 - **Stripe webhooks stay in the API** (not an Edge Function): the API must run anyway; a second runtime
@@ -80,36 +80,37 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   `https://appjoy.dev,https://www.appjoy.dev`): those origins, no credentials (tokens are bearer
   headers), `maxAge` to cache preflights. Unset in AWS (same origin through CloudFront).
 
-### 3. Supabase Auth (`AUTH_MODE=supabase`) ✅ code, ⬜ project settings
-- **API** (`apps/api/src/auth/supabase.ts`, `auth.guard.ts`): checks Supabase access tokens (`jose`, the
-  project's public keys at `/auth/v1/.well-known/jwks.json`; `SUPABASE_JWT_SECRET` only for legacy
-  shared-secret projects). One user pool for both areas: the web app sends `x-joybot-audience: employee`
-  from the staff console (customer otherwise). Roles still come from the database.
+### 3. Supabase Auth with Google (`AUTH_MODE=supabase`) ✅
+- **Sign-in is Google only** (email codes were dropped to keep it simple). Supabase's Google provider is
+  on (client ID and secret entered in the dashboard; the app never needs them); email sign-in is off.
+  Staff use the Google account of their work email; customers any Google account.
+- **API** (`apps/api/src/auth/supabase.ts`, `auth.guard.ts`): checks Supabase access tokens with `jose`
+  against the project's public keys (`/auth/v1/.well-known/jwks.json`, ES256 on this project;
+  `SUPABASE_JWT_SECRET` only for legacy shared-secret projects). One user pool for both areas: the web
+  app sends `x-joybot-audience: employee` from the staff console (customer otherwise). Roles still come
+  from the database.
 - **Linking on first use** (what Cognito's Lambdas do), with the same SQL and the same role: the API
   calls the linking functions **as `joybot_worker`** through a small separate pool
   (`SupabaseLoginLinker`, `WORKER_DATABASE_URL`), because the API's own role may not (a db test keeps it
-  that way). Staff by a confirmed email matching an active employee (`authz.link_employee_login`),
-  customers by a confirmed email or phone (`authz.link_customer_signup`: link, create, or staff review →
-  403 `account_in_review`, queued once). Parallel first requests link once; changes are audited with
-  `via = 'supabase'`. The login id is kept in `cognito_sub`.
-- **Login admin** with the service-role key (`SUPABASE_SERVICE_ROLE_KEY`, server only): inviting an
-  employee sends Supabase's invite (to `/staff`); a returning one is unbanned and sent a sign-in email;
-  deactivating bans the login (JoyBot already refuses inactive employees); contacts verified in JoyBot are
-  set on the customer's login. Roles are not mirrored.
+  that way). Staff by Google's verified email matching an active employee
+  (`authz.link_employee_login`); customers by verified email (`authz.link_customer_signup`: link to an
+  existing customer, create one, or staff review → 403 `account_in_review`, queued once). Parallel first
+  requests link once; changes are audited with `via = 'supabase'`. The login id is kept in `cognito_sub`.
+- **Staff accounts:** adding an employee emails them (JoyBot's `invite` email, through Resend; best
+  effort) to sign in with Google at `/staff` using that address; there is no login to create.
+  Deactivating bans their login (JoyBot already refuses inactive employees); re-activating lifts the ban.
+  Uses the admin API with `SUPABASE_SERVICE_ROLE_KEY` (server only): a secret key (`sb_secret_…`) is
+  sent only as `apikey`, a legacy `service_role` JWT also as the bearer.
 - **Web** (`lib/auth.tsx`, `components/SignIn.tsx`): `@supabase/supabase-js`, a client per area with
-  its own stored session; email → 6-digit code → signed in. Invite and magic links also work. Why the
-  API refused a login is shown on the sign-in screen. `config.json`: `authMode: "supabase"` plus
-  `supabase: { url, anonKey }` (the anon key is public by design).
-- **Project settings (Supabase dashboard), still to do:**
-  - Authentication › Sign In / Providers › Email: on; **Confirm email** on (codes prove the address).
-  - Authentication › Emails › templates **Magic Link** and **Confirm signup**: include `{{ .Token }}` (the
-    code); **Invite user** links to `{{ .ConfirmationURL }}`.
-  - Authentication › SMTP: Resend (`smtp.resend.com`, port 465, user `resend`, password = a Resend API
-    key, sender `no-reply@appjoy.dev`); the built-in sender is for testing only.
-  - Authentication › URL Configuration: Site URL `https://appjoy.dev`; redirect URLs
-    `https://appjoy.dev/**` (and `http://localhost:5173/**` for local tests).
-  - Project settings › JWT Keys: asymmetric signing keys on (else set `SUPABASE_JWT_SECRET`).
-- Phone codes (WhatsApp through Twilio) later; email only for now.
+  its own stored session; "Continue with Google" returns to the same page, which picks the session up
+  from the URL. Why the API refused a login is shown on the sign-in screen. `config.json`:
+  `authMode: "supabase"` plus `supabase: { url, anonKey }` (a publishable key; public by design).
+- **Dashboard settings:** Google provider ✅ (checked: only external provider enabled, ES256 signing
+  keys, sign-ups allowed). Still to confirm: Authentication › URL Configuration › Site URL
+  `https://appjoy.dev` and redirect URLs `https://appjoy.dev/**`, `http://localhost:5173/**`; the Google
+  OAuth client's authorized redirect URI `https://tknchixzrnycvzufbkot.supabase.co/auth/v1/callback`.
+- Customers without a Google account (phone-only) can't sign in yet; phone or email codes can come back
+  later as a second option.
 
 ### 4. All email through Resend (`MESSAGING_MODE=resend`) ✅
 - Every email goes through Resend (Admin › Email), including `contact_code` verification codes, which

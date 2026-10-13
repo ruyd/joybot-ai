@@ -130,7 +130,12 @@ class SupabaseAdmin {
   async call<T>(method: string, path: string, body?: unknown, ok: number[] = []): Promise<{ status: number; data: T }> {
     const res = await this.http(`${this.base}${path}`, {
       method,
-      headers: { apikey: this.key, Authorization: `Bearer ${this.key}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      // A secret key (sb_secret_…) goes only in `apikey`; a legacy service_role key (a JWT) also as the bearer.
+      headers: {
+        apikey: this.key,
+        ...(this.key.startsWith('sb_') ? {} : { Authorization: `Bearer ${this.key}` }),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
@@ -161,28 +166,29 @@ class SupabaseAdmin {
  */
 export class SupabaseEmployeeLogins implements EmployeeLogins {
   private readonly admin: SupabaseAdmin;
+  private readonly logger = new Logger('EmployeeLogins');
 
   constructor(
     cfg: Pick<AppConfig, 'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'>,
     http: SupabaseHttp,
-    private readonly staffUrl: () => Promise<string>,
+    /** Emails the employee where to sign in (with Google, using this address). */
+    private readonly notify: (email: string) => Promise<void>,
   ) {
     this.admin = new SupabaseAdmin(cfg, http);
   }
 
-  /** Supabase's invite email (sign-in link); a former employee's login is let back in instead. */
+  /**
+   * Staff sign in with Google, so there is no login to create: the first sign-in with this email links
+   * it. A former employee's login is let back in. The email is best effort, so adding an employee
+   * works before Admin › Email is set up.
+   */
   async invite(email: string): Promise<void> {
-    const redirect = encodeURIComponent(await this.staffUrl());
-    const { status } = await this.admin.call('POST', `/invite?redirect_to=${redirect}`, { email }, [422]);
-    if (status === 422) {
-      await this.enable(email);
-      await this.resendInvite(email);
-    }
+    await this.enable(email);
+    await this.resendInvite(email);
   }
 
-  /** A sign-in code/link by email (Supabase's magic link template). */
   async resendInvite(email: string): Promise<void> {
-    await this.admin.call('POST', '/otp', { email, create_user: false });
+    await this.notify(email).catch((err: unknown) => this.logger.warn(`invite email not sent: ${(err as Error).message}`));
   }
 
   /** Roles live in the database only. */

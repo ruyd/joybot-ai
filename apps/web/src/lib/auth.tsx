@@ -13,9 +13,6 @@ export interface Session {
   signIn(returnTo?: string): Promise<void>;
   /** Local development only: sign in as a sample principal (x-dev-principal). */
   signInAs?(principalId: string): void;
-  /** Supabase: email a sign-in code, then sign in with it. */
-  sendCode?(email: string): Promise<void>;
-  verifyCode?(email: string, code: string): Promise<void>;
   /** `reason` (e.g. the API's answer to a refused login) is shown on the sign-in screen. */
   signOut(reason?: string): Promise<void>;
 }
@@ -87,7 +84,7 @@ function supabaseClient(audience: Audience): SupabaseClient {
       storageKey: `joybot.${audience}.auth`,
       persistSession: true,
       autoRefreshToken: true,
-      // Invite and magic links land with the session in the URL.
+      // Google sends the browser back with the session in the URL.
       detectSessionInUrl: true,
       flowType: 'implicit',
     },
@@ -97,9 +94,9 @@ function supabaseClient(audience: Audience): SupabaseClient {
 }
 
 /**
- * Supabase Auth (AUTH_MODE=supabase on the API): sign in with a code sent by email. One user pool for
- * both areas, so every API call says which one it is for (x-joybot-audience); the API links the login
- * to the employee or customer the first time.
+ * Supabase Auth (AUTH_MODE=supabase on the API): sign in with Google. One user pool for both areas, so
+ * every API call says which one it is for (x-joybot-audience); the API links the login to the employee
+ * or customer (by Google's verified email) the first time.
  */
 function SupabaseSessionProvider({ audience, children }: { audience: Audience; children: ReactNode }) {
   const [current, setCurrent] = useState<SupabaseSession | null | undefined>(undefined);
@@ -120,14 +117,12 @@ function SupabaseSessionProvider({ audience, children }: { audience: Audience; c
       audience,
       status: current === undefined ? 'loading' : current ? 'signed-in' : 'signed-out',
       headers: (): Record<string, string> => (current ? { authorization: `Bearer ${current.access_token}`, 'x-joybot-audience': audience } : {}),
-      // The sign-in screen collects the email and code itself.
-      signIn: async () => {},
-      sendCode: async (email: string) => {
-        const { error } = await supabaseClient(audience).auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-        if (error) throw error;
-      },
-      verifyCode: async (email: string, code: string) => {
-        const { error } = await supabaseClient(audience).auth.verifyOtp({ email, token: code, type: 'email' });
+      // Back to this page (staff console or portal), whose client picks the session up from the URL.
+      signIn: async () => {
+        const { error } = await supabaseClient(audience).auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: `${window.location.origin}${window.location.pathname}`, queryParams: { prompt: 'select_account' } },
+        });
         if (error) throw error;
       },
       signOut: async (reason?: string) => {

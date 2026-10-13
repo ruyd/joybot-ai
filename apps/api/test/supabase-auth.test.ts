@@ -10,7 +10,7 @@ import { loadConfig } from '../src/config/config';
 import { MESSAGE_SENDER, type MessageSender, type OutgoingMessage } from '../src/messaging/messaging.service';
 import { createApp } from './app';
 
-// AUTH_MODE=supabase (docs/deploy-free.md): one Supabase user pool, the area from x-joybot-audience,
+// AUTH_MODE=supabase (docs/deploy-free.md): Google sign-in through one Supabase user pool, the area from x-joybot-audience,
 // logins linked on first use with the same SQL rules as Cognito's triggers.
 
 const { users: U, customers: C } = SAMPLE;
@@ -42,16 +42,15 @@ const tokens = {
 
 /** Supabase's Auth admin API: records calls, knows one existing login. */
 class FakeSupabase {
-  calls: { method: string; path: string; body: unknown; key: string | null }[] = [];
+  calls: { method: string; path: string; body: unknown; key: string | null; bearer: string | null }[] = [];
   http = async (url: string, init: RequestInit) => {
     const u = new URL(url);
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    this.calls.push({ method: init.method ?? 'GET', path: u.pathname + u.search, body, key: (init.headers as Record<string, string>).apikey ?? null });
+    const headers = init.headers as Record<string, string>;
+    this.calls.push({ method: init.method ?? 'GET', path: u.pathname + u.search, body, key: headers.apikey ?? null, bearer: headers.Authorization ?? null });
     const json = (status: number, b: unknown) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
-    if (u.pathname === '/auth/v1/invite') return body.email === 'back@example.com' ? json(422, { error_code: 'email_exists' }) : json(200, { id: 'new-login' });
     if (u.pathname === '/auth/v1/admin/users' && init.method === 'GET') return json(200, { users: [{ id: 'sb-back', email: 'back@example.com' }, { id: 'sb-ada', email: 'ada@example.com' }] });
     if (u.pathname.startsWith('/auth/v1/admin/users/')) return body?.email === 'taken@example.com' ? json(422, { error_code: 'email_exists' }) : json(200, {});
-    if (u.pathname === '/auth/v1/otp') return json(200, {});
     return json(404, {});
   };
 }
@@ -147,20 +146,33 @@ describe('sign-in', () => {
 });
 
 describe('logins in Supabase', () => {
-  it('inviting an employee sends Supabase’s invite (to the staff console); a returning one is let back in', async () => {
+  it('adding an employee emails them to sign in with Google at the staff console; a returning one is let back in', async () => {
     supabase.calls = [];
     await as('ada', 'employee').post('/api/admin/users', { first_name: 'New', last_name: 'Hire', email: 'hire@example.com', role: 'staff' }).expect(201);
-    expect(supabase.calls[0]).toMatchObject({ method: 'POST', path: `/auth/v1/invite?redirect_to=${encodeURIComponent('https://appjoy.test/staff')}`, body: { email: 'hire@example.com' }, key: 'service-role-key-for-tests' });
+    expect(supabase.calls.map((c) => `${c.method} ${c.path.split('?')[0]}`)).toEqual(['GET /auth/v1/admin/users']); // no login yet: nothing to unban
+    // A legacy service_role key is also the bearer; a secret key (sb_secret_…) never is (see below).
+    expect(supabase.calls[0]).toMatchObject({ key: 'service-role-key-for-tests', bearer: 'Bearer service-role-key-for-tests' });
+    expect(sender.sent.at(-1)).toMatchObject({ channel: 'email', to: 'hire@example.com', template: 'invite' });
+    expect(sender.sent.at(-1)!.text).toContain('Sign in with Google using this email address (hire@example.com)');
+    expect(sender.sent.at(-1)!.text).toContain('https://appjoy.test/staff');
 
     supabase.calls = [];
     await as('ada', 'employee').post('/api/admin/users', { first_name: 'Came', last_name: 'Back', email: 'back@example.com', role: 'staff' }).expect(201);
-    expect(supabase.calls.map((c) => `${c.method} ${c.path.split('?')[0]}`)).toEqual([
-      'POST /auth/v1/invite',
-      'GET /auth/v1/admin/users',
-      'PUT /auth/v1/admin/users/sb-back',
-      'POST /auth/v1/otp',
-    ]);
-    expect(supabase.calls[2].body).toEqual({ ban_duration: 'none' });
+    expect(supabase.calls.map((c) => `${c.method} ${c.path.split('?')[0]}`)).toEqual(['GET /auth/v1/admin/users', 'PUT /auth/v1/admin/users/sb-back']);
+    expect(supabase.calls[1].body).toEqual({ ban_duration: 'none' });
+    expect(sender.sent.at(-1)).toMatchObject({ to: 'back@example.com', template: 'invite' });
+  });
+
+  it('adding an employee works even when the invite email cannot be sent', async () => {
+    const failing = sender.send;
+    sender.send = async () => {
+      throw new Error('email is down');
+    };
+    try {
+      await as('ada', 'employee').post('/api/admin/users', { first_name: 'No', last_name: 'Mail', email: 'nomail@example.com', role: 'staff' }).expect(201);
+    } finally {
+      sender.send = failing;
+    }
   });
 
   it('deactivating an employee bans their login', async () => {
@@ -189,6 +201,18 @@ describe('Supabase tokens and settings', () => {
       phoneVerified: false,
     });
     expect(() => identityFromClaims({ sub: 'u1', role: 'anon' })).toThrow();
+  });
+
+  it('sends a secret key (sb_secret_…) only as apikey, never as the bearer', async () => {
+    const calls: Record<string, string>[] = [];
+    const { SupabaseCustomerLogins } = await import('../src/auth/supabase');
+    const logins = new SupabaseCustomerLogins({ SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_abcdefghijklmnopqrstuv' }, async (_url, init) => {
+      calls.push(init.headers as Record<string, string>);
+      return new Response('{}', { status: 200 });
+    });
+    await logins.setVerifiedContact('u1', 'email', 'a@example.com');
+    expect(calls[0].apikey).toBe('sb_secret_abcdefghijklmnopqrstuv');
+    expect(calls[0].Authorization).toBeUndefined();
   });
 
   it('needs the project URL and service-role key', () => {

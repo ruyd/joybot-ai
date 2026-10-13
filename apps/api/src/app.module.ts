@@ -174,7 +174,16 @@ export class AppModule {
           inject: [SUPABASE_HTTP, MessagingService],
           useFactory: (http: SupabaseHttp, messaging: MessagingService) =>
             config.AUTH_MODE === 'supabase'
-              ? new SupabaseEmployeeLogins(config, http, async () => `${await messaging.appUrl()}/staff`)
+              ? new SupabaseEmployeeLogins(config, http, async (email) => {
+                  const url = `${await messaging.appUrl()}/staff`;
+                  await messaging.send({
+                    channel: 'email',
+                    to: email,
+                    template: 'invite',
+                    subject: 'You have a staff account',
+                    text: `Hi,\n\nYou have been added to the staff console. Sign in with Google using this email address (${email}):\n\n${url}\n`,
+                  });
+                })
               : config.AUTH_MODE === 'cognito' && config.EMPLOYEES_USER_POOL_ID
                 ? new CognitoEmployeeLogins(config.EMPLOYEES_USER_POOL_ID)
                 : new LocalEmployeeLogins(),
