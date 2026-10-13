@@ -32,7 +32,9 @@ export function createApi(session: Pick<Session, 'headers' | 'signOut'>): Api {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (res.status === 401) {
-      void session.signOut();
+      // The API says why (e.g. no staff account uses this email); the sign-in screen shows it.
+      const reason = ((await res.json().catch(() => ({}))) as { message?: string }).message;
+      void session.signOut(reason && reason !== 'Unauthorized' ? reason : undefined);
       throw new ApiError(401, { message: 'Your session has ended. Please sign in again.' });
     }
     if (res.status === 204) return undefined as T;

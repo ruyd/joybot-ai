@@ -1,3 +1,4 @@
+import { createClient, type Session as SupabaseSession, type SupabaseClient } from '@supabase/supabase-js';
 import { User, UserManager, WebStorageStateStore } from 'oidc-client-ts';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { appConfig, type PoolConfig } from './config';
@@ -12,7 +13,20 @@ export interface Session {
   signIn(returnTo?: string): Promise<void>;
   /** Local development only: sign in as a sample principal (x-dev-principal). */
   signInAs?(principalId: string): void;
-  signOut(): Promise<void>;
+  /** Supabase: email a sign-in code, then sign in with it. */
+  sendCode?(email: string): Promise<void>;
+  verifyCode?(email: string, code: string): Promise<void>;
+  /** `reason` (e.g. the API's answer to a refused login) is shown on the sign-in screen. */
+  signOut(reason?: string): Promise<void>;
+}
+
+const REASON_KEY = 'joybot.auth.reason';
+
+/** Why the last session ended (shown once on the sign-in screen). */
+export function takeSignOutReason(): string | null {
+  const reason = sessionStorage.getItem(REASON_KEY);
+  sessionStorage.removeItem(REASON_KEY);
+  return reason;
 }
 
 const DEV_KEY = (a: Audience) => `joybot.dev.${a}`;
@@ -53,6 +67,81 @@ export async function completeSignIn(): Promise<string> {
 const SessionContext = createContext<Session | undefined>(undefined);
 
 export function SessionProvider({ audience, children }: { audience: Audience; children: ReactNode }) {
+  return appConfig().authMode === 'supabase' ? (
+    <SupabaseSessionProvider audience={audience}>{children}</SupabaseSessionProvider>
+  ) : (
+    <OidcSessionProvider audience={audience}>{children}</OidcSessionProvider>
+  );
+}
+
+const clients = new Map<Audience, SupabaseClient>();
+
+/** One Supabase client per area, each with its own stored session (staff and portal sign in separately). */
+function supabaseClient(audience: Audience): SupabaseClient {
+  const existing = clients.get(audience);
+  if (existing) return existing;
+  const cfg = appConfig().supabase;
+  if (!cfg) throw new Error('Sign-in is not configured');
+  const client = createClient(cfg.url, cfg.anonKey, {
+    auth: {
+      storageKey: `joybot.${audience}.auth`,
+      persistSession: true,
+      autoRefreshToken: true,
+      // Invite and magic links land with the session in the URL.
+      detectSessionInUrl: true,
+      flowType: 'implicit',
+    },
+  });
+  clients.set(audience, client);
+  return client;
+}
+
+/**
+ * Supabase Auth (AUTH_MODE=supabase on the API): sign in with a code sent by email. One user pool for
+ * both areas, so every API call says which one it is for (x-joybot-audience); the API links the login
+ * to the employee or customer the first time.
+ */
+function SupabaseSessionProvider({ audience, children }: { audience: Audience; children: ReactNode }) {
+  const [current, setCurrent] = useState<SupabaseSession | null | undefined>(undefined);
+
+  useEffect(() => {
+    const client = supabaseClient(audience);
+    let active = true;
+    void client.auth.getSession().then(({ data }) => active && setCurrent(data.session));
+    const { data } = client.auth.onAuthStateChange((_event, session) => setCurrent(session));
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
+  }, [audience]);
+
+  const session = useMemo<Session>(
+    () => ({
+      audience,
+      status: current === undefined ? 'loading' : current ? 'signed-in' : 'signed-out',
+      headers: (): Record<string, string> => (current ? { authorization: `Bearer ${current.access_token}`, 'x-joybot-audience': audience } : {}),
+      // The sign-in screen collects the email and code itself.
+      signIn: async () => {},
+      sendCode: async (email: string) => {
+        const { error } = await supabaseClient(audience).auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+        if (error) throw error;
+      },
+      verifyCode: async (email: string, code: string) => {
+        const { error } = await supabaseClient(audience).auth.verifyOtp({ email, token: code, type: 'email' });
+        if (error) throw error;
+      },
+      signOut: async (reason?: string) => {
+        if (reason) sessionStorage.setItem(REASON_KEY, reason);
+        await supabaseClient(audience).auth.signOut({ scope: 'local' });
+      },
+    }),
+    [audience, current],
+  );
+
+  return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
+}
+
+function OidcSessionProvider({ audience, children }: { audience: Audience; children: ReactNode }) {
   const dev = appConfig().authMode === 'dev';
   const [user, setUser] = useState<User | null | undefined>(dev ? null : undefined);
   const [devPrincipal, setDevPrincipal] = useState<string | null>(() => (dev ? localStorage.getItem(DEV_KEY(audience)) : null));
@@ -84,7 +173,8 @@ export function SessionProvider({ audience, children }: { audience: Audience; ch
     [audience, dev],
   );
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async (reason?: string) => {
+    if (reason) sessionStorage.setItem(REASON_KEY, reason);
     if (dev) {
       localStorage.removeItem(DEV_KEY(audience));
       setDevPrincipal(null);

@@ -22,8 +22,13 @@ services:
     domains:
       - api.appjoy.dev
     envVars:
-      # Sign-in: 'supabase' once Supabase Auth support lands (docs/deploy-free.md, item 3).
+      # Sign-in with Supabase Auth (email codes); one user pool for staff and customers.
       - key: AUTH_MODE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      # Manages logins (invite, ban, contacts). Server-side only; never in the web app.
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       # Supabase transaction pooler (port 6543), one login per role (user joybot_app.<project-ref>, …).
       # No `sslmode` in the URLs: TLS comes from DB_SSL / DB_SSL_CA.

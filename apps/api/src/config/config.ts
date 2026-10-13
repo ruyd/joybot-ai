@@ -47,7 +47,17 @@ const schema = z
      */
     MODEL_THINKING: z.enum(['off', 'plan', 'all']).default('plan'),
     /** 'dev' trusts the x-dev-principal header — local development and tests only. */
-    AUTH_MODE: z.enum(['dev', 'cognito']).default('cognito'),
+    AUTH_MODE: z.enum(['dev', 'cognito', 'supabase']).default('cognito'),
+    /**
+     * Supabase Auth (AUTH_MODE=supabase, docs/deploy-free.md): the project URL; the service-role key for
+     * managing logins (server-side only); SUPABASE_JWT_SECRET only for projects still on the legacy
+     * shared-secret tokens (otherwise tokens are checked against the project's public keys).
+     */
+    SUPABASE_URL: optional(z.string().url()),
+    SUPABASE_SERVICE_ROLE_KEY: optional(z.string().min(20)),
+    SUPABASE_JWT_SECRET: optional(z.string().min(32)),
+    /** AUTH_MODE=supabase links new logins as joybot_worker (the API's role may not), through this URL. */
+    WORKER_DATABASE_URL: optional(z.string().url()),
     CUSTOMERS_USER_POOL_ID: z.string().optional(),
     CUSTOMERS_CLIENT_ID: z.string().optional(),
     EMPLOYEES_USER_POOL_ID: z.string().optional(),
@@ -98,6 +108,11 @@ const schema = z
     }
     if (cfg.MODEL_DEBUG === 'true' && cfg.AUTH_MODE !== 'dev') {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'MODEL_DEBUG=true is only allowed with AUTH_MODE=dev' });
+    }
+    if (cfg.AUTH_MODE === 'supabase') {
+      for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'WORKER_DATABASE_URL'] as const) {
+        if (!cfg[key]) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${key} is required when AUTH_MODE=supabase` });
+      }
     }
     if (cfg.AUTH_MODE === 'cognito') {
       for (const key of ['CUSTOMERS_USER_POOL_ID', 'CUSTOMERS_CLIENT_ID', 'EMPLOYEES_USER_POOL_ID', 'EMPLOYEES_CLIENT_ID'] as const) {

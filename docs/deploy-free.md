@@ -5,7 +5,7 @@ of it. Every change is opt-in by environment variables whose defaults keep today
 AWS stacks, Lambdas and defaults (`AUTH_MODE=cognito`, SES, Secrets Manager, images in Postgres) stay as
 they are. Branch: `supabase`.
 
-Status: items 1, 2, 4, 5 and the Render part of 8 are built on this branch; the rest is
+Status: items 1, 2, 3 (code), 4, 5 and the Render part of 8 are built on this branch; the rest is
 still a plan. Free-plan limits quoted here change; check each
 provider's current pricing page before relying on a number.
 
@@ -80,22 +80,36 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   `https://appjoy.dev,https://www.appjoy.dev`): those origins, no credentials (tokens are bearer
   headers), `maxAge` to cache preflights. Unset in AWS (same origin through CloudFront).
 
-### 3. Supabase Auth (`AUTH_MODE=supabase`)
-- **API:** a JWT verifier for Supabase (`jose` against
-  `https://<ref>.supabase.co/auth/v1/.well-known/jwks.json`; turn on asymmetric signing keys) in
-  `JWT_VERIFIERS`. One user pool instead of two: the web app says which area it signs in to
-  (`/staff` → employee, else customer) and the API accepts it only when that login is linked to an
-  employee or customer row. The role still comes from the database.
-- **Linking** (what the Cognito Lambdas do): on first sign-in per area, the API calls the existing
-  `authz.link_employee_login` (invited staff only, by verified email) or `authz.link_customer_signup`.
-  Doing it in the API (not a trigger on `auth.users`) keeps it testable and off Supabase's `auth` schema.
-- **Admin login services:** Supabase versions of `EMPLOYEE_LOGINS` / `CUSTOMER_LOGINS` (invite, disable,
-  delete) using the Admin API with the service-role key (server-side only, never in the web app).
-- **Web:** `lib/auth.tsx` gains a Supabase mode (`@supabase/supabase-js`, email code sign-in);
-  `config.json` gets `authMode: 'supabase'`, the project URL and the anon key (public by design).
-- **Auth email** through Resend SMTP (Supabase's built-in sender is for testing only).
-- Phone codes later: Supabase phone auth through Twilio supports a WhatsApp channel (owner rule:
-  WhatsApp instead of SMS); paid per message.
+### 3. Supabase Auth (`AUTH_MODE=supabase`) ✅ code, ⬜ project settings
+- **API** (`apps/api/src/auth/supabase.ts`, `auth.guard.ts`): checks Supabase access tokens (`jose`, the
+  project's public keys at `/auth/v1/.well-known/jwks.json`; `SUPABASE_JWT_SECRET` only for legacy
+  shared-secret projects). One user pool for both areas: the web app sends `x-joybot-audience: employee`
+  from the staff console (customer otherwise). Roles still come from the database.
+- **Linking on first use** (what Cognito's Lambdas do), with the same SQL and the same role: the API
+  calls the linking functions **as `joybot_worker`** through a small separate pool
+  (`SupabaseLoginLinker`, `WORKER_DATABASE_URL`), because the API's own role may not (a db test keeps it
+  that way). Staff by a confirmed email matching an active employee (`authz.link_employee_login`),
+  customers by a confirmed email or phone (`authz.link_customer_signup`: link, create, or staff review →
+  403 `account_in_review`, queued once). Parallel first requests link once; changes are audited with
+  `via = 'supabase'`. The login id is kept in `cognito_sub`.
+- **Login admin** with the service-role key (`SUPABASE_SERVICE_ROLE_KEY`, server only): inviting an
+  employee sends Supabase's invite (to `/staff`); a returning one is unbanned and sent a sign-in email;
+  deactivating bans the login (JoyBot already refuses inactive employees); contacts verified in JoyBot are
+  set on the customer's login. Roles are not mirrored.
+- **Web** (`lib/auth.tsx`, `components/SignIn.tsx`): `@supabase/supabase-js`, a client per area with
+  its own stored session; email → 6-digit code → signed in. Invite and magic links also work. Why the
+  API refused a login is shown on the sign-in screen. `config.json`: `authMode: "supabase"` plus
+  `supabase: { url, anonKey }` (the anon key is public by design).
+- **Project settings (Supabase dashboard), still to do:**
+  - Authentication › Sign In / Providers › Email: on; **Confirm email** on (codes prove the address).
+  - Authentication › Emails › templates **Magic Link** and **Confirm signup**: include `{{ .Token }}` (the
+    code); **Invite user** links to `{{ .ConfirmationURL }}`.
+  - Authentication › SMTP: Resend (`smtp.resend.com`, port 465, user `resend`, password = a Resend API
+    key, sender `no-reply@appjoy.dev`); the built-in sender is for testing only.
+  - Authentication › URL Configuration: Site URL `https://appjoy.dev`; redirect URLs
+    `https://appjoy.dev/**` (and `http://localhost:5173/**` for local tests).
+  - Project settings › JWT Keys: asymmetric signing keys on (else set `SUPABASE_JWT_SECRET`).
+- Phone codes (WhatsApp through Twilio) later; email only for now.
 
 ### 4. All email through Resend (`MESSAGING_MODE=resend`) ✅
 - Every email goes through Resend (Admin › Email), including `contact_code` verification codes, which
