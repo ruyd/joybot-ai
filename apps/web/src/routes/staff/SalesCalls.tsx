@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Mail, Search } from 'lucide-react';
+import { Mail, Phone, Search, Video } from 'lucide-react';
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
@@ -9,6 +9,7 @@ import { date, dateTime, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import { siteGet } from '../../lib/site';
 import { ConfirmationEmailTab, ThankYouEmailTab } from './SalesCallEmails';
+import { VideoCallsTab } from './SalesCallVideo';
 
 interface SalesCall {
   id: string;
@@ -27,6 +28,10 @@ interface SalesCall {
   outcome_notes: string | null;
   outcome_at: string | null;
   thank_you_sent_at: string | null;
+  /** The call's own Meet link, when it has one. */
+  meeting_url: string | null;
+  /** The number to call the visitor back on (callbacks). */
+  phone: string | null;
 }
 
 interface HoursInterval {
@@ -45,7 +50,10 @@ interface SalesCallSettings {
   title: string;
   description: string | null;
   duration_minutes: number;
-  meeting_url: string | null;
+  /** How calls are handled: video meetings (once meeting links are set up) or a callback number. */
+  call_method: 'video' | 'phone';
+  /** A Google account is connected, so video meetings can get Meet links. */
+  meet_ready: boolean;
   updated_at: string;
   hours: HoursInterval[];
   host_ids: string[];
@@ -54,8 +62,8 @@ interface SalesCallSettings {
   /** Active staff, to pick hosts and assign calls. */
   staff: Staff[];
 }
-type SettingsForm = Omit<SalesCallSettings, 'updated_at' | 'staff'>;
-const toForm = ({ updated_at: _u, staff: _s, ...rest }: SalesCallSettings): SettingsForm => rest;
+type SettingsForm = Omit<SalesCallSettings, 'updated_at' | 'staff' | 'meet_ready'>;
+const toForm = ({ updated_at: _u, staff: _s, meet_ready: _m, ...rest }: SalesCallSettings): SettingsForm => rest;
 const staffName = (s: Staff) => [s.first_name, s.last_name].filter(Boolean).join(' ') || 'Staff member';
 
 function useSalesCallSettings() {
@@ -75,6 +83,7 @@ const TABS = [
   { key: 'past', label: 'Past' },
   { key: 'confirmation', label: 'Confirmation email' },
   { key: 'thank-you', label: 'Thank you email' },
+  { key: 'video', label: 'Setup meeting links' },
   { key: 'setup', label: 'Booking page' },
 ] as const;
 type Tab = (typeof TABS)[number]['key'];
@@ -214,6 +223,8 @@ export function SalesCallsPage() {
         <ConfirmationEmailTab editable={editable} />
       ) : tab === 'thank-you' ? (
         <ThankYouEmailTab editable={editable} callId={focusId} />
+      ) : tab === 'video' ? (
+        <VideoCallsTab editable={editable} />
       ) : (
         <Card>
           {focus.error && (
@@ -249,6 +260,18 @@ export function SalesCallsPage() {
                         <a href={`mailto:${c.email}`} className="text-brand-700 hover:underline dark:text-brand-600">
                           {c.email}
                         </a>
+                        {c.phone && (
+                          <a href={`tel:${c.phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-1 text-xs text-brand-700 hover:underline dark:text-brand-600">
+                            <Phone className="size-3" aria-hidden="true" />
+                            Call back: {c.phone}
+                          </a>
+                        )}
+                        {c.meeting_url && (
+                          <a href={c.meeting_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-brand-700 hover:underline dark:text-brand-600">
+                            <Video className="size-3" aria-hidden="true" />
+                            Join Meet
+                          </a>
+                        )}
                       </Td>
                       <Td className="whitespace-nowrap">
                         {editable && !past && isActive(c) ? (
@@ -567,7 +590,7 @@ function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) 
   );
 }
 
-/** The booking page's title, text, call length, meeting link (sent in emails), general hours and hosts. */
+/** The booking page's title, text, call length, general hours and hosts (meeting links: Setup meeting links). */
 function SetupCard({ editable }: { editable: boolean }) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -579,12 +602,12 @@ function SetupCard({ editable }: { editable: boolean }) {
   }, [settings.data, form]);
   const save = useMutation({
     mutationFn: () => {
-      const { title, description, duration_minutes, meeting_url, hours, host_ids, email_admins } = form!;
+      const { title, description, duration_minutes, call_method, hours, host_ids, email_admins } = form!;
       return api.put<SalesCallSettings>('/website/sales-call-settings', {
         title,
         description: description ?? '',
         duration_minutes,
-        meeting_url: meeting_url ?? '',
+        call_method,
         hours,
         host_ids,
         email_admins,
@@ -640,16 +663,32 @@ function SetupCard({ editable }: { editable: boolean }) {
                     ))}
                   </Select>
                 </Field>
-                <Field label="Meeting link" hint="Sent in the confirmation email, never shown on the page.">
-                  <Input
-                    type="url"
-                    placeholder="https://"
-                    maxLength={500}
-                    value={form.meeting_url ?? ''}
-                    onChange={(e) => set('meeting_url', e.target.value)}
-                  />
-                </Field>
               </div>
+              <fieldset className="grid gap-2">
+                <legend className="mb-1 text-sm font-medium">How are calls handled</legend>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="radio" name="call_method" className="mt-0.5" checked={form.call_method === 'video'} onChange={() => set('call_method', 'video')} />
+                  <span>
+                    <span className="font-medium">Video meetings</span>
+                    <span className="block text-xs text-slate-500">Each call gets its own Google Meet link, sent in the confirmation.</span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="radio" name="call_method" className="mt-0.5" checked={form.call_method === 'phone'} onChange={() => set('call_method', 'phone')} />
+                  <span>
+                    <span className="font-medium">Callback number</span>
+                    <span className="block text-xs text-slate-500">Visitors leave a phone number and the host calls them at the booked time.</span>
+                  </span>
+                </label>
+                {form.call_method === 'video' && !settings.data.meet_ready && (
+                  <p role="status" className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                    Meeting links aren't set up yet, so visitors are asked for a callback number until they are.{' '}
+                    <Link to="?tab=video" className="font-semibold underline">
+                      Setup meeting links
+                    </Link>
+                  </p>
+                )}
+              </fieldset>
               <div>
                 <p className="text-sm font-medium">Hosts</p>
                 <p className="mb-2 text-xs text-slate-500">

@@ -30,6 +30,9 @@ import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { EmailController } from './email/email.controller';
+import { GOOGLE_HTTP, GoogleClient } from './video/google';
+import { VideoController } from './video/video.controller';
+import { VideoService } from './video/video.service';
 import { EmailService } from './email/email.service';
 import { RESEND_HTTP, ResendClient } from './email/resend';
 import { SecretBox } from './email/secret-box';
@@ -75,6 +78,7 @@ export class AppModule {
         MeController,
         SettingsController,
         EmailController,
+        VideoController,
         LocationsController,
         ServicesController,
         OrganizationsController,
@@ -126,6 +130,9 @@ export class AppModule {
         SecretBox,
         ResendClient,
         { provide: RESEND_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
+        VideoService,
+        GoogleClient,
+        { provide: GOOGLE_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
         {
           provide: MESSAGE_SENDER,
           useFactory: () =>

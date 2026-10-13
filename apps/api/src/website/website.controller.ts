@@ -50,7 +50,7 @@ export class WebsiteController {
     return this.salesCalls.list(p, q);
   }
 
-  /** The booking page's setup: title, description, length, meeting link. */
+  /** The booking page's setup: title, description, length, hours, hosts. */
   @Get('sales-call-settings')
   @Can('read', 'website')
   salesCallSettings(@CurrentPrincipal() p: Principal) {

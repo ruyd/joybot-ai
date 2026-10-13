@@ -12,8 +12,9 @@ export const SALES_CALL_FIELDS = {
   duration: 'The call’s length in minutes, e.g. 30',
   host_name: 'Who takes the call (the business name when no host is assigned)',
   site_name: 'The site’s name',
-  meeting_link: 'The meeting link from the Booking page tab (empty when there is none)',
-  meeting_details: '“Join the call here: …” with the link, or that details will follow',
+  meeting_link: "The call's Google Meet link (empty when no Google account is connected or Google could not make one)",
+  phone: 'The number the visitor left for a callback (empty for video meetings)',
+  meeting_details: '“Join the call here: …” with the Meet link, “… will call you on …” for callbacks, or that details will follow',
   booking_link: 'The booking page, to book another call',
 } as const;
 

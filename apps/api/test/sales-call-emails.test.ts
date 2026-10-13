@@ -36,7 +36,7 @@ async function book(name: string, email: string, days: number) {
   const from = new Date(Date.now() + days * 86_400_000).toISOString();
   const to = new Date(Date.now() + (days + 10) * 86_400_000).toISOString();
   const [start] = (await visitor().get(`/api/site/sales-call?from=${from}&to=${to}`).expect(200)).body.slots as string[];
-  return (await visitor().post('/api/site/sales-call').send({ name, email, start, time_zone: 'America/Chicago' }).expect(201)).body as { id: string };
+  return (await visitor().post('/api/site/sales-call').send({ name, email, start, time_zone: 'America/Chicago', phone: '+1 555 010 0200' }).expect(201)).body as { id: string };
 }
 
 describe('sales call email templates', () => {
@@ -59,7 +59,7 @@ describe('sales call email templates', () => {
     await book('Robin Lee', 'robin@example.com', 3);
     const mail = sender.sent.slice(before).find((m) => m.to === 'robin@example.com')!;
     expect(mail).toMatchObject({ template: 'sales_call', to: 'robin@example.com', subject: expect.stringMatching(/^See you \w+day, \w+ \d+, 2\d{3}, Robin$/) });
-    expect(mail.text).toMatch(/^Hi Robin,\n\nSales call at \d+:\d\d [AP]M \(America\/Chicago\)\.\nWe'll send the meeting details before the call\.\nAnother time\? http.*\/book-a-call$/);
+    expect(mail.text).toMatch(/^Hi Robin,\n\nSales call at \d+:\d\d [AP]M \(America\/Chicago\)\.\n.+ will call you on \+1 555 010 0200 at that time\.\nAnother time\? http.*\/book-a-call$/);
     expect(mail.text).not.toContain('{{');
   });
 
