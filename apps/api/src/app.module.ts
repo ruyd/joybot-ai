@@ -36,7 +36,7 @@ import { VideoService } from './video/video.service';
 import { EmailService } from './email/email.service';
 import { RESEND_HTTP, ResendClient } from './email/resend';
 import { SecretBox } from './email/secret-box';
-import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
+import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService, ResendOnlySender } from './messaging/messaging.service';
 import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
 import { InvitesController } from './profile/invites.controller';
 import { ProfileController } from './profile/profile.controller';
@@ -135,8 +135,10 @@ export class AppModule {
         { provide: GOOGLE_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
         {
           provide: MESSAGE_SENDER,
-          useFactory: () =>
-            (config.MESSAGING_MODE ?? (config.AUTH_MODE === 'dev' ? 'log' : 'live')) === 'log' ? new LogMessageSender() : new AwsMessageSender(config),
+          useFactory: () => {
+            const mode = config.MESSAGING_MODE ?? (config.AUTH_MODE === 'dev' ? 'log' : 'live');
+            return mode === 'log' ? new LogMessageSender() : mode === 'resend' ? new ResendOnlySender() : new AwsMessageSender(config);
+          },
         },
         {
           provide: CUSTOMER_LOGINS,

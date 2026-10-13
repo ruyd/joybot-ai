@@ -17,6 +17,19 @@ export async function migrate(
     await client.query(`CREATE TABLE IF NOT EXISTS public.schema_migrations (
                           version    text PRIMARY KEY,
                           applied_at timestamptz NOT NULL DEFAULT now())`);
+    // Only the migrator reads this. Hosts that grant new public tables to API roles (Supabase's anon
+    // and authenticated) would otherwise expose it: revoke those grants and deny by RLS (no policies).
+    await client.query(`ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+                        REVOKE ALL ON public.schema_migrations FROM PUBLIC;
+                        DO $$
+                        DECLARE r text;
+                        BEGIN
+                          FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+                            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                              EXECUTE format('REVOKE ALL ON public.schema_migrations FROM %I', r);
+                            END IF;
+                          END LOOP;
+                        END $$`);
     // Serialize concurrent migrators (e.g. two deploys).
     await client.query('SELECT pg_advisory_lock(727274)');
     const done = new Set(
@@ -67,8 +80,8 @@ export async function bootstrapRoleLogins(
 }
 
 /** Drops everything (local development and tests only). */
-export async function resetDatabase(connectionString: string): Promise<void> {
-  const client = new Client({ connectionString });
+export async function resetDatabase(connectionString: string | ClientConfig): Promise<void> {
+  const client = new Client(typeof connectionString === 'string' ? { connectionString } : connectionString);
   await client.connect();
   try {
     await client.query(`DROP SCHEMA IF EXISTS app, core, authz CASCADE;

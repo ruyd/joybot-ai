@@ -1,3 +1,4 @@
+import { sslFromEnv } from '@joybot/db';
 import type { PoolConfig } from 'pg';
 import { z } from 'zod';
 
@@ -8,6 +9,16 @@ const schema = z
   .object({
     NODE_ENV: z.string().default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
+    /**
+     * Web app origins allowed to call the API from another origin (comma-separated, e.g.
+     * https://appjoy.dev,https://www.appjoy.dev). Unset: no CORS (same origin, as in AWS).
+     */
+    CORS_ORIGINS: optional(
+      z
+        .string()
+        .transform((v) => v.split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean))
+        .pipe(z.array(z.string().url().refine((o) => new URL(o).origin === o, 'CORS_ORIGINS takes origins only (scheme://host[:port])')).min(1)),
+    ),
     /** Local: full URLs. AWS: host/port + per-role credentials injected from Secrets Manager. */
     APP_DATABASE_URL: z.string().url().optional(),
     READER_DATABASE_URL: z.string().url().optional(),
@@ -21,6 +32,9 @@ const schema = z
     READER_DB_PASSWORD: z.string().optional(),
     /** Verify TLS to Aurora (CA bundle via NODE_EXTRA_CA_CERTS in the container image). */
     DB_SSL: z.enum(['true', 'false']).default('false'),
+    /** CA for DB_SSL when the host is not RDS (e.g. Supabase): PEM text, or a file path in DB_SSL_CA_FILE. */
+    DB_SSL_CA: optional(z.string()),
+    DB_SSL_CA_FILE: optional(z.string()),
     /** OpenAI-compatible model endpoint (vLLM), e.g. http://model.joybot-dev.internal:8000/v1 */
     MODEL_ENDPOINT: optional(z.string().url()),
     /** Served model name (vLLM: gemma; Ollama: the local tag, e.g. gemma4:e2b). */
@@ -52,8 +66,12 @@ const schema = z
     /** Public app URL for links in invites: APP_URL locally, or an SSM parameter written by the frontend stack. */
     APP_URL: optional(z.string().url()),
     APP_URL_PARAMETER: optional(z.string()),
-    /** 'log' only logs outgoing email/WhatsApp (local); 'live' sends. Defaults to 'log' with AUTH_MODE=dev. */
-    MESSAGING_MODE: z.enum(['log', 'live']).optional(),
+    /**
+     * 'log' only logs outgoing email/WhatsApp (local); 'live' sends (SES, AWS WhatsApp); 'resend' sends
+     * every email, verification codes included, through Resend (Admin › Email) and has no WhatsApp
+     * (hosts without AWS). Defaults to 'log' with AUTH_MODE=dev, else 'live'.
+     */
+    MESSAGING_MODE: z.enum(['log', 'live', 'resend']).optional(),
     SES_FROM_ADDRESS: optional(z.string().email()),
     SES_CONFIGURATION_SET: optional(z.string()),
     /**
@@ -103,7 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 /** pg pool settings for one database role. */
 export function poolConfig(cfg: AppConfig, role: 'app' | 'reader'): PoolConfig {
   const url = role === 'app' ? cfg.APP_DATABASE_URL : cfg.READER_DATABASE_URL;
-  const ssl = cfg.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined;
+  const ssl = sslFromEnv({ DB_SSL: cfg.DB_SSL, DB_SSL_CA: cfg.DB_SSL_CA, DB_SSL_CA_FILE: cfg.DB_SSL_CA_FILE });
   if (url) return { connectionString: url, ssl, max: 10 };
   return {
     host: role === 'reader' ? (cfg.DB_READER_HOST ?? cfg.DB_HOST) : cfg.DB_HOST,

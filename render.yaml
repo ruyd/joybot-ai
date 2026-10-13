@@ -1,0 +1,63 @@
+# Render Blueprint for the free-tier deploy (docs/deploy-free.md): the API and the worker in one web
+# service, against Supabase Postgres. Not used by AWS. Values marked `sync: false` are entered in
+# Render's dashboard (secrets, and anything that depends on the Supabase project).
+services:
+  - type: web
+    name: joybot-api
+    runtime: docker
+    plan: free
+    region: ohio
+    branch: main
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - apps/api/**
+        - apps/worker/**
+        - packages/**
+        - deploy/render/**
+        - pnpm-lock.yaml
+    domains:
+      - api.appjoy.dev
+    envVars:
+      # Sign-in: 'supabase' once Supabase Auth support lands (docs/deploy-free.md, item 3).
+      - key: AUTH_MODE
+        sync: false
+      # Supabase transaction pooler (port 6543), one login per role (user joybot_app.<project-ref>, …).
+      # No `sslmode` in the URLs: TLS comes from DB_SSL / DB_SSL_CA.
+      - key: APP_DATABASE_URL
+        sync: false
+      - key: READER_DATABASE_URL
+        sync: false
+      - key: WORKER_DATABASE_URL
+        sync: false
+      - key: DB_SSL
+        value: "true"
+      # Supabase's CA certificate (Database settings › SSL), PEM text.
+      - key: DB_SSL_CA
+        sync: false
+      - key: APP_URL
+        value: https://appjoy.dev
+      - key: API_PUBLIC_URL
+        value: https://api.appjoy.dev
+      - key: CORS_ORIGINS
+        value: https://appjoy.dev,https://www.appjoy.dev
+      # Every email through Resend (Admin › Email); no SES or AWS WhatsApp here.
+      - key: MESSAGING_MODE
+        value: resend
+      # Encrypts the Resend key, Google Meet secrets and other saved keys. Generated once; never change it.
+      - key: SETTINGS_ENCRYPTION_KEY
+        generateValue: true
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_CHECKOUT_KEY
+        sync: false
+      - key: STRIPE_RESTRICTED_KEY
+        sync: false
+      # Chat model (OpenAI-compatible, e.g. OpenRouter) until Admin › AI exists.
+      - key: MODEL_ENDPOINT
+        sync: false
+      - key: MODEL_NAME
+        sync: false

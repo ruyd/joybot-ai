@@ -1,4 +1,5 @@
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
+import { sslFromEnv } from '@joybot/db';
 import type { PoolConfig } from 'pg';
 
 export interface WorkerConfig {
@@ -10,7 +11,7 @@ export interface WorkerConfig {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  const ssl = env.DB_SSL === 'true' ? { rejectUnauthorized: true } : undefined;
+  const ssl = sslFromEnv(env);
   let pool: PoolConfig;
   if (env.WORKER_DATABASE_URL) {
     pool = { connectionString: env.WORKER_DATABASE_URL, ssl, max: 4 };

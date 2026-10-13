@@ -19,6 +19,12 @@ describe('no principal', () => {
     });
   });
 
+  it('cannot read the migrations table (RLS on, no grants)', async () => {
+    const { rows } = await appPool.query(`SELECT relrowsecurity FROM pg_class WHERE oid = 'public.schema_migrations'::regclass`);
+    expect(rows[0].relrowsecurity).toBe(true);
+    await expect(appPool.query('SELECT * FROM public.schema_migrations')).rejects.toThrow(/permission denied/);
+  });
+
   it('cannot spoof a role through session settings', async () => {
     await as(null, async (db) => {
       await db.query(`SELECT set_config('app.role', 'admin', true)`);

@@ -22,7 +22,7 @@ export async function createApp(options: AppOptions = {}): Promise<INestApplicat
   for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication({ logger: false, rawBody: true });
-  configureApp(app);
+  configureApp(app, cfg);
   await app.init();
   return app;
 }
