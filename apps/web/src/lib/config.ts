@@ -9,7 +9,9 @@ export interface AppConfig {
   environment: string;
   apiBase: string;
   /** 'dev' = local sign-in picker with the x-dev-principal header (local API only). */
-  authMode?: 'dev' | 'cognito';
+  authMode?: 'dev' | 'cognito' | 'supabase';
+  /** Supabase Auth (authMode 'supabase'): the project URL and its public (anon) key. */
+  supabase?: { url: string; anonKey: string };
   region?: string;
   customers?: PoolConfig;
   employees?: PoolConfig;
@@ -22,7 +24,7 @@ export async function loadConfig(): Promise<AppConfig> {
   const res = await fetch('/config.json', { cache: 'no-store' });
   if (!res.ok) throw new Error('Could not load /config.json');
   const raw = (await res.json()) as AppConfig;
-  config = { ...raw, authMode: raw.authMode ?? (raw.customers ? 'cognito' : 'dev') };
+  config = { ...raw, authMode: raw.authMode ?? (raw.supabase ? 'supabase' : raw.customers ? 'cognito' : 'dev') };
   return config;
 }
 

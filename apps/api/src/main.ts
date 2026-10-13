@@ -11,7 +11,7 @@ async function bootstrap(): Promise<void> {
   const config = loadConfig();
   // rawBody: Stripe signatures are computed over the exact bytes received.
   const app = await NestFactory.create(AppModule.forRoot(config), { rawBody: true });
-  configureApp(app);
+  configureApp(app, config);
   app.enableShutdownHooks();
   await app.listen(config.PORT);
 }

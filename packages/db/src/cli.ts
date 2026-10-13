@@ -2,6 +2,7 @@ import path from 'node:path';
 import { config } from 'dotenv';
 import { bootstrapRoleLogins, migrate, resetDatabase } from './migrate';
 import { seedSampleData, seedSettings } from './seed';
+import { sslFromEnv } from './ssl';
 
 config({ path: path.resolve(__dirname, '../../../.env') });
 
@@ -12,14 +13,24 @@ function required(name: string): string {
 }
 
 async function main(command: string | undefined): Promise<void> {
-  const url = required('MIGRATOR_DATABASE_URL');
+  const connectionString = required('MIGRATOR_DATABASE_URL');
+  // DB_SSL / DB_SSL_CA as for the apps (e.g. Supabase's CA); plain URL locally.
+  const ssl = sslFromEnv();
+  const url = ssl ? { connectionString, ssl } : connectionString;
   const setup = async () => {
     await migrate(url);
-    await bootstrapRoleLogins(url, {
-      joybot_app: process.env.APP_DB_PASSWORD,
-      joybot_reader: process.env.READER_DB_PASSWORD,
-      joybot_worker: process.env.WORKER_DB_PASSWORD,
-    });
+    // ROLE_PASSWORDS_ONCE=true (deploys to hosts whose pooler caches credentials): only roles that
+    // cannot log in yet get a password; rotate by running without it.
+    const set = await bootstrapRoleLogins(
+      url,
+      {
+        joybot_app: process.env.APP_DB_PASSWORD,
+        joybot_reader: process.env.READER_DB_PASSWORD,
+        joybot_worker: process.env.WORKER_DB_PASSWORD,
+      },
+      { onlyFirstTime: process.env.ROLE_PASSWORDS_ONCE === 'true' },
+    );
+    if (process.env.ROLE_PASSWORDS_ONCE === 'true') console.log(set.length ? `role passwords set: ${set.join(', ')}` : 'role passwords unchanged');
     await seedSettings(url, {
       businessName: process.env.BUSINESS_NAME ?? 'JoyBot Demo',
       defaultTimeZone: process.env.DEFAULT_TIME_ZONE ?? 'America/New_York',

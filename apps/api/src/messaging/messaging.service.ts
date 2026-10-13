@@ -71,6 +71,18 @@ export class AwsMessageSender implements MessageSender {
   }
 }
 
+/**
+ * MESSAGING_MODE=resend (hosts without AWS): every email goes through Resend in MessagingService, so
+ * this only ever sees what Resend cannot send: email before Admin › Email is set up, and WhatsApp.
+ */
+export class ResendOnlySender implements MessageSender {
+  async send(m: OutgoingMessage): Promise<{ providerMessageId?: string }> {
+    throw new ServiceUnavailableException(
+      m.channel === 'email' ? 'Email is not set up yet: add a Resend key and a from address in Admin › Email' : 'WhatsApp is not available on this server',
+    );
+  }
+}
+
 /** Local development: log instead of sending (codes and links appear in the API log). */
 export class LogMessageSender implements MessageSender {
   private readonly logger = new Logger('Messaging');
@@ -105,10 +117,14 @@ export class MessagingService {
     return value;
   }
 
-  /** App email (RESEND_TEMPLATES) goes through Resend when it is on (Admin › Email); the rest through the configured sender. */
+  /**
+   * App email (RESEND_TEMPLATES) goes through Resend when it is on (Admin › Email); the rest through the
+   * configured sender. With MESSAGING_MODE=resend every email does, verification codes included.
+   */
   async send(message: OutgoingMessage): Promise<void> {
     try {
-      const resend = message.channel === 'email' && RESEND_TEMPLATES.has(message.template) ? await this.email.delivery() : null;
+      const viaResend = message.channel === 'email' && (this.cfg.MESSAGING_MODE === 'resend' || RESEND_TEMPLATES.has(message.template));
+      const resend = viaResend ? await this.email.delivery() : null;
       const res = resend
         ? {
             providerMessageId: (

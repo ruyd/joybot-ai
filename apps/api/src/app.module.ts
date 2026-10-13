@@ -7,6 +7,16 @@ import { AppointmentTypesController } from './appointment-types/appointment-type
 import { AppointmentsController } from './appointments/appointments.controller';
 import { AppointmentsService } from './appointments/appointments.service';
 import { AuthGuard, cognitoVerifiers, JWT_VERIFIERS } from './auth/auth.guard';
+import {
+  LOGIN_LINKER,
+  SUPABASE_HTTP,
+  SUPABASE_TOKENS,
+  SupabaseCustomerLogins,
+  SupabaseEmployeeLogins,
+  SupabaseJwtVerifier,
+  SupabaseLoginLinker,
+  type SupabaseHttp,
+} from './auth/supabase';
 import { LocationsController } from './catalog/locations.controller';
 import { ServicesController } from './catalog/services.controller';
 import { PermissionsService } from './auth/permissions.service';
@@ -36,7 +46,7 @@ import { VideoService } from './video/video.service';
 import { EmailService } from './email/email.service';
 import { RESEND_HTTP, ResendClient } from './email/resend';
 import { SecretBox } from './email/secret-box';
-import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService } from './messaging/messaging.service';
+import { AwsMessageSender, LogMessageSender, MESSAGE_SENDER, MessagingService, ResendOnlySender } from './messaging/messaging.service';
 import { CognitoCustomerLogins, CUSTOMER_LOGINS, LocalCustomerLogins } from './profile/customer-logins';
 import { InvitesController } from './profile/invites.controller';
 import { ProfileController } from './profile/profile.controller';
@@ -109,6 +119,9 @@ export class AppModule {
       providers: [
         PermissionsService,
         { provide: JWT_VERIFIERS, useFactory: () => cognitoVerifiers(config) },
+        { provide: SUPABASE_TOKENS, useFactory: () => (config.AUTH_MODE === 'supabase' ? new SupabaseJwtVerifier(config) : null) },
+        { provide: SUPABASE_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
+        { provide: LOGIN_LINKER, useFactory: () => (config.AUTH_MODE === 'supabase' ? new SupabaseLoginLinker(config) : null) },
         AppointmentsService,
         PaymentsService,
         TasksService,
@@ -135,15 +148,20 @@ export class AppModule {
         { provide: GOOGLE_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
         {
           provide: MESSAGE_SENDER,
-          useFactory: () =>
-            (config.MESSAGING_MODE ?? (config.AUTH_MODE === 'dev' ? 'log' : 'live')) === 'log' ? new LogMessageSender() : new AwsMessageSender(config),
+          useFactory: () => {
+            const mode = config.MESSAGING_MODE ?? (config.AUTH_MODE === 'dev' ? 'log' : 'live');
+            return mode === 'log' ? new LogMessageSender() : mode === 'resend' ? new ResendOnlySender() : new AwsMessageSender(config);
+          },
         },
         {
           provide: CUSTOMER_LOGINS,
-          useFactory: () =>
-            config.AUTH_MODE === 'cognito' && config.CUSTOMERS_USER_POOL_ID
-              ? new CognitoCustomerLogins(config.CUSTOMERS_USER_POOL_ID)
-              : new LocalCustomerLogins(),
+          inject: [SUPABASE_HTTP],
+          useFactory: (http: SupabaseHttp) =>
+            config.AUTH_MODE === 'supabase'
+              ? new SupabaseCustomerLogins(config, http)
+              : config.AUTH_MODE === 'cognito' && config.CUSTOMERS_USER_POOL_ID
+                ? new CognitoCustomerLogins(config.CUSTOMERS_USER_POOL_ID)
+                : new LocalCustomerLogins(),
         },
         ChatService,
         {
@@ -153,10 +171,22 @@ export class AppModule {
         },
         {
           provide: EMPLOYEE_LOGINS,
-          useFactory: () =>
-            config.AUTH_MODE === 'cognito' && config.EMPLOYEES_USER_POOL_ID
-              ? new CognitoEmployeeLogins(config.EMPLOYEES_USER_POOL_ID)
-              : new LocalEmployeeLogins(),
+          inject: [SUPABASE_HTTP, MessagingService],
+          useFactory: (http: SupabaseHttp, messaging: MessagingService) =>
+            config.AUTH_MODE === 'supabase'
+              ? new SupabaseEmployeeLogins(config, http, async (email) => {
+                  const url = `${await messaging.appUrl()}/staff`;
+                  await messaging.send({
+                    channel: 'email',
+                    to: email,
+                    template: 'invite',
+                    subject: 'You have a staff account',
+                    text: `Hi,\n\nYou have been added to the staff console. Sign in with Google using this email address (${email}):\n\n${url}\n`,
+                  });
+                })
+              : config.AUTH_MODE === 'cognito' && config.EMPLOYEES_USER_POOL_ID
+                ? new CognitoEmployeeLogins(config.EMPLOYEES_USER_POOL_ID)
+                : new LocalEmployeeLogins(),
         },
         { provide: APP_GUARD, useClass: AuthGuard },
         { provide: APP_FILTER, useClass: AppExceptionFilter },

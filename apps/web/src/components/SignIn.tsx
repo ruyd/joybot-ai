@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { useSession } from '../lib/auth';
+import { takeSignOutReason, useSession } from '../lib/auth';
 import { appConfig } from '../lib/config';
 import { BrandMark } from './BrandMark';
 import { Button, Card, Field, Input, Spinner } from './ui';
@@ -29,8 +29,10 @@ export function RequireSession({ children }: { children: ReactNode }) {
 
 function SignIn() {
   const session = useSession();
-  const dev = appConfig().authMode === 'dev';
+  const mode = appConfig().authMode;
+  const dev = mode === 'dev';
   const [custom, setCustom] = useState('');
+  const [reason] = useState(() => takeSignOutReason());
   const who = session.audience === 'customer' ? 'Customer portal' : 'Staff console';
 
   return (
@@ -39,7 +41,14 @@ function SignIn() {
         <BrandMark className="size-8" />
         <h1 className="text-xl font-semibold">JoyBot · {who}</h1>
       </div>
-      {!dev ? (
+      {reason && (
+        <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {reason}
+        </p>
+      )}
+      {mode === 'supabase' ? (
+        <GoogleSignIn />
+      ) : !dev ? (
         <Card>
           <p className="mb-4 text-sm text-slate-600 dark:text-slate-300">
             {session.audience === 'customer'
@@ -79,5 +88,37 @@ function SignIn() {
         </Card>
       )}
     </main>
+  );
+}
+
+/** Supabase: Google sign-in (staff with their work Google account). */
+function GoogleSignIn() {
+  const session = useSession();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const staff = session.audience === 'employee';
+  return (
+    <Card>
+      <div className="grid gap-4">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          {staff ? 'Sign in with the Google account of your work email.' : 'Sign in or create your account with Google.'}
+        </p>
+        {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
+        <Button
+          className="w-full"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true);
+            setError(null);
+            session.signIn().catch((err: unknown) => {
+              setBusy(false);
+              setError(err instanceof Error && !/fetch/i.test(err.message) ? err.message : "Couldn't reach the sign-in service. Check your connection and try again.");
+            });
+          }}
+        >
+          {busy ? 'Opening Google…' : 'Continue with Google'}
+        </Button>
+      </div>
+    </Card>
   );
 }
