@@ -62,21 +62,30 @@ export async function migrate(
 /**
  * Gives the NOLOGIN app roles a login + password. In AWS the DB bootstrap custom resource does
  * this with passwords from Secrets Manager; locally they come from .env.
+ *
+ * `onlyFirstTime` leaves roles that can already log in alone: setting a password again (even the same
+ * one) makes poolers that cache credentials (Supabase's) refuse that role for a while. Returns the roles
+ * whose password was set.
  */
 export async function bootstrapRoleLogins(
   connectionString: string | ClientConfig,
   passwords: Partial<Record<'joybot_app' | 'joybot_reader' | 'joybot_worker', string>>,
-): Promise<void> {
+  options: { onlyFirstTime?: boolean } = {},
+): Promise<string[]> {
   const client = new Client(typeof connectionString === 'string' ? { connectionString } : connectionString);
   await client.connect();
+  const set: string[] = [];
   try {
     for (const [role, password] of Object.entries(passwords)) {
       if (!password) continue;
+      if (options.onlyFirstTime && (await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1 AND rolcanlogin', [role])).rowCount) continue;
       await client.query(`ALTER ROLE ${role} LOGIN PASSWORD ${escapeLiteral(password)}`);
+      set.push(role);
     }
   } finally {
     await client.end();
   }
+  return set;
 }
 
 /** Drops everything (local development and tests only). */

@@ -1,0 +1,56 @@
+# Free-tier deploy (docs/deploy-free.md): migrate the Supabase database, then deploy the API + worker on
+# Render. Separate from the AWS pipeline (release.yml); does nothing until the repository variable
+# FREE_DEPLOY is "true". The web app deploys itself on Cloudflare Pages when main changes.
+#
+# Secrets: SUPABASE_MIGRATOR_URL (session pooler, port 5432, postgres.<ref> user, no sslmode),
+# APP_DB_PASSWORD, READER_DB_PASSWORD, WORKER_DB_PASSWORD, RENDER_DEPLOY_HOOK_URL.
+name: Deploy (free tier)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/api/**
+      - apps/worker/**
+      - packages/**
+      - deploy/**
+      - render.yaml
+      - pnpm-lock.yaml
+      - .github/workflows/deploy-free.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-free
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate Supabase, deploy Render
+    if: vars.FREE_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --filter "@joybot/db..."
+      - name: Migrate
+        run: pnpm --filter @joybot/db migrate
+        env:
+          MIGRATOR_DATABASE_URL: ${{ secrets.SUPABASE_MIGRATOR_URL }}
+          APP_DB_PASSWORD: ${{ secrets.APP_DB_PASSWORD }}
+          READER_DB_PASSWORD: ${{ secrets.READER_DB_PASSWORD }}
+          WORKER_DB_PASSWORD: ${{ secrets.WORKER_DB_PASSWORD }}
+          DB_SSL: "true"
+          DB_SSL_CA_FILE: ${{ github.workspace }}/deploy/supabase/prod-ca-2021.crt
+          # Supabase's pooler caches credentials: only set passwords on roles that cannot log in yet.
+          ROLE_PASSWORDS_ONCE: "true"
+      - name: Deploy the API on Render
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL" > /dev/null
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}

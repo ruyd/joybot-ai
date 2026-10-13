@@ -19,11 +19,18 @@ async function main(command: string | undefined): Promise<void> {
   const url = ssl ? { connectionString, ssl } : connectionString;
   const setup = async () => {
     await migrate(url);
-    await bootstrapRoleLogins(url, {
-      joybot_app: process.env.APP_DB_PASSWORD,
-      joybot_reader: process.env.READER_DB_PASSWORD,
-      joybot_worker: process.env.WORKER_DB_PASSWORD,
-    });
+    // ROLE_PASSWORDS_ONCE=true (deploys to hosts whose pooler caches credentials): only roles that
+    // cannot log in yet get a password; rotate by running without it.
+    const set = await bootstrapRoleLogins(
+      url,
+      {
+        joybot_app: process.env.APP_DB_PASSWORD,
+        joybot_reader: process.env.READER_DB_PASSWORD,
+        joybot_worker: process.env.WORKER_DB_PASSWORD,
+      },
+      { onlyFirstTime: process.env.ROLE_PASSWORDS_ONCE === 'true' },
+    );
+    if (process.env.ROLE_PASSWORDS_ONCE === 'true') console.log(set.length ? `role passwords set: ${set.join(', ')}` : 'role passwords unchanged');
     await seedSettings(url, {
       businessName: process.env.BUSINESS_NAME ?? 'JoyBot Demo',
       defaultTimeZone: process.env.DEFAULT_TIME_ZONE ?? 'America/New_York',

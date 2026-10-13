@@ -5,8 +5,8 @@ of it. Every change is opt-in by environment variables whose defaults keep today
 AWS stacks, Lambdas and defaults (`AUTH_MODE=cognito`, SES, Secrets Manager, images in Postgres) stay as
 they are. Branch: `supabase`.
 
-Status: items 1, 2, 3, 4, 5 and the Render part of 8 are built on this branch; the rest is
-still a plan. Free-plan limits quoted here change; check each
+Status: items 1–5 and 8 are built on this branch (8 needs the Render, Cloudflare and GitHub
+settings); 6 (Admin › AI) and 7 (images on R2) are still a plan. Free-plan limits quoted here change; check each
 provider's current pricing page before relying on a number.
 
 ## The stack
@@ -148,23 +148,36 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   nosniff`, optional hotlink protection. Back up the bucket separately (`pg_dump` no longer has images).
 - Record the exception in CLAUDE.md › Product constraints.
 
-### 8. Hosting and deploy
-- **Render ✅:** `render.yaml` (Blueprint): one free web service from `deploy/render/Dockerfile` (API +
-  worker), health check `/api/health`, builds only when the API, worker or packages change, custom
-  domain `api.appjoy.dev`. Fixed values in the file (`DB_SSL`, `APP_URL`, `API_PUBLIC_URL`,
-  `CORS_ORIGINS`, `MESSAGING_MODE=resend`, a generated `SETTINGS_ENCRYPTION_KEY`); the rest (database
-  URLs, `DB_SSL_CA`, `AUTH_MODE`, Stripe, model) is entered in Render's dashboard.
-  The first visit after 15 idle minutes waits for the service to wake (~1 min); a keep-awake ping
-  would spend the 750 free hours on this one service.
-- **Cloudflare Pages:** build `pnpm --filter @joybot/web build`, output `apps/web/dist`, SPA fallback,
-  a `config.json` for this environment (apiBase `https://api.appjoy.dev/api`, authMode, Supabase URL and
-  anon key). Optionally proxy `api.appjoy.dev` through Cloudflare to cache public `/api/site/*`.
-- **GitHub Action** `deploy-free.yml` (separate from the AWS pipeline): migrate through the session
-  pooler, bootstrap role logins, trigger the Render deploy hook; Pages builds on push by itself.
+### 8. Hosting and deploy ✅ code, ⬜ accounts
+- **Migrations and role passwords:** `ROLE_PASSWORDS_ONCE=true` makes `migrate` set a role's password only
+  while the role cannot log in yet (Supabase's pooler refuses a role for ~20 s after its password is set
+  again, even to the same value). Rotate by running once without it. AWS's bootstrap is unchanged.
+- **GitHub Action** `.github/workflows/deploy-free.yml` (separate from AWS's `release.yml`): on pushes to
+  `main` that touch the API, worker, packages or deploy files, migrates Supabase (session pooler, CA from
+  `deploy/supabase`, `ROLE_PASSWORDS_ONCE`), then calls Render's deploy hook. Off until the repository
+  variable `FREE_DEPLOY` is `true`. Secrets: `SUPABASE_MIGRATOR_URL`, `APP_DB_PASSWORD`,
+  `READER_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `RENDER_DEPLOY_HOOK_URL`.
+- **Render** (`render.yaml`, Blueprint): one free web service from `deploy/render/Dockerfile` (API +
+  worker), Ohio, health check `/api/health`, custom domain `api.appjoy.dev`, `autoDeploy: false` (the
+  Action deploys after migrating). Fixed values in the file; enter in the dashboard: `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY`, the three `*_DATABASE_URL`s (transaction pooler, 6543), `DB_SSL_CA` (the
+  PEM text of `deploy/supabase/prod-ca-2021.crt`), Stripe keys, `MODEL_ENDPOINT`/`MODEL_NAME`. Copy the
+  service's **Deploy Hook** URL into the GitHub secret. The first visit after 15 idle minutes waits for
+  the service to wake (~1 min).
+- **Cloudflare Pages** (Workers & Pages › Create › Pages › Connect to Git):
+  - Production branch `main`; root directory empty (repo root); output `apps/web/dist`.
+  - Build command: `npm i -g pnpm@12.10.1 && pnpm install --frozen-lockfile && pnpm --filter @joybot/web build && node apps/web/scripts/write-config.mjs`
+  - Variables: `NODE_VERSION=22`, `WEB_API_BASE=https://api.appjoy.dev/api`, `SUPABASE_URL`,
+    `SUPABASE_PUBLISHABLE_KEY` (public), `APP_URL=https://appjoy.dev`.
+  - `write-config.mjs` writes `dist/config.json` and fails the build if a value is missing, so the local
+    development config (dev sign-in) is never shipped. SPA routes work without extra config.
+  - Custom domain `appjoy.dev` once the API answers on `api.appjoy.dev` (Firebase keeps serving the site
+    until then).
+- **Google sign-in** URLs: Supabase › URL Configuration has `https://appjoy.dev/**`; the Google OAuth
+  client redirects to `https://tknchixzrnycvzufbkot.supabase.co/auth/v1/callback` (both checked).
 - **Google Meet** (Setup meeting links): redirect URI becomes
   `https://api.appjoy.dev/api/website/video/google/callback`. **Stripe** webhook URL
   `https://api.appjoy.dev/api/webhooks/stripe`.
-- README: a "Free-tier deploy" section pointing here.
 
 ## Order
 

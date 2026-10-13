@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
+import { bootstrapRoleLogins } from '../src/migrate';
 import { SAMPLE } from '../src/seed';
 import { appPool, as, customer, employee, ids, workerPool } from './helpers';
 
@@ -23,6 +24,13 @@ describe('no principal', () => {
     const { rows } = await appPool.query(`SELECT relrowsecurity FROM pg_class WHERE oid = 'public.schema_migrations'::regclass`);
     expect(rows[0].relrowsecurity).toBe(true);
     await expect(appPool.query('SELECT * FROM public.schema_migrations')).rejects.toThrow(/permission denied/);
+  });
+
+  it('role passwords set "only the first time" leave roles that can already log in alone', async () => {
+    // Wrong passwords on purpose: nothing may change (roles are cluster-wide and shared by tests).
+    const set = await bootstrapRoleLogins(process.env.MIGRATOR_DATABASE_URL!, { joybot_app: 'not-the-password', joybot_worker: 'nor-this' }, { onlyFirstTime: true });
+    expect(set).toEqual([]);
+    expect((await appPool.query('SELECT current_user AS who')).rows[0].who).toBe('joybot_app');
   });
 
   it('cannot spoof a role through session settings', async () => {

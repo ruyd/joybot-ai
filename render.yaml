@@ -11,7 +11,8 @@ services:
     dockerfilePath: ./deploy/render/Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
-    autoDeploy: true
+    # Deployed by .github/workflows/deploy-free.yml after migrations (deploy hook), not on every push.
+    autoDeploy: false
     buildFilter:
       paths:
         - apps/api/**
