@@ -20,17 +20,21 @@ export interface Api {
   fetch(path: string, init?: RequestInit): Promise<Response>;
 }
 
-export function createApi(session: Pick<Session, 'headers' | 'signOut'>): Api {
+export function createApi(session: Pick<Session, 'headers' | 'signOut' | 'refresh'>): Api {
   const base = appConfig().apiBase;
-  const raw = (path: string, init: RequestInit = {}) =>
-    fetch(`${base}${path}`, { ...init, headers: { ...session.headers(), ...(init.headers ?? {}) } });
+  const raw = async (path: string, init: RequestInit = {}) =>
+    fetch(`${base}${path}`, { ...init, headers: { ...(await session.headers()), ...(init.headers ?? {}) } });
 
   async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await raw(path, {
-      method,
-      headers: body === undefined ? {} : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    const send = () =>
+      raw(path, {
+        method,
+        headers: body === undefined ? {} : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    let res = await send();
+    // An expired access token is not an ended session: renew it once and retry before signing out.
+    if (res.status === 401 && session.refresh && (await session.refresh())) res = await send();
     if (res.status === 401) {
       // The API says why (e.g. no staff account uses this email); the sign-in screen shows it.
       const reason = ((await res.json().catch(() => ({}))) as { message?: string }).message;

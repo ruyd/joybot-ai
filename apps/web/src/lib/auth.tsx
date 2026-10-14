@@ -8,8 +8,10 @@ export type Audience = 'customer' | 'employee';
 export interface Session {
   audience: Audience;
   status: 'loading' | 'signed-out' | 'signed-in';
-  /** Headers that authenticate API calls for this audience. */
-  headers(): Record<string, string>;
+  /** Headers that authenticate API calls for this audience (with a fresh token: a sleeping tab's may have expired). */
+  headers(): Promise<Record<string, string>>;
+  /** Supabase only: trade the refresh token for a new access token. False when the session can't be renewed. */
+  refresh?(): Promise<boolean>;
   signIn(returnTo?: string): Promise<void>;
   /** Local development only: sign in as a sample principal (x-dev-principal). */
   signInAs?(principalId: string): void;
@@ -116,7 +118,16 @@ function SupabaseSessionProvider({ audience, children }: { audience: Audience; c
     () => ({
       audience,
       status: current === undefined ? 'loading' : current ? 'signed-in' : 'signed-out',
-      headers: (): Record<string, string> => (current ? { authorization: `Bearer ${current.access_token}`, 'x-joybot-audience': audience } : {}),
+      // Ask the client rather than use `current`: after a laptop sleeps or a tab is throttled the token in
+      // state can be past its hour, and getSession() renews it from the refresh token first.
+      headers: async (): Promise<Record<string, string>> => {
+        const { data } = await supabaseClient(audience).auth.getSession();
+        return data.session ? { authorization: `Bearer ${data.session.access_token}`, 'x-joybot-audience': audience } : {};
+      },
+      refresh: async () => {
+        const { data, error } = await supabaseClient(audience).auth.refreshSession();
+        return !error && Boolean(data.session);
+      },
       // Back to this page (staff console or portal), whose client picks the session up from the URL.
       signIn: async () => {
         const { error } = await supabaseClient(audience).auth.signInWithOAuth({
@@ -188,7 +199,7 @@ function OidcSessionProvider({ audience, children }: { audience: Audience; child
     return {
       audience,
       status: !dev && user === undefined ? 'loading' : signedIn ? 'signed-in' : 'signed-out',
-      headers: (): Record<string, string> =>
+      headers: async (): Promise<Record<string, string>> =>
         dev
           ? devPrincipal
             ? { 'x-dev-principal': `${audience}:${devPrincipal}` }
