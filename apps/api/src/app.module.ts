@@ -40,6 +40,7 @@ import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AiController } from './ai/ai.controller';
+import { SiteAnalyticsService } from './website/analytics.service';
 import { S3SiteAssetStore, SITE_ASSET_STORE } from './website/asset-store';
 import { AiService, ConfiguredLlmProvider } from './ai/ai.service';
 import { EmailController } from './email/email.controller';
@@ -132,6 +133,7 @@ export class AppModule {
         InvoicesService,
         SchedulesService,
         WebsiteService,
+        SiteAnalyticsService,
         { provide: SITE_ASSET_STORE, useFactory: () => (config.SITE_ASSET_STORE === 's3' ? new S3SiteAssetStore(config) : null) },
         SalesCallsService,
         WhatsAppSettingsPublisher,
