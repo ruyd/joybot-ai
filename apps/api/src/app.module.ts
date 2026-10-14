@@ -40,6 +40,7 @@ import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AiController } from './ai/ai.controller';
+import { S3SiteAssetStore, SITE_ASSET_STORE } from './website/asset-store';
 import { AiService, ConfiguredLlmProvider } from './ai/ai.service';
 import { EmailController } from './email/email.controller';
 import { GOOGLE_HTTP, GoogleClient } from './video/google';
@@ -131,6 +132,7 @@ export class AppModule {
         InvoicesService,
         SchedulesService,
         WebsiteService,
+        { provide: SITE_ASSET_STORE, useFactory: () => (config.SITE_ASSET_STORE === 's3' ? new S3SiteAssetStore(config) : null) },
         SalesCallsService,
         WhatsAppSettingsPublisher,
         ChatToolsService,

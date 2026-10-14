@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type ReactNode } from 'react';
 import { Button, ErrorBanner, Field, Input, Select, Spinner } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
+import { appConfig } from '../../lib/config';
 import { assetUrl, type SiteBackground, type SiteButton, type SiteCard, type SiteCompareSide, type SiteModule, type SiteModuleOf } from '../../lib/site';
 import { SITE_ICONS, SiteIcon, type SiteIconName } from '../../lib/site-icons';
 
@@ -12,6 +13,8 @@ export interface Asset {
   filename: string;
   content_type: string;
   size_bytes: number;
+  /** 'db' while still in the database after the server switched to a bucket. */
+  storage?: 'db' | 's3';
   created_at: string;
 }
 
@@ -427,6 +430,32 @@ function IconPicker({ value, onChange }: { value: SiteIconName | null; onChange:
   );
 }
 
+/**
+ * After the server switched to a bucket for images: those uploaded before are still in the database
+ * and don't show on the site until they are moved (their ids, and so the pages using them, stay the same).
+ */
+function MoveToBucket({ assets }: { assets: Asset[] | undefined }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const move = useMutation({
+    mutationFn: () => api.post<{ moved: number; remaining: number }>('/website/assets/move', {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['website', 'assets'] }),
+  });
+  const waiting = assets?.filter((a) => a.storage === 'db').length ?? 0;
+  if (!appConfig().assetBase || !waiting) return null;
+  return (
+    <div role="status" className="mb-2 flex flex-wrap items-center gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      <span className="flex-1">
+        {waiting === 1 ? '1 image is' : `${waiting} images are`} still stored in the database and won't show on the site until moved to image storage.
+      </span>
+      <Button type="button" size="sm" variant="secondary" disabled={move.isPending} onClick={() => move.mutate()}>
+        {move.isPending ? 'Moving…' : 'Move them'}
+      </Button>
+      {move.error && <ErrorBanner error={move.error} />}
+    </div>
+  );
+}
+
 /** Choose an uploaded image, or upload one (PNG, JPEG, WebP or GIF, up to 5 MB). */
 export function ImagePicker({ value, onChange, compact }: { value: string | null; onChange: (id: string | null) => void; compact?: boolean }) {
   const api = useApi();
@@ -479,6 +508,7 @@ export function ImagePicker({ value, onChange, compact }: { value: string | null
       {upload.error && <ErrorBanner error={upload.error} />}
       {browsing && (
         <div className="rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+          <MoveToBucket assets={assets.data} />
           {assets.isLoading ? (
             <Spinner />
           ) : !assets.data?.length ? (
@@ -496,7 +526,7 @@ export function ImagePicker({ value, onChange, compact }: { value: string | null
                   }}
                   className={`press overflow-hidden rounded-md border-2 ${a.id === value ? 'border-brand-500' : 'border-transparent hover:border-brand-200'}`}
                 >
-                  <img src={assetUrl(a.id)} alt={a.filename} loading="lazy" className="aspect-square w-full object-cover" />
+                  <img src={assetUrl(a.id, a.storage)} alt={a.filename} loading="lazy" className="aspect-square w-full object-cover" />
                 </button>
               ))}
             </div>

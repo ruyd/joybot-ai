@@ -132,7 +132,14 @@ export const MODULE_LABEL: Record<SiteModule['type'], string> = {
   cta: 'Call to action',
 };
 
-export const assetUrl = (id: string) => `${appConfig().apiBase}/site/assets/${id}`;
+/**
+ * An uploaded image: from the bucket's CDN when the server keeps images there (`assetBase`), else from
+ * the API. `storage` (known in the editor's library) keeps images not yet moved to the bucket working.
+ */
+export function assetUrl(id: string, storage?: 'db' | 's3'): string {
+  const { assetBase, apiBase } = appConfig();
+  return assetBase && storage !== 'db' ? `${assetBase}/site/${id}` : `${apiBase}/site/assets/${id}`;
+}
 
 /** A page's address on the site: "/" for the home page. */
 export const pagePath = (p: Pick<SitePageSummary, 'slug' | 'is_home'>) => (p.is_home ? '/' : `/${p.slug}`);

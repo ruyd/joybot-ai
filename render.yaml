@@ -56,6 +56,23 @@ services:
       # Encrypts the Resend key, Google Meet secrets and other saved keys. Generated once; never change it.
       - key: SETTINGS_ENCRYPTION_KEY
         generateValue: true
+      # Website images in Cloudflare R2, served from cdn.appjoy.dev (docs/deploy-free.md item 7).
+      - key: SITE_ASSET_STORE
+        value: s3
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        value: joybot-site
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: SITE_ASSET_BASE_URL
+        value: https://cdn.appjoy.dev
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ZONE_ID
+        sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_CHECKOUT_KEY

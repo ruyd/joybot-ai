@@ -11,6 +11,7 @@
   expectations:
     rules:
       s3_private_and_encrypted: FAIL
+      s3_encrypted_no_acls: PASS
 
 - name: private encrypted bucket
   input:
@@ -23,8 +24,36 @@
   expectations:
     rules:
       s3_private_and_encrypted: PASS
+      s3_encrypted_no_acls: PASS
 
-- name: bucket policy open to anyone
+- name: public content bucket
+  input:
+    Resources:
+      B:
+        Type: AWS::S3::Bucket
+        Metadata: { JoyBot: { PublicContent: true } }
+        Properties:
+          PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: false, IgnorePublicAcls: true, RestrictPublicBuckets: false }
+          BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+  expectations:
+    rules:
+      s3_private_and_encrypted: SKIP
+      s3_encrypted_no_acls: PASS
+
+- name: public content bucket with public ACLs
+  input:
+    Resources:
+      B:
+        Type: AWS::S3::Bucket
+        Metadata: { JoyBot: { PublicContent: true } }
+        Properties:
+          PublicAccessBlockConfiguration: { BlockPublicAcls: false, BlockPublicPolicy: false, IgnorePublicAcls: false, RestrictPublicBuckets: false }
+          BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+  expectations:
+    rules:
+      s3_encrypted_no_acls: FAIL
+
+- name: bucket policy lets anyone read objects
   input:
     Resources:
       P:
@@ -36,8 +65,22 @@
               - { Effect: Deny, Principal: "*", Action: "s3:*", Resource: "*", Condition: { Bool: { "aws:SecureTransport": "false" } } }
   expectations:
     rules:
-      s3_no_public_allow: FAIL
+      s3_no_public_allow: PASS
       s3_policies_deny_plain_http: PASS
+
+- name: bucket policy lets anyone write
+  input:
+    Resources:
+      P:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+          PolicyDocument:
+            Statement:
+              - { Effect: Allow, Principal: "*", Action: [s3:GetObject, s3:PutObject], Resource: "arn:aws:s3:::b/*" }
+              - { Effect: Deny, Principal: "*", Action: "s3:*", Resource: "*", Condition: { Bool: { "aws:SecureTransport": "false" } } }
+  expectations:
+    rules:
+      s3_no_public_allow: FAIL
 
 - name: bucket policy for the organization only
   input:

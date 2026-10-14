@@ -11,15 +11,26 @@ rule region_us_east_1_only when %nested_stacks !empty {
   Rules.UsEast1Only.Assertions[*].AssertDescription == /us-east-1/
 }
 
-# S3: private, encrypted, TLS only ------------------------------------------------------------
+# S3: encrypted, TLS only; private unless marked as public content -------------------------------
+# A bucket for content that is public anyway (the web app's files) sets
+# `Metadata: { JoyBot: { PublicContent: true } }` and may be read by anyone through its policy.
 let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
-rule s3_private_and_encrypted when %buckets !empty {
+rule s3_encrypted_no_acls when %buckets !empty {
   %buckets.Properties {
     PublicAccessBlockConfiguration.BlockPublicAcls == true
-    PublicAccessBlockConfiguration.BlockPublicPolicy == true
     PublicAccessBlockConfiguration.IgnorePublicAcls == true
-    PublicAccessBlockConfiguration.RestrictPublicBuckets == true
     BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm in ['aws:kms', 'aws:kms:dsse', 'AES256']
+  }
+}
+
+let private_buckets = Resources.*[
+  Type == 'AWS::S3::Bucket'
+  Metadata.JoyBot.PublicContent not exists
+]
+rule s3_private_and_encrypted when %private_buckets !empty {
+  %private_buckets.Properties {
+    PublicAccessBlockConfiguration.BlockPublicPolicy == true
+    PublicAccessBlockConfiguration.RestrictPublicBuckets == true
   }
 }
 
@@ -28,11 +39,12 @@ rule s3_policies_deny_plain_http when %bucket_policies !empty {
   %bucket_policies.Properties.PolicyDocument.Statement[ Effect == 'Deny' ].Condition.Bool['aws:SecureTransport'] exists
 }
 
-# Anyone ("*") may only be allowed within the AWS Organization (private distribution).
+# Anyone ("*") may only read objects, unless limited to the AWS Organization; never write or list.
 rule s3_no_public_allow when %bucket_policies !empty {
   %bucket_policies.Properties.PolicyDocument.Statement[ Effect == 'Allow' ] {
     when Principal == '*' {
-      Condition.StringEquals['aws:PrincipalOrgID'] exists
+      Condition.StringEquals['aws:PrincipalOrgID'] exists or
+      Action == 's3:GetObject'
     }
   }
 }

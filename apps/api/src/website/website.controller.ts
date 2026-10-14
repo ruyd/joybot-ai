@@ -199,6 +199,14 @@ export class WebsiteController {
     return this.website.uploadAsset(p, type, await readBody(req, MAX_IMAGE_BYTES), filename);
   }
 
+  /** After switching to a bucket (SITE_ASSET_STORE=s3): moves the images still kept in the database. */
+  @Post('assets/move')
+  @Can('update', 'website')
+  @HttpCode(200)
+  moveAssets(@CurrentPrincipal() p: Principal) {
+    return this.website.moveAssetsToStore(p);
+  }
+
   @Delete('assets/:id')
   @Can('delete', 'website')
   @HttpCode(204)

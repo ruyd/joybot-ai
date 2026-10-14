@@ -95,6 +95,24 @@ const schema = z
     RESEND_API_BASE: optional(z.string().url()),
     /** SSM parameter read by the WhatsApp sender Lambda (messaging stack). Unset locally. */
     WHATSAPP_SETTINGS_PARAMETER: optional(z.string()),
+    /**
+     * Where website images go: 'db' (default; bytes in Postgres, served by the API) or 's3' (an
+     * S3-compatible bucket such as Cloudflare R2, served from SITE_ASSET_BASE_URL).
+     */
+    SITE_ASSET_STORE: optional(z.enum(['db', 's3'])),
+    /** R2: https://<account id>.r2.cloudflarestorage.com. Unset for AWS S3. */
+    S3_ENDPOINT: optional(z.string().url()),
+    /** 'auto' for R2; the bucket's region for AWS S3. */
+    S3_REGION: optional(z.string()),
+    S3_BUCKET: optional(z.string()),
+    /** R2 API token keys (Object Read & Write on the bucket). Unset in AWS, which uses the task role. */
+    S3_ACCESS_KEY_ID: optional(z.string()),
+    S3_SECRET_ACCESS_KEY: optional(z.string()),
+    /** The bucket's public address, e.g. https://cdn.appjoy.dev (objects at <base>/site/<id>). */
+    SITE_ASSET_BASE_URL: optional(z.string().url()),
+    /** Optional: purges a deleted image from Cloudflare's cache (token with Cache Purge on the zone). */
+    CLOUDFLARE_API_TOKEN: optional(z.string()),
+    CLOUDFLARE_ZONE_ID: optional(z.string()),
   })
   .superRefine((cfg, ctx) => {
     if (!cfg.APP_DATABASE_URL && !(cfg.DB_HOST && cfg.APP_DB_PASSWORD)) {
@@ -112,6 +130,11 @@ const schema = z
     if (cfg.AUTH_MODE === 'supabase') {
       for (const key of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'WORKER_DATABASE_URL'] as const) {
         if (!cfg[key]) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${key} is required when AUTH_MODE=supabase` });
+      }
+    }
+    if (cfg.SITE_ASSET_STORE === 's3') {
+      for (const key of ['S3_BUCKET', 'SITE_ASSET_BASE_URL'] as const) {
+        if (!cfg[key]) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${key} is required when SITE_ASSET_STORE=s3` });
       }
     }
     if (cfg.AUTH_MODE === 'cognito') {

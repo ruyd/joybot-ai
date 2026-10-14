@@ -11,16 +11,16 @@ provider's current pricing page before relying on a number.
 
 ## The stack
 
-| Piece | Where | Free plan | Replaces (AWS) |
-|---|---|---|---|
-| Database | **Supabase** Postgres | 500 MB, ~5 GB egress/month, no backups, paused after a week idle | RDS |
-| Sign-in | **Supabase Auth** with Google | 50k MAU | Cognito (2 pools) + 2 Lambda triggers |
-| API (NestJS) + worker | **Render** web service (`deploy/render/Dockerfile`: both processes in one container) | 512 MB, sleeps after 15 min idle (~1 min to wake), 750 h/month | ECS + worker service |
-| Web app (site, booking, portal, staff) | **Cloudflare Pages** | Unlimited static bandwidth | S3 + CloudFront |
-| Website images | **Cloudflare R2**, public bucket on `cdn.appjoy.dev` | 10 GB, no egress fees, 10M reads/month | `core.site_asset_data` (bytes in Postgres) |
-| Chat model (Gemma 4) | **OpenRouter** or own deployment, chosen in Admin › AI | Pay per token (free models are rate-limited and may log prompts) | vLLM on a GPU |
-| Email | **Resend** for everything | 3k emails/month, 100/day | SES |
-| WhatsApp | Off at first (later: Meta Cloud API directly) | | AWS End User Messaging |
+| Piece                                  | Where                                                                                | Free plan                                                        | Replaces (AWS)                             |
+| -------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------- | ------------------------------------------ |
+| Database                               | **Supabase** Postgres                                                                | 500 MB, ~5 GB egress/month, no backups, paused after a week idle | RDS                                        |
+| Sign-in                                | **Supabase Auth** with Google                                                        | 50k MAU                                                          | Cognito (2 pools) + 2 Lambda triggers      |
+| API (NestJS) + worker                  | **Render** web service (`deploy/render/Dockerfile`: both processes in one container) | 512 MB, sleeps after 15 min idle (~1 min to wake), 750 h/month   | ECS + worker service                       |
+| Web app (site, booking, portal, staff) | **Cloudflare Pages**                                                                 | Unlimited static bandwidth                                       | S3 + CloudFront                            |
+| Website images                         | **Cloudflare R2**, public bucket on `cdn.appjoy.dev`                                 | 10 GB, no egress fees, 10M reads/month                           | `core.site_asset_data` (bytes in Postgres) |
+| Chat model (Gemma 4)                   | **OpenRouter** or own deployment, chosen in Admin › AI                               | Pay per token (free models are rate-limited and may log prompts) | vLLM on a GPU                              |
+| Email                                  | **Resend** for everything                                                            | 3k emails/month, 100/day                                         | SES                                        |
+| WhatsApp                               | Off at first (later: Meta Cloud API directly)                                        |                                                                  | AWS End User Messaging                     |
 
 Domains: `appjoy.dev` → Pages, `api.appjoy.dev` → Render, `cdn.appjoy.dev` → R2. Move the domain's DNS
 to Cloudflare (free) first: it is needed for the Pages apex domain, `cdn.` and caching in front of the
@@ -42,9 +42,7 @@ API. Check the imported records (Resend DKIM/SPF, Firebase verification) before 
   replaces the *model server*, not the worker.
 - **Website images in a public R2 bucket.** They are already public today (`GET /api/site/assets/:id`
   serves any image by UUID, cached for a year). Conditions: website images only, random UUID keys,
-  served on `cdn.appjoy.dev` with `nosniff`, cache purged on delete, and an explicit exception to the
-  owner rule "no public buckets" recorded in CLAUDE.md. Anything private later (ticket attachments,
-  invoices) goes in a separate private bucket served through the API.
+  served on `cdn.appjoy.dev` with `nosniff`, cache purged on delete.
 
 ## Work items
 
@@ -136,18 +134,18 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   customer record text: use a paid, no-logging provider for real data.
 - A Test button (one short prompt), and run the chat eval (`eval:model`) against the chosen provider.
 
-### 7. Website images on R2 (`SITE_ASSET_STORE=s3`)
-- An S3-compatible store (`@aws-sdk/client-s3`; `S3_ENDPOINT`, `S3_BUCKET`, keys,
-  `SITE_ASSET_BASE_URL=https://cdn.appjoy.dev`). Uploads still go through the API (signature check, no
-  SVG), then `PutObject` with key `site/<uuid>`, the right `Content-Type` and
-  `Cache-Control: public, max-age=31536000, immutable`. The same code can later target S3 in AWS.
-- `core.site_assets.storage` (`db` | `s3`): `/api/site/assets/:id` streams `db` images as today and
-  redirects `s3` ones to the CDN, so existing pages keep working.
-- Delete removes the object and purges the CDN URL (Cloudflare API token, optional).
-- A one-off script copies `core.site_asset_data` to the bucket; a cleanup job removes objects with no row.
-- Cloudflare: custom domain on the bucket (never `r2.dev`), a rule adding `X-Content-Type-Options:
-  nosniff`, optional hotlink protection. Back up the bucket separately (`pg_dump` no longer has images).
-- Record the exception in CLAUDE.md › Product constraints.
+### 7. Website images on R2 (`SITE_ASSET_STORE=s3`) ✅ code, ⬜ account
+- Done as planned; how it works is under "Website" in [features.md](features.md). Not done: a cleanup job for objects with no row (an upload whose insert failed and whose delete failed too).
+- Production had no images yet (2026-10-13), so nothing needs moving. Images uploaded before the switch are moved from the editor's image library (**Move them**).
+- **Cloudflare setup:**
+  1. R2 › Create bucket `joybot-site` (location: Eastern North America).
+  2. The bucket's Settings › Custom Domains › Connect `cdn.appjoy.dev`. Never turn on the `r2.dev` URL.
+  3. Rules › Transform Rules › Modify Response Header: when the hostname equals `cdn.appjoy.dev`, set `X-Content-Type-Options: nosniff`.
+  4. R2 › Manage API tokens › Create: Object Read & Write, only this bucket. Note the access key ID, the secret and the S3 endpoint (`https://<account id>.r2.cloudflarestorage.com`).
+  5. Optional: a token with Zone › Cache Purge on appjoy.dev, and the zone ID, so deleted images leave the cache straight away.
+- **Render variables:** `SITE_ASSET_STORE=s3`, `S3_ENDPOINT`, `S3_BUCKET=joybot-site`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `SITE_ASSET_BASE_URL=https://cdn.appjoy.dev`, and optionally `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+- **Pages variable:** `SITE_ASSET_BASE_URL=https://cdn.appjoy.dev`, then redeploy.
+- Back up the bucket separately: `pg_dump` no longer has the images.
 
 ### 8. Hosting and deploy ✅ (live 2026-10-13)
 - **Migrations and role passwords:** `ROLE_PASSWORDS_ONCE=true` makes `migrate` set a role's password only

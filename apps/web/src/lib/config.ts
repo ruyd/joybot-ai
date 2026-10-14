@@ -16,6 +16,8 @@ export interface AppConfig {
   customers?: PoolConfig;
   employees?: PoolConfig;
   appUrl?: string;
+  /** Website images in a bucket (SITE_ASSET_STORE=s3): its public address, e.g. https://cdn.appjoy.dev. Unset: the API serves them. */
+  assetBase?: string;
 }
 
 let config: AppConfig | undefined;
