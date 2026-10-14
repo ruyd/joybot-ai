@@ -61,7 +61,7 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 
 ## MCP (`apps/api/src/mcp/`)
 
-- `POST /api/mcp` is authenticated by an admin's personal access token (`app.api_tokens`, sha256 only), not the app's sign-in.
+- `POST /api/mcp` is authenticated by an admin's personal access token (`app.api_tokens`, sha256 only), not the app's sign-in. Revoking a token deletes it (`DELETE /api/admin/api-tokens/:id`, admins only). The audit trigger logs the deleted row (name, prefix, scope, last use) and who deleted it, and the audit log shows that on one line.
 - Tools run as that admin through the existing services or SQL under RLS. Never add a raw-SQL tool. Queries are marked `via = 'mcp'` (`requestVia` in `db.module.ts`).
 - Read tools are in `mcp.tools.ts`. Write tools (`mcp.write-tools.ts`, `read_write` tokens only) validate with the API's own Zod schemas and call the shared services (`TasksService`, `InvoicesService`, `SchedulesService`, `AppointmentsService`, `PaymentsService`, `WebsiteService`).
 - Anything hard to undo uses `gate()`: a preview plus a single-use confirmation in `app.mcp_confirmations`, with `destructiveHint` when it destroys or cancels.

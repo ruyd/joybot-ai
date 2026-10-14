@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Body, Controller, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
@@ -60,14 +60,15 @@ export class TokensController {
     });
   }
 
-  @Post(':id/revoke')
+  /**
+   * Revokes a token by deleting it. The change log keeps the deleted row (name, prefix, owner, when it
+   * was last used) and who deleted it.
+   */
+  @Delete(':id')
   @HttpCode(204)
-  async revoke(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+  async remove(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
     this.adminOnly(p);
-    const n = await this.db.as(
-      p,
-      async (db) => (await db.query('UPDATE app.api_tokens SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL', [id, p.id])).rowCount,
-    );
+    const n = await this.db.as(p, async (db) => (await db.query('DELETE FROM app.api_tokens WHERE id = $1', [id])).rowCount);
     if (!n) throw new NotFoundException();
   }
 
