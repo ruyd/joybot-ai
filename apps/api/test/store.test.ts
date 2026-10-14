@@ -5,7 +5,9 @@ import path from 'node:path';
 import { Client } from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { MESSAGE_SENDER, type MessageSender, type OutgoingMessage } from '../src/messaging/messaging.service';
 import { STORE_CHECKOUT, type StoreCheckout, type StoreCheckoutRequest } from '../src/store/checkout';
+import { OrderEmailsService } from '../src/store/order-emails.service';
 import { api, createApp, customer, employee } from './app';
 
 const { customers: C, users: U } = SAMPLE;
@@ -19,14 +21,29 @@ class FakeCheckout implements StoreCheckout {
   }
 }
 
+/** Captures email; `failNext` makes the next send fail. */
+class CapturingSender implements MessageSender {
+  sent: OutgoingMessage[] = [];
+  failNext = false;
+  async send(m: OutgoingMessage) {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('mailbox unavailable');
+    }
+    this.sent.push(m);
+    return {};
+  }
+}
+
 const checkout = new FakeCheckout();
+const sender = new CapturingSender();
 let app: INestApplication;
 let migrator: Client;
 const admin = () => api(app, employee(U.ada));
 const visitor = () => request(app.getHttpServer());
 
 beforeAll(async () => {
-  app = await createApp({ overrides: [{ token: STORE_CHECKOUT, value: checkout }] });
+  app = await createApp({ overrides: [{ token: STORE_CHECKOUT, value: checkout }, { token: MESSAGE_SENDER, value: sender }] });
   config({ path: path.resolve(__dirname, '../../../.env') });
   migrator = new Client({ connectionString: process.env.MIGRATOR_DATABASE_URL });
   await migrator.connect();
@@ -37,7 +54,7 @@ afterAll(async () => {
   await migrator.query(`DELETE FROM core.payments WHERE stripe_payment_intent_id LIKE 'pi_store_%'`);
   await migrator.query('DELETE FROM core.orders');
   await migrator.query('DELETE FROM core.products');
-  await migrator.query('UPDATE core.store_settings SET enabled = false, automatic_tax = false, allow_promotion_codes = false, max_quantity = 10');
+  await migrator.query('UPDATE core.store_settings SET enabled = false, automatic_tax = false, allow_promotion_codes = false, max_quantity = 10, email_customers = true, confirmation_subject = NULL, confirmation_body = NULL');
   await migrator.query('UPDATE core.settings SET stripe_enabled = false WHERE id = 1');
   await migrator.end();
   await app.close();
@@ -203,3 +220,75 @@ describe('checkout and orders', () => {
     }
   });
 });
+
+describe('order confirmation emails', () => {
+  const confirmations = () => sender.sent.filter((m) => m.template === 'order_confirmation');
+  const sweep = () => app.get(OrderEmailsService).sweep();
+
+  it('emails the customer once when the order is paid, with what they get', async () => {
+    await sweep(); // earlier tests' orders
+    const before = confirmations().length;
+    const res = (await api(app, customer(C.maria)).post('/api/orders/checkout', { items: [{ product_id: guide.id, quantity: 2 }] }).expect(201)).body;
+    await sweep();
+    expect(confirmations()).toHaveLength(before); // not paid yet
+
+    await stripePays(res.order_id, 39);
+    expect(await sweep()).toBe(1);
+    const mail = confirmations().at(-1)!;
+    expect(mail.to).toBe('maria@example.com');
+    expect(mail.subject).toContain(res.order_number);
+    expect(mail.text).toContain('2 × Style guide (PDF): $39.00');
+    expect(mail.text).toContain('Paid: $39.00');
+    expect(mail.text).toContain('Download: https://example.com/guide.pdf');
+    expect(mail.text).toContain(`/portal/orders/${res.order_id}`);
+    expect(await sweep()).toBe(0); // once only
+    expect((await admin().get(`/api/orders/${res.order_id}`).expect(200)).body.confirmation_sent_at).toBeTruthy();
+  });
+
+  it('retries a failed send, and sends nothing while turned off', async () => {
+    const first = (await api(app, customer(C.maria)).post('/api/orders/checkout', { items: [{ product_id: coaching.id, quantity: 1 }] }).expect(201)).body;
+    await stripePays(first.order_id, 150);
+    sender.failNext = true;
+    expect(await sweep()).toBe(0);
+    expect((await migrator.query('SELECT confirmation_sent_at, confirmation_attempts FROM core.orders WHERE id = $1', [first.order_id])).rows[0]).toEqual({
+      confirmation_sent_at: null,
+      confirmation_attempts: 1,
+    });
+    expect(await sweep()).toBe(1);
+
+    await admin().put('/api/admin/store', { email_customers: false }).expect(200);
+    const second = (await api(app, customer(C.maria)).post('/api/orders/checkout', { items: [{ product_id: coaching.id, quantity: 1 }] }).expect(201)).body;
+    await stripePays(second.order_id, 150);
+    expect(await sweep()).toBe(0);
+    await admin().put('/api/admin/store', { email_customers: true }).expect(200);
+  });
+
+  it('sends the template from Settings › Store, which admins edit and preview', async () => {
+    const settings = (await admin().get('/api/admin/store').expect(200)).body;
+    expect(settings).toMatchObject({ confirmation_subject: null, confirmation_defaults: { subject: 'Your order {{order_number}}' } });
+    expect(Object.keys(settings.confirmation_fields)).toEqual(expect.arrayContaining(['first_name', 'items', 'what_you_get', 'order_link']));
+
+    await admin().put('/api/admin/store', { confirmation_body: 'Hi {{nickname}}' }).expect(400);
+    await api(app, employee(U.sam)).put('/api/admin/store', { confirmation_subject: 'x' }).expect(403);
+    await admin()
+      .put('/api/admin/store', { confirmation_subject: 'Thanks, {{first_name}}! ({{order_number}})', confirmation_body: 'You paid {{amount_paid}}.\n\n{{what_you_get}}\n\nCheers' })
+      .expect(200);
+
+    const preview = (await admin().post('/api/admin/store/confirmation-preview', { subject: '{{order_number}} {{oops}}', body: '{{items}}' }).expect(200)).body;
+    expect(preview).toMatchObject({ subject: 'ORD-2026-000123 {{oops}}', unknown: ['oops'] });
+    expect(preview.text).toContain('1 × Coaching pack: $150.00');
+    await api(app, employee(U.sam)).post('/api/admin/store/confirmation-preview', { subject: 'x', body: 'y' }).expect(403);
+
+    await sweep();
+    const res = (await api(app, customer(C.maria)).post('/api/orders/checkout', { items: [{ product_id: coaching.id, quantity: 1 }] }).expect(201)).body;
+    await stripePays(res.order_id, 150);
+    expect(await sweep()).toBe(1);
+    const mail = confirmations().at(-1)!;
+    expect(mail.subject).toBe(`Thanks, Maria! (${res.order_number})`);
+    expect(mail.text).toBe('You paid $150.00.\n\nWhat you get\n\nCoaching pack:\nWe will call you to book.\n\nCheers');
+
+    // Back to the standard text.
+    await admin().put('/api/admin/store', { confirmation_subject: null, confirmation_body: null }).expect(200);
+  });
+});
+

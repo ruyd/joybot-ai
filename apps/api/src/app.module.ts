@@ -42,6 +42,7 @@ import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AiController } from './ai/ai.controller';
 import { STORE_CHECKOUT, StripeStoreCheckout } from './store/checkout';
 import { OrdersController, ProductsController, SiteStoreController, StoreSettingsController } from './store/store.controller';
+import { OrderEmailsService } from './store/order-emails.service';
 import { StoreService } from './store/store.service';
 import { SiteAnalyticsService } from './website/analytics.service';
 import { S3SiteAssetStore, SITE_ASSET_STORE } from './website/asset-store';
@@ -142,6 +143,7 @@ export class AppModule {
         WebsiteService,
         SiteAnalyticsService,
         StoreService,
+        OrderEmailsService,
         {
           provide: STORE_CHECKOUT,
           inject: [StripeSecrets],

@@ -5,6 +5,7 @@ import type { Principal } from '../auth/principal';
 import { APP_POOL, DbService } from '../db/db.module';
 import { MessagingService } from '../messaging/messaging.service';
 import { STORE_CHECKOUT, StoreCheckoutError, type StoreCheckout } from './checkout';
+import { confirmationEmail, DEFAULT_CONFIRMATION_BODY, DEFAULT_CONFIRMATION_SUBJECT, ORDER_FIELDS, SAMPLE_ORDER, unknownOrderFields } from './order-emails.service';
 
 const money = z.coerce.number().positive().multipleOf(0.01).max(999_999);
 
@@ -35,10 +36,21 @@ export const storeSettingsSchema = z
     allow_promotion_codes: z.boolean(),
     require_terms: z.boolean(),
     notify_admins: z.boolean(),
+    /** Email customers a confirmation when their order is paid. */
+    email_customers: z.boolean(),
     max_quantity: z.number().int().min(1).max(100),
+    /** The confirmation email; null sends the standard text. */
+    confirmation_subject: z.string().trim().min(1).max(200).nullable(),
+    confirmation_body: z.string().trim().min(1).max(10_000).nullable(),
   })
   .partial()
-  .strict();
+  .strict()
+  .superRefine((b, ctx) => {
+    const unknown = unknownOrderFields(b.confirmation_subject ?? '', b.confirmation_body ?? '');
+    if (unknown.length) ctx.addIssue({ code: 'custom', message: `Unknown placeholder${unknown.length > 1 ? 's' : ''}: ${unknown.map((u) => `{{${u}}}`).join(', ')}` });
+  });
+
+export const confirmationPreviewSchema = z.object({ subject: z.string().max(200), body: z.string().max(10_000) }).strict();
 
 export const checkoutSchema = z
   .object({
@@ -63,8 +75,9 @@ export const orderStatusSchema = z.object({ status: z.enum(['fulfilled', 'paid',
 
 const PRODUCT_COLUMNS = `p.id, p.slug, p.name, p.summary, p.description, p.kind, p.price, p.image_asset_id,
   (SELECT a.storage FROM core.site_assets a WHERE a.id = p.image_asset_id) AS image_storage, p.active, p.sort_order`;
-const STORE_COLUMNS = 'enabled, automatic_tax, prices_include_tax, allow_promotion_codes, require_terms, notify_admins, max_quantity, updated_at';
-const ORDER_COLUMNS = `o.id, o.order_number, o.customer_id, o.currency, o.status, o.subtotal, o.amount_paid, o.paid_at, o.fulfilled_at, o.cancelled_at,
+const STORE_COLUMNS = `enabled, automatic_tax, prices_include_tax, allow_promotion_codes, require_terms, notify_admins, email_customers, max_quantity,
+  confirmation_subject, confirmation_body, updated_at`;
+const ORDER_COLUMNS = `o.id, o.order_number, o.customer_id, o.currency, o.status, o.subtotal, o.amount_paid, o.paid_at, o.fulfilled_at, o.cancelled_at, o.confirmation_sent_at,
   o.created_at, o.updated_at,
   (SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = o.customer_id) AS customer_name,
   (SELECT c.customer_number FROM core.customers c WHERE c.id = o.customer_id) AS customer_number,
@@ -167,15 +180,29 @@ export class StoreService {
 
   // Settings › Store ----------------------------------------------------------------------------
 
+  /** With the confirmation email's standard text and placeholders, for the editor. */
   getSettings(p: Principal) {
-    return this.db.as(p, async (db) => (await db.query(`SELECT ${STORE_COLUMNS} FROM core.store_settings WHERE id = 1`)).rows[0]);
+    return this.db.as(p, async (db) => this.withEmailHelp((await db.query(`SELECT ${STORE_COLUMNS} FROM core.store_settings WHERE id = 1`)).rows[0]));
+  }
+
+  /** The confirmation email as a made-up order would get it. */
+  async previewConfirmation(subject: string, body: string) {
+    const unknown = unknownOrderFields(subject, body);
+    const site = (await this.pool.query<{ name: string | null }>(
+      `SELECT coalesce((SELECT nullif(site_name, '') FROM core.site_settings WHERE id = 1), (SELECT business_name FROM authz.site_info())) AS name`,
+    )).rows[0]?.name ?? null;
+    return { ...confirmationEmail({ ...SAMPLE_ORDER, business_name: site }, await this.messaging.appUrl(), { subject, body }), unknown };
+  }
+
+  private withEmailHelp(row: Record<string, unknown>) {
+    return { ...row, confirmation_defaults: { subject: DEFAULT_CONFIRMATION_SUBJECT, body: DEFAULT_CONFIRMATION_BODY }, confirmation_fields: ORDER_FIELDS };
   }
 
   updateSettings(p: Principal, input: z.infer<typeof storeSettingsSchema>) {
     return this.db.as(p, async (db) => {
       const cols = Object.keys(input) as (keyof typeof input)[];
       if (cols.length) await db.query(`UPDATE core.store_settings SET ${cols.map((c, i) => `${c} = $${i + 1}`).join(', ')} WHERE id = 1`, cols.map((c) => input[c]));
-      return (await db.query(`SELECT ${STORE_COLUMNS} FROM core.store_settings WHERE id = 1`)).rows[0];
+      return this.withEmailHelp((await db.query(`SELECT ${STORE_COLUMNS} FROM core.store_settings WHERE id = 1`)).rows[0]);
     });
   }
 

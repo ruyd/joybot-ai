@@ -5,6 +5,7 @@ import { Can, CurrentPrincipal, CustomersOnly, EmployeesOnly, Public, type Princ
 import { ZodPipe } from '../common/zod.pipe';
 import {
   checkoutSchema,
+  confirmationPreviewSchema,
   orderListSchema,
   orderStatusSchema,
   productSchema,
@@ -82,6 +83,14 @@ export class StoreSettingsController {
   @Can('update', 'settings')
   update(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(storeSettingsSchema)) body: z.infer<typeof storeSettingsSchema>) {
     return this.store.updateSettings(p, body);
+  }
+
+  /** The confirmation email for a made-up order, as the template stands in the editor. */
+  @Post('confirmation-preview')
+  @HttpCode(200)
+  @Can('update', 'settings')
+  preview(@Body(new ZodPipe(confirmationPreviewSchema)) body: z.infer<typeof confirmationPreviewSchema>) {
+    return this.store.previewConfirmation(body.subject, body.body);
   }
 }
 
