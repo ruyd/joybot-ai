@@ -184,7 +184,18 @@ export interface SiteInfo {
 }
 
 /** The public site's name, setup and published pages (header and footer). */
-export const useSite = () => useQuery({ queryKey: ['site'], queryFn: () => siteGet<SiteInfo>(''), staleTime: 60_000 });
+export const useSite = () =>
+  useQuery({ queryKey: ['site'], queryFn: () => siteGet<SiteInfo>(''), staleTime: 60_000, retry: retryWhileWaking, retryDelay: wakeDelay });
+
+/**
+ * A sleeping API (Render's free plan) can answer 5xx or drop the connection while it wakes: keep
+ * trying for about a minute and a half. Other errors (404, 400) are final.
+ */
+export const retryWhileWaking = (count: number, err: unknown) => {
+  const status = (err as { status?: number }).status;
+  return count < 8 && (!status || status >= 500);
+};
+const wakeDelay = (attempt: number) => Math.min(2_000 * 2 ** attempt, 15_000);
 
 /** POST to the public site API (no sign-in), e.g. booking a sales call. */
 export async function sitePost<T>(path: string, body: unknown): Promise<T> {

@@ -282,6 +282,42 @@
   }
 }
 
+/* Website loader (components/site/SiteLoader.tsx): fades in after a moment, so quick loads show nothing. */
+.site-loader {
+  animation: site-loader-in 300ms ease-out 250ms both;
+}
+.site-loader-ring {
+  animation: site-loader-spin 1.1s linear infinite;
+}
+.site-loader-pulse {
+  animation: site-loader-pulse 1.6s ease-in-out infinite;
+}
+@keyframes site-loader-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes site-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes site-loader-pulse {
+  50% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .site-loader-ring {
+    animation-duration: 3s;
+  }
+  .site-loader-pulse {
+    animation: none;
+  }
+}
+
 /* Markdown answers */
 .prose-chat p { @apply my-1.5; }
 .prose-chat ul { @apply my-1.5 list-disc pl-5; }
