@@ -40,6 +40,9 @@ import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
 import { AiController } from './ai/ai.controller';
+import { STORE_CHECKOUT, StripeStoreCheckout } from './store/checkout';
+import { OrdersController, ProductsController, SiteStoreController, StoreSettingsController } from './store/store.controller';
+import { StoreService } from './store/store.service';
 import { SiteAnalyticsService } from './website/analytics.service';
 import { S3SiteAssetStore, SITE_ASSET_STORE } from './website/asset-store';
 import { AiService, ConfiguredLlmProvider } from './ai/ai.service';
@@ -110,6 +113,10 @@ export class AppModule {
         AuditController,
         WebsiteController,
         SiteController,
+        SiteStoreController,
+        ProductsController,
+        StoreSettingsController,
+        OrdersController,
         KnowledgeController,
         PaymentsController,
         UsersController,
@@ -134,6 +141,12 @@ export class AppModule {
         SchedulesService,
         WebsiteService,
         SiteAnalyticsService,
+        StoreService,
+        {
+          provide: STORE_CHECKOUT,
+          inject: [StripeSecrets],
+          useFactory: (secrets: StripeSecrets) => new StripeStoreCheckout(secrets, config.STRIPE_API_BASE),
+        },
         { provide: SITE_ASSET_STORE, useFactory: () => (config.SITE_ASSET_STORE === 's3' ? new S3SiteAssetStore(config) : null) },
         SalesCallsService,
         WhatsAppSettingsPublisher,

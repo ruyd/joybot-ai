@@ -46,7 +46,9 @@ export class MeController {
           [p.type],
         )
       ).rows[0]?.enabled ?? true;
-      return { type: p.type, role: p.role, profile, assistant, rules: packRules(p.access) };
+      // Settings › Store: the portal shows Orders while the store is open.
+      const store = (await db.query<{ enabled: boolean }>('SELECT enabled FROM core.store_settings WHERE id = 1')).rows[0]?.enabled ?? false;
+      return { type: p.type, role: p.role, profile, assistant, store, rules: packRules(p.access) };
     });
   }
 

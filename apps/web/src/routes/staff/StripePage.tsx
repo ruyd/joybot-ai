@@ -11,18 +11,32 @@ interface SavedSecret {
   last4: string | null;
   set_at: string | null;
   set_by_name: string | null;
-  /** Where the one in use comes from: saved here, the server's environment / Secrets Manager, or none. */
-  source: 'settings' | 'server' | null;
 }
+
+type SecretKind = 'api_key' | 'test_api_key' | 'webhook_secret' | 'test_webhook_secret';
+/** Where the one in use comes from: saved here, the server's environment / Secrets Manager, or none. */
+type Source = 'settings' | 'server' | null;
 
 interface StripeStatus {
   events: { status: string; count: number }[];
   unmatchedPayments: number;
   lastReconcile: { status: string; finished_at: string | null; result: Record<string, unknown> | null } | null;
   encryption_available: boolean;
+  /** Which key checkout and reconciling use, and which webhooks are applied. */
+  mode: 'live' | 'test';
+  active: { api_key: Source; webhook_secret: Source };
   api_key: SavedSecret;
+  test_api_key: SavedSecret;
   webhook_secret: SavedSecret;
+  test_webhook_secret: SavedSecret;
 }
+
+const SECRET_PATH: Record<SecretKind, string> = {
+  api_key: '/admin/stripe/api-key',
+  test_api_key: '/admin/stripe/test-api-key',
+  webhook_secret: '/admin/stripe/webhook-secret',
+  test_webhook_secret: '/admin/stripe/test-webhook-secret',
+};
 
 /** The events the worker applies (apps/worker/src/stripe/apply.ts): what to select on the webhook endpoint. */
 const WEBHOOK_EVENTS = [
@@ -55,16 +69,18 @@ export function StripePage() {
       ) : q.data ? (
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <div className="grid min-w-0 gap-4">
-            <Card title="API key">
+            <ModeCard status={q.data} />
+            <Card title="API keys">
               <div className="grid gap-3 text-sm">
                 <p className="text-slate-600 dark:text-slate-300">
-                  Used to take card payments for invoices and to reconcile Stripe payments. Best a restricted key with write access to Checkout Sessions and read access
-                  to PaymentIntents and Charges. It is stored encrypted and never shown again.
+                  Used to take card payments (invoices and the shop) and to reconcile Stripe payments; the mode above picks which. Best restricted keys with write access to
+                  Checkout Sessions and read access to PaymentIntents and Charges. They are stored encrypted and never shown again.
                 </p>
                 <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noreferrer" className={linkButton}>
                   Open API keys in Stripe <ExternalLink className="size-3.5" aria-hidden="true" />
                 </a>
-                <SecretField status={q.data} kind="api_key" label="Stripe API key" placeholder="rk_live_…" />
+                <SecretField status={q.data} kind="api_key" label="Live API key" placeholder="rk_live_…" />
+                <SecretField status={q.data} kind="test_api_key" label="Test API key" placeholder="rk_test_…" />
               </div>
             </Card>
             <WebhookCard status={q.data} />
@@ -83,8 +99,8 @@ function WebhookCard({ status }: { status: StripeStatus }) {
     <Card title="Webhook">
       <div className="grid gap-3 text-sm">
         <p className="text-slate-600 dark:text-slate-300">
-          Stripe tells JoyBot about payments, refunds and disputes as they happen. In Stripe, add an endpoint with this address and these events, then paste its signing
-          secret here.
+          Stripe tells JoyBot about payments, refunds and disputes as they happen. In Stripe, add an endpoint with this address and these events, in live mode and
+          in test mode, then paste each one's signing secret here. Only the mode in use is applied.
         </p>
         <div className="flex items-center gap-2">
           <code className="min-w-0 flex-1 truncate rounded-md bg-slate-100 px-2 py-1.5 text-xs dark:bg-slate-800">{endpoint}</code>
@@ -113,22 +129,71 @@ function WebhookCard({ status }: { status: StripeStatus }) {
         <a href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noreferrer" className={linkButton}>
           Open webhooks in Stripe <ExternalLink className="size-3.5" aria-hidden="true" />
         </a>
-        <SecretField status={status} kind="webhook_secret" label="Signing secret" placeholder="whsec_…" />
+        <SecretField status={status} kind="webhook_secret" label="Live signing secret" placeholder="whsec_…" />
+        <SecretField status={status} kind="test_webhook_secret" label="Test signing secret" placeholder="whsec_…" />
+      </div>
+    </Card>
+  );
+}
+
+/** Live or test: which key checkout and reconciling use, and which webhooks are applied. */
+function ModeCard({ status }: { status: StripeStatus }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const setMode = useMutation({
+    mutationFn: (mode: 'live' | 'test') => api.put<StripeStatus>('/admin/stripe/mode', { mode }),
+    onSuccess: (data) => queryClient.setQueryData(['stripe-status'], data),
+  });
+  const test = setMode.isPending ? setMode.variables === 'test' : status.mode === 'test';
+  const missing = test ? !status.test_api_key.last4 : !status.api_key.last4 && status.active.api_key !== 'server';
+  return (
+    <Card>
+      <div className="grid gap-3 text-sm">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="switch mt-0.5"
+            checked={test}
+            disabled={setMode.isPending}
+            onChange={(e) =>
+              (!e.target.checked || window.confirm('Switch to test mode? Card payments use the test key (no real money), and live webhooks are ignored until you switch back.')) &&
+              setMode.mutate(e.target.checked ? 'test' : 'live')
+            }
+          />
+          <span>
+            <span className="flex items-center gap-2 font-semibold">
+              Test mode{' '}
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${test ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'}`}>
+                {test ? 'Test' : 'Live'}
+              </span>
+            </span>
+            <span className="block text-slate-500">
+              {test ? 'Payments use the test key: Stripe test cards only, no real money. Live webhooks are ignored.' : 'Payments use the live key and take real money. Test webhooks are ignored.'}
+            </span>
+          </span>
+        </label>
+        {missing && (
+          <p role="alert" className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            No {test ? 'test' : 'live'} API key yet: card payments won't start until you save one below.
+          </p>
+        )}
+        {setMode.error && <ErrorBanner error={setMode.error} />}
       </div>
     </Card>
   );
 }
 
 /** A secret saved encrypted (shown as its last four characters), with Replace and Remove. */
-function SecretField({ status, kind, label, placeholder }: { status: StripeStatus; kind: 'api_key' | 'webhook_secret'; label: string; placeholder: string }) {
+function SecretField({ status, kind, label, placeholder }: { status: StripeStatus; kind: SecretKind; label: string; placeholder: string }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [value, setValue] = useState('');
   const [replacing, setReplacing] = useState(false);
-  const path = kind === 'api_key' ? '/admin/stripe/api-key' : '/admin/stripe/webhook-secret';
+  const path = SECRET_PATH[kind];
   const done = (data: StripeStatus) => queryClient.setQueryData(['stripe-status'], data);
   const save = useMutation({
-    mutationFn: () => api.put<StripeStatus>(path, { [kind]: value.trim() }),
+    // Live and test share the API's field names: { api_key } or { webhook_secret }.
+    mutationFn: () => api.put<StripeStatus>(path, { [kind.endsWith('api_key') ? 'api_key' : 'webhook_secret']: value.trim() }),
     onSuccess: (data) => {
       done(data);
       setValue('');
@@ -141,15 +206,18 @@ function SecretField({ status, kind, label, placeholder }: { status: StripeStatu
     save.mutate();
   };
   const s = status[kind];
+  // The server's own key or secret is used for the mode in use while none is saved here.
+  const inUse = (kind.startsWith('test_') ? 'test' : 'live') === status.mode;
+  const serverOne = inUse && status.active[kind.endsWith('api_key') ? 'api_key' : 'webhook_secret'] === 'server';
 
   return (
     <>
-      {s.source === 'server' && !s.last4 && (
+      {serverOne && !s.last4 && (
         <p role="status" className="rounded-lg bg-slate-50 p-3 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
           The server has one configured. One saved here is used instead.
         </p>
       )}
-      {!status.encryption_available && (
+      {!status.encryption_available && kind === 'api_key' && (
         <p role="alert" className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
           SETTINGS_ENCRYPTION_KEY is not set on the server, so secrets cannot be stored yet.
         </p>

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-JoyBot AI is a chatbot for customers and employees. Its own Postgres database is the source of truth, and chat uses Gemma 4 (E2B self-hosted, or a model chosen in Settings › AI, e.g. OpenRouter). Design and roadmap: [plan.md](plan.md) (§11). Setup: [README.md](README.md). **Before changing email, AI settings, video calls, the website, sales calls, MCP, appointment types, merged customers, tickets or Supabase Auth, read that area's section in [docs/features.md](docs/features.md).**
+JoyBot AI is a chatbot for customers and employees. Its own Postgres database is the source of truth, and chat uses Gemma 4 (E2B self-hosted, or a model chosen in Settings › AI, e.g. OpenRouter). Design and roadmap: [plan.md](plan.md) (§11). Setup: [README.md](README.md). **Before changing email, AI settings, video calls, the website, sales calls, the store, MCP, appointment types, merged customers, tickets or Supabase Auth, read that area's section in [docs/features.md](docs/features.md).**
 
 ## Workflow
 
@@ -30,7 +30,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web |
 | `apps/api` | NestJS, one folder per feature, plus `auth/` guards and `config/config.ts` (Zod) |
 | `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
-| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, website, analytics, articles, answers, then Settings) |
+| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, orders, website, analytics, products, articles, answers, then Settings) |
 | `cloudformation` | AWS: `main.yaml`, nested `stacks/`, Lambda `functions/` (own pnpm package), `scripts/`, `guard/`, `bootstrap/` |
 | `deploy`, `render.yaml` | Free-tier deploy (Render + Supabase + Cloudflare Pages), [docs/deploy-free.md](docs/deploy-free.md) |
 | `.github/workflows` | `ci.yml`, `release.yml` (AWS), `deploy-free.yml` |

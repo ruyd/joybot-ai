@@ -10,6 +10,8 @@ export interface Me {
   profile: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null; [k: string]: unknown };
   /** The assistant is on for this audience (Admin › AI). */
   assistant?: boolean;
+  /** The store is open (Settings › Store). */
+  store?: boolean;
   rules: { action: string; subject: string }[];
 }
 
