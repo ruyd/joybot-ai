@@ -4,6 +4,7 @@ import type { Pool } from 'pg';
 import { Public } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import { APP_POOL } from '../db/db.module';
+import { SITE_ASSET_STORE, type SiteAssetStore } from './asset-store';
 import { bookSalesCallSchema, SalesCallsService, slotsQuerySchema, type BookSalesCall, type SlotsQuery } from './sales-calls.service';
 import { SETTINGS_COLUMNS } from './website.service';
 
@@ -18,6 +19,7 @@ const PAGE_COLUMNS = 'slug, title, description, is_home, show_in_header, show_in
 export class SiteController {
   constructor(
     @Inject(APP_POOL) private readonly pool: Pool,
+    @Inject(SITE_ASSET_STORE) private readonly store: SiteAssetStore | null,
     private readonly salesCalls: SalesCallsService,
   ) {}
 
@@ -64,12 +66,17 @@ export class SiteController {
   @Get('assets/:id')
   async asset(@Res() res: Response, @Param('id', ParseUUIDPipe) id: string) {
     const row = (
-      await this.pool.query<{ content_type: string; bytes: Buffer }>(
-        'SELECT a.content_type, d.bytes FROM core.site_assets a JOIN core.site_asset_data d ON d.asset_id = a.id WHERE a.id = $1',
+      await this.pool.query<{ content_type: string; storage: 'db' | 's3'; bytes: Buffer | null }>(
+        'SELECT a.content_type, a.storage, d.bytes FROM core.site_assets a LEFT JOIN core.site_asset_data d ON d.asset_id = a.id WHERE a.id = $1',
         [id],
       )
     ).rows[0];
-    if (!row) throw new NotFoundException('Image not found');
+    // In the bucket: send the browser to the CDN (pages normally link there directly).
+    if (row?.storage === 's3' && this.store) {
+      res.set('Cache-Control', 'public, max-age=86400').redirect(301, this.store.publicUrl(id));
+      return;
+    }
+    if (!row?.bytes) throw new NotFoundException('Image not found');
     res
       .set({
         'Content-Type': row.content_type,

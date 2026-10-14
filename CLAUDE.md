@@ -56,7 +56,8 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **External clients are injectable tokens** (`JWT_VERIFIERS`, `SUPABASE_TOKENS`, `SUPABASE_HTTP`, `EMPLOYEE_LOGINS`, `CUSTOMER_LOGINS`, `LLM_PROVIDER`, `MESSAGE_SENDER`, `RESEND_HTTP`, `GOOGLE_HTTP`), so tests can override them. In dev, messages are logged rather than sent.
 
 ### Product constraints from the owner
-- AWS: us-east-1 only, one AWS Organization. No public buckets, images or data there; artifacts are shared through `aws:PrincipalOrgID`.
+- AWS: us-east-1 only, one AWS Organization. Artifacts and container images are shared only through `aws:PrincipalOrgID`.
+- **Buckets for public content may be public**, read-only for anyone, with ACLs off, TLS only, and no public listing or writes. Today that means the web app's `SiteBucket` (marked `Metadata.JoyBot.PublicContent`, checked by `cloudformation/guard`) and the website images bucket on R2 (`cdn.appjoy.dev`). Anything private (data, artifacts, model weights, later ticket attachments or invoices) stays in private buckets.
 - WhatsApp instead of SMS. The number and templates live in `core.settings`, not stack parameters.
 - Employee roles are admin and staff. Customers can be org admins. No org billing and no compliance scope for now.
 

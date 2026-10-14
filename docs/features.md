@@ -37,7 +37,11 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 - **Modules:** pages hold their modules as jsonb validated by `website.schemas.ts` (`hero`, `cards`, `columns`, `compare`, `faq`, `cta`, `html`, `image`, `video`, all with the shared section options). To add a module type, change `website.schemas.ts`, `lib/site.ts`, `components/site/Modules.tsx` and the editor (`routes/staff/WebsiteEditors.tsx`).
 - **Site setup** (site name, colors, fonts, logo, header) is `core.site_settings`. The public site shows `site_name` (a DBA) or else the business name. Card icons and fonts are fixed lists by name in `website.schemas.ts` that `lib/site-icons.tsx` and `lib/site-fonts.ts` must match (a web test checks).
 - **HTML** is sanitized with `sanitize-html` on save and DOMPurify on display. Never render editor HTML without both.
-- **Images** are bytes in `core.site_asset_data` (not audited), uploaded as the raw body with an image Content-Type checked against the file's signature. No SVG.
+- **Images** are uploaded as the raw body with an image Content-Type checked against the file's signature. No SVG.
+  - Where they're stored is `core.site_assets.storage`. By default (`db`) the bytes are in `core.site_asset_data` (not audited) and `GET /api/site/assets/:id` serves them.
+  - With `SITE_ASSET_STORE=s3` (`SITE_ASSET_STORE` token, `website/asset-store.ts`), they go to the bucket as `site/<id>`: put first, then the row, and the object is removed if the insert fails. The API answers with a 301 to the CDN, and the web app links to `assetBase/site/<id>` directly (`assetUrl`).
+  - Deleting removes the object and, with `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ZONE_ID`, purges the CDN.
+  - Images uploaded before the switch are moved with `POST /api/website/assets/move` (`authz.site_asset_moved`), offered in the editor's image library.
 - **Reserved slugs:** those used by the app (`portal`, `staff`, `auth`, `api`, …) are reserved in SQL and Zod.
 
 ### Sales calls (`/book-a-call`, Marketing › Sales calls)

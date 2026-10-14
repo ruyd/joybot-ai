@@ -63,15 +63,19 @@ Conditions:
 Resources:
   SiteBucket:
     Type: AWS::S3::Bucket
+    Metadata:
+      JoyBot: { PublicContent: true }  # cloudformation/guard: may be read by anyone
     Properties:
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      # Public content (the web app's static files): anyone may read objects through the bucket
+      # policy (CLAUDE.md). ACLs stay off; no public listing or writes.
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: false
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
@@ -91,6 +95,11 @@ Resources:
             Condition:
               StringEquals:
                 "AWS:SourceArn": !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: PublicRead
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
           - Sid: TlsOnly
             Effect: Deny
             Principal: "*"

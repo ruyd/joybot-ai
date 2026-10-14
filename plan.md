@@ -105,7 +105,7 @@ The stack is a **NestJS** backend and a **React + Vite** frontend. It runs on **
 | Compute | **ECS on EC2**: CPU (Graviton) for `api` + `worker`, GPU for vLLM | Lowest cost at steady load |
 | Frontend | React 19 + Vite 7 + TS + TanStack Query + Tailwind 4; `/portal` and `/staff` | |
 | IaC | **Plain CloudFormation YAML**, nested stacks; **us-east-1 only** (template `Rules` assertion) | |
-| Distribution | **Private** S3 artifacts bucket + **private ECR**, shared via `aws:PrincipalOrgID` with **one AWS Organization**. No public buckets, images or data | |
+| Distribution | **Private** S3 artifacts bucket + **private ECR**, shared via `aws:PrincipalOrgID` with **one AWS Organization**. Only buckets for public content (web app files, website images) are public, read-only | |
 | CI/CD | GitHub Actions (OIDC) → test → publish versioned artifacts → `aws cloudformation deploy` | |
 
 ---
@@ -889,6 +889,6 @@ Modeled on the layout of the [Zilliz Cloud dedicated price list](https://zilliz.
 | Support tickets | **JoyBot's own** (Freshdesk replaced); customers see their own tickets, org admins see their organization's, staff per access rules |
 | Model | **Gemma 4 E2B**, E4B fallback |
 | Existing data / compliance | None to migrate; no compliance regime for now |
-| Region & distribution | **us-east-1**, one **AWS Organization**, private S3 + ECR, no public buckets or data |
+| Region & distribution | **us-east-1**, one **AWS Organization**, private ECR and artifacts; only public-content buckets are public (read-only) |
 
 No open questions remain. Phase 0 will validate the E2B benchmark, Meta/WhatsApp approval timelines,.

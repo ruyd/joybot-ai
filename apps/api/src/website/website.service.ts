@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { z } from 'zod';
 import type { Principal } from '../auth/principal';
 import { insertStatement, setClause } from '../common/sql';
 import { DbService } from '../db/db.module';
+import { SITE_ASSET_STORE, type SiteAssetStore } from './asset-store';
 import type { createPageSchema, SiteSettingsInput, updatePageSchema } from './website.schemas';
 
 const LIST_COLUMNS = `p.id, p.slug, p.title, p.description, p.is_home, p.published, p.show_in_header, p.show_in_footer, p.sort_order,
@@ -38,7 +39,13 @@ export function imageType(contentType: string): string {
  */
 @Injectable()
 export class WebsiteService {
-  constructor(private readonly db: DbService) {}
+  private readonly logger = new Logger('Website');
+
+  constructor(
+    private readonly db: DbService,
+    /** The bucket for images (SITE_ASSET_STORE=s3), else null: images stay in the database. */
+    @Optional() @Inject(SITE_ASSET_STORE) private readonly store: SiteAssetStore | null = null,
+  ) {}
 
   listPages(p: Principal) {
     return this.db.as(p, async (db) => (await db.query(`SELECT ${LIST_COLUMNS} FROM core.site_pages p ORDER BY p.is_home DESC, p.sort_order, p.title`)).rows);
@@ -89,32 +96,67 @@ export class WebsiteService {
   // Images ------------------------------------------------------------------------------------------
 
   listAssets(p: Principal) {
-    return this.db.as(p, async (db) => (await db.query('SELECT id, filename, content_type, size_bytes, created_at FROM core.site_assets ORDER BY created_at DESC LIMIT 200')).rows);
+    return this.db.as(p, async (db) => (await db.query('SELECT id, filename, content_type, size_bytes, storage, created_at FROM core.site_assets ORDER BY created_at DESC LIMIT 200')).rows);
   }
 
   /** Stores an image after checking its bytes are the declared type (`imageType`). */
-  uploadAsset(p: Principal, type: string, bytes: Buffer, filename?: string) {
+  async uploadAsset(p: Principal, type: string, bytes: Buffer, filename?: string) {
     const signature = SIGNATURES.find((s) => s.type === type);
     if (!signature) throw new BadRequestException('Upload a PNG, JPEG, WebP or GIF image');
     if (bytes.length > MAX_IMAGE_BYTES) throw new BadRequestException(`Images can be up to ${MAX_IMAGE_BYTES / 1024 / 1024} MB`);
     if (!bytes.length || !signature.test(bytes)) throw new BadRequestException(`That file is not a ${type.slice(6).toUpperCase()} image`);
     const name = (filename ?? '').replace(/[^\w .()-]/g, '').trim().slice(0, 200) || `image.${type.slice(6)}`;
-    return this.db.as(p, async (db) => {
-      const asset = (
-        await db.query(
-          `INSERT INTO core.site_assets (filename, content_type, size_bytes, sha256, created_by) VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, filename, content_type, size_bytes, created_at`,
-          [name, type, bytes.length, createHash('sha256').update(bytes).digest('hex'), p.id],
-        )
-      ).rows[0];
-      await db.query('INSERT INTO core.site_asset_data (asset_id, bytes) VALUES ($1, $2)', [asset.id, bytes]);
-      return asset;
-    });
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const insert = (db: PoolClient, id: string, storage: 'db' | 's3') =>
+      db.query(
+        `INSERT INTO core.site_assets (id, filename, content_type, size_bytes, sha256, storage, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING id, filename, content_type, size_bytes, storage, created_at`,
+        [id, name, type, bytes.length, sha256, storage, p.id],
+      );
+    const store = this.store;
+    if (!store) {
+      return this.db.as(p, async (db) => {
+        const asset = (await insert(db, randomUUID(), 'db')).rows[0];
+        await db.query('INSERT INTO core.site_asset_data (asset_id, bytes) VALUES ($1, $2)', [asset.id, bytes]);
+        return asset;
+      });
+    }
+    // Bucket first, then the row: a failed insert (e.g. not allowed) removes the object again.
+    const id = randomUUID();
+    await store.put(id, bytes, type);
+    try {
+      return await this.db.as(p, async (db) => (await insert(db, id, 's3')).rows[0]);
+    } catch (err) {
+      await store.delete(id).catch((e: Error) => this.logger.warn(`could not remove image ${id} after a failed upload: ${e.message}`));
+      throw err;
+    }
   }
 
   async deleteAsset(p: Principal, id: string) {
-    const deleted = await this.db.as(p, async (db) => (await db.query('DELETE FROM core.site_assets WHERE id = $1', [id])).rowCount);
+    const deleted = await this.db.as(p, async (db) => (await db.query<{ storage: string }>('DELETE FROM core.site_assets WHERE id = $1 RETURNING storage', [id])).rows[0]);
     if (!deleted) throw new NotFoundException();
+    if (deleted.storage === 's3') {
+      // Best effort: the row is gone, so the image no longer shows on the site's pages or editor.
+      await this.store?.delete(id).catch((e: Error) => this.logger.warn(`could not remove image ${id} from the bucket: ${e.message}`));
+    }
+  }
+
+  /** Moves images still kept in the database into the bucket (after switching to SITE_ASSET_STORE=s3). */
+  async moveAssetsToStore(p: Principal): Promise<{ moved: number; remaining: number }> {
+    const store = this.store;
+    if (!store) throw new BadRequestException('Images are kept in the database on this server');
+    const pending = await this.db.as(p, async (db) =>
+      (await db.query<{ id: string; content_type: string }>(`SELECT id, content_type FROM core.site_assets WHERE storage = 'db' ORDER BY created_at`)).rows,
+    );
+    let moved = 0;
+    for (const a of pending) {
+      const bytes = await this.db.as(p, async (db) => (await db.query<{ bytes: Buffer }>('SELECT bytes FROM core.site_asset_data WHERE asset_id = $1', [a.id])).rows[0]?.bytes);
+      if (!bytes) continue;
+      await store.put(a.id, bytes, a.content_type);
+      await this.db.as(p, (db) => db.query('SELECT authz.site_asset_moved($1)', [a.id]));
+      moved++;
+    }
+    return { moved, remaining: pending.length - moved };
   }
 
   // Site setup --------------------------------------------------------------------------------------
