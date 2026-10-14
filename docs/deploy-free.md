@@ -148,7 +148,7 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   nosniff`, optional hotlink protection. Back up the bucket separately (`pg_dump` no longer has images).
 - Record the exception in CLAUDE.md › Product constraints.
 
-### 8. Hosting and deploy ✅ code, ⬜ accounts
+### 8. Hosting and deploy ✅ (live 2026-10-13)
 - **Migrations and role passwords:** `ROLE_PASSWORDS_ONCE=true` makes `migrate` set a role's password only
   while the role cannot log in yet (Supabase's pooler refuses a role for ~20 s after its password is set
   again, even to the same value). Rotate by running once without it. AWS's bootstrap is unchanged.
@@ -157,7 +157,7 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   `deploy/supabase`, `ROLE_PASSWORDS_ONCE`), then calls Render's deploy hook. Off until the repository
   variable `FREE_DEPLOY` is `true`. Secrets: `SUPABASE_MIGRATOR_URL`, `APP_DB_PASSWORD`,
   `READER_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `RENDER_DEPLOY_HOOK_URL`.
-- **Render** (`render.yaml`, Blueprint): one free web service from `deploy/render/Dockerfile` (API +
+- **Render** (`render.yaml`; service `joybot-api` was created through Render's API with the same settings): one free web service from `deploy/render/Dockerfile` (API +
   worker), Ohio, health check `/api/health`, custom domain `api.appjoy.dev`, `autoDeploy: false` (the
   Action deploys after migrating). Fixed values in the file; enter in the dashboard: `SUPABASE_URL`,
   `SUPABASE_SERVICE_ROLE_KEY`, the three `*_DATABASE_URL`s (transaction pooler, 6543), `DB_SSL_CA` (the
@@ -166,13 +166,13 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   the service to wake (~1 min).
 - **Cloudflare Pages** (Workers & Pages › Create › Pages › Connect to Git):
   - Production branch `main`; root directory empty (repo root); output `apps/web/dist`.
-  - Build command: `npm i -g pnpm@12.10.1 && pnpm install --frozen-lockfile && pnpm --filter @joybot/web build && node apps/web/scripts/write-config.mjs`
+  - Build command: `pnpm --filter "@joybot/web..." build && node apps/web/scripts/write-config.mjs`. Pages
+    installs pnpm (from `packageManager`) and runs `pnpm install` itself; `...` builds `@joybot/access` first.
   - Variables: `NODE_VERSION=22`, `WEB_API_BASE=https://api.appjoy.dev/api`, `SUPABASE_URL`,
     `SUPABASE_PUBLISHABLE_KEY` (public), `APP_URL=https://appjoy.dev`.
   - `write-config.mjs` writes `dist/config.json` and fails the build if a value is missing, so the local
     development config (dev sign-in) is never shipped. SPA routes work without extra config.
-  - Custom domain `appjoy.dev` once the API answers on `api.appjoy.dev` (Firebase keeps serving the site
-    until then).
+  - Project `joybot-web`, custom domain `appjoy.dev` (replaced Firebase Hosting).
 - **Google sign-in** URLs: Supabase › URL Configuration has `https://appjoy.dev/**`; the Google OAuth
   client redirects to `https://tknchixzrnycvzufbkot.supabase.co/auth/v1/callback` (both checked).
 - **Google Meet** (Setup meeting links): redirect URI becomes
