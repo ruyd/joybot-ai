@@ -15,6 +15,14 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 - Sign-in and verification codes (`contact_code`) belong to the auth provider and never go through Resend.
 - The Resend key is a third-party secret: see "Third-party keys" in CLAUDE.md.
 
+## AI settings (`apps/api/src/ai/`, Admin › AI)
+
+- **Assistant on/off:** `core.settings.assistant_customers` / `assistant_employees`. `GET /me` returns `assistant` for the caller's audience; the web app then hides the Assistant page, nav item and dock (the portal opens on Appointments). `ChatService.assertAssistantOn` refuses new conversations and questions with 403 `assistant_off`.
+- **Chat model:** `core.ai_settings` holds the provider (`openrouter`, `custom`, or NULL for the server default `MODEL_ENDPOINT` / `MODEL_NAME`, else evidence-only answers), the model, the base URL (custom only) and `private_only`. The API key is encrypted in `core.ai_secret` (`authz.set_ai_key` / `authz.ai_delivery`).
+- `LLM_PROVIDER` is a `ConfiguredLlmProvider`. For every question it asks `AiService.provider()` (cached 30 s, cleared on save) and falls back to the server default. Tests that override `LLM_PROVIDER` bypass it.
+- **OpenRouter:** base `https://openrouter.ai/api/v1`. `private_only` sends `provider.data_collection = 'deny'`, and thinking is turned off with `reasoning.enabled = false`. Gemma 4 E2B isn't listed there; `google/gemma-4-26b-a4b-it` is the cheapest Gemma 4. Free (`:free`) models log prompts.
+- `POST /admin/ai/test` sends one short prompt. Provider errors come back as 502 with the provider's own message.
+
 ## Video calls (`apps/api/src/video/`)
 
 - Sales calls › Setup meeting links connects a Google account by OAuth with only the non-sensitive scope `calendar.app.created`, so no Google verification is needed. JoyBot makes its own "<site> sales calls" calendar there (`google_calendar_id`, remade if deleted) and can't see other calendars.

@@ -6,6 +6,7 @@ import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
 import { LoadingMark } from './lib/loading';
 import { SessionProvider } from './lib/auth';
+import { useMe } from './lib/me';
 import { AuthCallback } from './routes/AuthCallback';
 
 /**
@@ -78,6 +79,7 @@ const SitePageView = page(site, 'SitePageView');
 const BookCallPage = page(() => import('./routes/site/BookCall'), 'BookCallPage');
 const WebsitePage = page(() => import('./routes/staff/WebsitePages'), 'WebsitePage');
 const EmailPage = page(() => import('./routes/staff/EmailPage'), 'EmailPage');
+const AiPage = page(() => import('./routes/staff/AiPage'), 'AiPage');
 const SalesCallsPage = page(() => import('./routes/staff/SalesCalls'), 'SalesCallsPage');
 const AuditLogPage = page(() => import('./routes/staff/AuditLog'), 'AuditLogPage');
 const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'EmployeesPage');
@@ -99,7 +101,7 @@ const queryClient = new QueryClient({
 });
 
 const PORTAL_NAV: NavItem[] = [
-  { to: '/portal', label: 'Assistant', end: true },
+  { to: '/portal', label: 'Assistant', end: true, assistant: true },
   { to: '/portal/appointments', label: 'Appointments' },
   { to: '/portal/book', label: 'Book' },
   { to: '/portal/invoices', label: 'Invoices' },
@@ -142,11 +144,19 @@ const STAFF_NAV: NavItem[] = [
       { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
       { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
       { to: '/staff/email', label: 'Email', can: ['update', 'settings'] },
+      { to: '/staff/ai', label: 'AI', can: ['update', 'settings'] },
       { to: '/staff/claude', label: 'Claude access', role: 'admin' },
       { to: '/staff/audit', label: 'Audit log', can: ['read', 'audit'] },
     ],
   },
 ];
+
+/** The Assistant page, or another page while Admin › AI has the assistant turned off. */
+function AssistantOr({ audience, otherwise }: { audience: 'customer' | 'employee'; otherwise: string }) {
+  const { me } = useMe();
+  if (!me) return null;
+  return me.assistant === false ? <Navigate to={otherwise} replace /> : <ChatPage audience={audience} />;
+}
 
 export function App() {
   return (
@@ -178,7 +188,7 @@ export function App() {
               </SessionProvider>
             }
           >
-            <Route index element={<ChatPage audience="customer" />} />
+            <Route index element={<AssistantOr audience="customer" otherwise="/portal/appointments" />} />
             <Route path="appointments" element={<MyAppointments />} />
             <Route path="book" element={<BookPage />} />
             <Route path="help" element={<HelpList />} />
@@ -205,7 +215,7 @@ export function App() {
             }
           >
             <Route index element={<StaffHome />} />
-            <Route path="assistant" element={<ChatPage audience="employee" />} />
+            <Route path="assistant" element={<AssistantOr audience="employee" otherwise="/staff" />} />
             <Route path="customers" element={<Customers />} />
             <Route path="todos" element={<Todos />} />
             <Route path="calendar" element={<CalendarPage />} />
@@ -226,6 +236,7 @@ export function App() {
             <Route path="website" element={<WebsitePage />} />
             <Route path="sales-calls" element={<SalesCallsPage />} />
             <Route path="email" element={<EmailPage />} />
+            <Route path="ai" element={<AiPage />} />
             <Route path="review" element={<Review />} />
             <Route path="access" element={<Access />} />
             <Route path="profile" element={<StaffProfile />} />

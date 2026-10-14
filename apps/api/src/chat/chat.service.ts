@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable, Logger, NotFoundException, type OnApplicationBootstrap } from '@nestjs/common';
+import { ForbiddenException, HttpException, Inject, Injectable, Logger, NotFoundException, type OnApplicationBootstrap } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import type { Principal } from '../auth/principal';
 import { DbService } from '../db/db.module';
@@ -42,6 +42,19 @@ export class ChatService implements OnApplicationBootstrap {
   /** Loads the model in the background so the first question does not wait for it. */
   onApplicationBootstrap(): void {
     this.llm.warmUp?.().catch((err: Error) => this.logger.warn(`model warm-up failed: ${err.message}`));
+  }
+
+  /** Admin › AI can turn the assistant off for customers or for staff: new questions are refused. */
+  async assertAssistantOn(p: Principal): Promise<void> {
+    const on = await this.db.as(p, async (db) =>
+      (
+        await db.query<{ enabled: boolean }>(
+          `SELECT CASE WHEN $1 = 'customer' THEN assistant_customers ELSE assistant_employees END AS enabled FROM core.settings WHERE id = 1`,
+          [p.type],
+        )
+      ).rows[0]?.enabled,
+    );
+    if (on === false) throw new ForbiddenException({ statusCode: 403, code: 'assistant_off', message: 'The assistant is turned off.' });
   }
 
   /**

@@ -6,7 +6,7 @@ import { DbService } from '../db/db.module';
 import { WhatsAppSettingsPublisher } from './whatsapp-publisher';
 
 const PUBLIC_FIELDS = `business_name, default_time_zone, default_currency, default_locale,
-  whatsapp_enabled, whatsapp_display_number, stripe_enabled`;
+  whatsapp_enabled, whatsapp_display_number, stripe_enabled, assistant_customers, assistant_employees`;
 const ALL_FIELDS = `${PUBLIC_FIELDS}, chat_retention_days, whatsapp_phone_number_id, whatsapp_otp_template,
   whatsapp_invite_template, whatsapp_template_language, manual_payment_methods,
   bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, invoice_due_days, bank_transfer_instructions, updated_by, updated_at`;
@@ -34,6 +34,9 @@ const updateSchema = z
     /** Invoices: days to pay (due date when sent) and what customers see under "Pay by bank transfer". */
     invoice_due_days: z.number().int().min(0).max(365),
     bank_transfer_instructions: z.string().trim().max(2000).nullable(),
+    /** Admin › AI: the assistant is shown (and answers) in the portal / the staff console. */
+    assistant_customers: z.boolean(),
+    assistant_employees: z.boolean(),
   })
   .partial()
   .strict();

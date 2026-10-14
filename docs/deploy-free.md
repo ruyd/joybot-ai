@@ -126,12 +126,13 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
 - **Stripe keys from the environment** already work: `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_KEY`
   (API) and `STRIPE_RESTRICTED_KEY` (worker).
 
-### 6. Admin › AI (OpenRouter or own deployment)
+### 6. Admin › AI (OpenRouter or own deployment) ✅
 - `core.ai_settings` (provider `openrouter` | `custom`, base URL, model) and `core.ai_secret` (API key,
   SecretBox, last four shown), like Admin › Email. `OpenAiCompatibleProvider` reads them (cached ~30 s);
   `MODEL_ENDPOINT`/`MODEL_NAME` stay the default when nothing is saved.
-- OpenRouter: base `https://openrouter.ai/api/v1`, a Gemma model id from its catalogue (confirm Gemma 4
-  E2B is listed), and its provider routing option to exclude providers that collect data. Chat sends
+- Done as planned; details in "AI settings" in [features.md](features.md). Admin › AI can also turn the assistant off for customers or staff.
+- OpenRouter: base `https://openrouter.ai/api/v1`, a Gemma model id from its catalogue (Gemma 4 E2B is not
+  listed; `google/gemma-4-26b-a4b-it` is the cheapest Gemma 4), and its provider routing option to exclude providers that collect data. Chat sends
   customer record text: use a paid, no-logging provider for real data.
 - A Test button (one short prompt), and run the chat eval (`eval:model`) against the chosen provider.
 

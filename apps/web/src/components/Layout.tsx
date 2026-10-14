@@ -17,6 +17,8 @@ export interface NavLinkItem {
   can?: [string, string];
   /** Only shown for this role. */
   role?: string;
+  /** Only shown while the assistant is on (Admin › AI). */
+  assistant?: true;
 }
 
 /** A dropdown of links; shown when at least one of them is. */
@@ -123,6 +125,8 @@ export function Layout({
   const location = useLocation();
   const { me, can, isLoading, error } = useMe();
   const busy = useBusy();
+  // Admin › AI can turn the assistant off: no dock and no Assistant page.
+  const dock = me?.assistant !== false ? assistant : undefined;
   if (isLoading) return <div className="p-6"><Spinner /></div>;
   if (error) {
     // e.g. a new sign-up waiting for staff review (403 account_in_review): let them sign out.
@@ -145,7 +149,8 @@ export function Layout({
         </Link>
         <nav aria-label="Main" className="flex flex-1 gap-1 overflow-x-auto [scrollbar-width:none]">
           {nav.map((n) => {
-            const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role);
+            const shown = (i: NavLinkItem) =>
+              (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role) && (!i.assistant || me?.assistant !== false);
             if ('items' in n) {
               const items = n.items.filter(shown);
               return items.length ? <NavMenu key={n.label} group={{ ...n, items }} /> : null;
@@ -163,15 +168,15 @@ export function Layout({
           {me && (me.type === 'employee' ? <TeamDrawer me={me} base={base} /> : <UserMenu me={me} base={base} />)}
         </div>
       </header>
-      <div className={assistant && location.pathname !== assistant.path ? 'pb-20' : undefined} aria-busy={busy}>
+      <div className={dock && location.pathname !== dock.path ? 'pb-20' : undefined} aria-busy={busy}>
         <ErrorBoundary key={location.pathname}>
           <Outlet />
         </ErrorBoundary>
       </div>
-      {assistant && (
+      {dock && (
         // Stays mounted across pages (the conversation carries on); hidden on the Assistant page itself.
         <Suspense fallback={null}>
-          <AssistantDock audience={assistant.audience} fullView={assistant.path} hidden={location.pathname === assistant.path} />
+          <AssistantDock audience={dock.audience} fullView={dock.path} hidden={location.pathname === dock.path} />
         </Suspense>
       )}
     </div>

@@ -62,7 +62,7 @@ services:
         sync: false
       - key: STRIPE_RESTRICTED_KEY
         sync: false
-      # Chat model (OpenAI-compatible, e.g. OpenRouter) until Admin › AI exists.
+      # Optional server-default chat model; normally chosen in Admin › AI (OpenRouter) instead.
       - key: MODEL_ENDPOINT
         sync: false
       - key: MODEL_NAME

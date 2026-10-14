@@ -8,6 +8,8 @@ export interface Me {
   type: 'employee' | 'customer';
   role: 'admin' | 'staff' | 'org_admin' | 'customer';
   profile: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null; [k: string]: unknown };
+  /** The assistant is on for this audience (Admin › AI). */
+  assistant?: boolean;
   rules: { action: string; subject: string }[];
 }
 

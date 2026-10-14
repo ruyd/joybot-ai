@@ -39,6 +39,8 @@ import { TasksController } from './tasks/tasks.controller';
 import { TasksService } from './tasks/tasks.service';
 import { TeamController } from './team/team.controller';
 import { KnowledgeController } from './knowledge/knowledge.controller';
+import { AiController } from './ai/ai.controller';
+import { AiService, ConfiguredLlmProvider } from './ai/ai.service';
 import { EmailController } from './email/email.controller';
 import { GOOGLE_HTTP, GoogleClient } from './video/google';
 import { VideoController } from './video/video.controller';
@@ -88,6 +90,7 @@ export class AppModule {
         MeController,
         SettingsController,
         EmailController,
+        AiController,
         VideoController,
         LocationsController,
         ServicesController,
@@ -140,6 +143,7 @@ export class AppModule {
         TicketsService,
         MessagingService,
         EmailService,
+        AiService,
         SecretBox,
         ResendClient,
         { provide: RESEND_HTTP, useValue: (url: string, init: RequestInit) => fetch(url, init) },
@@ -166,8 +170,15 @@ export class AppModule {
         ChatService,
         {
           provide: LLM_PROVIDER,
-          useFactory: () =>
-            config.MODEL_ENDPOINT ? new OpenAiCompatibleProvider(config.MODEL_ENDPOINT, config.MODEL_NAME, undefined, config.MODEL_DEBUG === 'true', config.MODEL_THINKING) : new EvidenceOnlyProvider(),
+          inject: [AiService],
+          // Admin › AI's provider when one is saved, else MODEL_ENDPOINT, else evidence-only answers.
+          useFactory: (ai: AiService) =>
+            new ConfiguredLlmProvider(
+              ai,
+              config.MODEL_ENDPOINT
+                ? new OpenAiCompatibleProvider(config.MODEL_ENDPOINT, config.MODEL_NAME, undefined, config.MODEL_DEBUG === 'true', config.MODEL_THINKING)
+                : new EvidenceOnlyProvider(),
+            ),
         },
         {
           provide: EMPLOYEE_LOGINS,
