@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, Get, HttpCode, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import type { Pool } from 'pg';
 import { Public } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
 import { APP_POOL } from '../db/db.module';
+import { SiteAnalyticsService, viewSchema, type View } from './analytics.service';
 import { SITE_ASSET_STORE, type SiteAssetStore } from './asset-store';
 import { bookSalesCallSchema, SalesCallsService, slotsQuerySchema, type BookSalesCall, type SlotsQuery } from './sales-calls.service';
 import { SETTINGS_COLUMNS } from './website.service';
@@ -21,6 +22,7 @@ export class SiteController {
     @Inject(APP_POOL) private readonly pool: Pool,
     @Inject(SITE_ASSET_STORE) private readonly store: SiteAssetStore | null,
     private readonly salesCalls: SalesCallsService,
+    private readonly analytics: SiteAnalyticsService,
   ) {}
 
   /**
@@ -48,6 +50,13 @@ export class SiteController {
   bySlug(@Res({ passthrough: true }) res: Response, @Param('slug') slug: string) {
     if (!/^[a-z0-9-]{1,60}$/.test(slug)) throw new NotFoundException('Page not found');
     return this.page(res, 'slug = $1', [slug]);
+  }
+
+  /** A page view, for Website › Analytics (no cookies; counted into daily totals). */
+  @Post('view')
+  @HttpCode(204)
+  view(@Req() req: Request, @Body(new ZodPipe(viewSchema)) body: View) {
+    this.analytics.record(req, body);
   }
 
   /** The booking page (/book-a-call): the sales call and its open start times between `from` and `to`. */

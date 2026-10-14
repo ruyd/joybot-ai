@@ -7,7 +7,7 @@ import { SiteLink, SiteModules } from '../../components/site/Modules';
 import { PageLoader, rememberBrand, SiteLoader, SiteUnavailable } from '../../components/site/SiteLoader';
 import { SiteTheme } from '../../components/site/Theme';
 import { ApiError } from '../../lib/api';
-import { assetUrl, pagePath, retryWhileWaking, siteGet, useSite, useSiteFavicon, type SitePage } from '../../lib/site';
+import { assetUrl, pagePath, reportView, retryWhileWaking, siteGet, useSite, useSiteFavicon, type SitePage } from '../../lib/site';
 
 /** The public website at the root of the app: header (pages, links, customer login), page, footer; in the site's own look. */
 export function SiteLayout() {
@@ -16,6 +16,11 @@ export function SiteLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [location.pathname, location.hash]);
   useSiteFavicon(site.data?.settings);
+  // A view per page (not per #section), once the site has answered (so the API is awake).
+  const ready = Boolean(site.data);
+  useEffect(() => {
+    if (ready) reportView(location.pathname.length > 1 ? location.pathname.replace(/\/+$/, '') : '/');
+  }, [ready, location.pathname]);
   // Remember the look for the loader on the next visit (shown before the site's setup arrives).
   useEffect(() => {
     const d = site.data;

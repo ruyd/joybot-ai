@@ -206,6 +206,29 @@ export async function sitePost<T>(path: string, body: unknown): Promise<T> {
 }
 
 /** The embeddable player for a YouTube or Vimeo link (the API only accepts those), or null. */
+let arrived = false;
+
+/**
+ * Counts a page view for Website › Analytics: no cookies or IDs, just the path, and on the visit's
+ * first page where it came from. Automated browsers aren't counted; a failed send is ignored.
+ */
+export function reportView(path: string, { search = window.location.search, referrer = document.referrer } = {}) {
+  if (navigator.webdriver) return;
+  const body: { path: string; referrer?: string; utm_source?: string } = { path };
+  if (!arrived) {
+    arrived = true;
+    if (referrer) body.referrer = referrer.slice(0, 500);
+    const utm = new URLSearchParams(search).get('utm_source');
+    if (utm) body.utm_source = utm.slice(0, 100);
+  }
+  void fetch(`${appConfig().apiBase}/site/view`, { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {});
+}
+
+/** Tests: the next view is a new arrival again. */
+export const resetArrival = () => {
+  arrived = false;
+};
+
 export function videoEmbed(url: string): string | null {
   let u: URL;
   try {

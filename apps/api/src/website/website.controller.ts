@@ -20,6 +20,7 @@ import {
   type Reschedule,
   type SalesCallSettingsInput,
 } from './sales-calls.service';
+import { reportSchema, SiteAnalyticsService, type ReportQuery } from './analytics.service';
 import { imageType, MAX_IMAGE_BYTES, WebsiteService } from './website.service';
 
 /** Reads an upload's bytes (image types have no body parser), up to `max`. */
@@ -41,7 +42,22 @@ export class WebsiteController {
   constructor(
     private readonly website: WebsiteService,
     private readonly salesCalls: SalesCallsService,
+    private readonly analytics: SiteAnalyticsService,
   ) {}
+
+  /** Visits to the public site: daily totals, top pages, sources, devices and countries for the last `days` days. */
+  @Get('analytics')
+  @Can('read', 'website')
+  analyticsReport(@CurrentPrincipal() p: Principal, @Query(new ZodPipe(reportSchema)) q: ReportQuery) {
+    return this.analytics.report(p, q);
+  }
+
+  /** Visitors and views today and this week, for the dashboard. */
+  @Get('analytics/summary')
+  @Can('read', 'website')
+  analyticsSummary(@CurrentPrincipal() p: Principal) {
+    return this.analytics.summary(p);
+  }
 
   /** Sales calls booked on the site, a page at a time with the total: `when=upcoming|past`, `q` searches. */
   @Get('sales-calls')

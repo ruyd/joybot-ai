@@ -8,6 +8,7 @@ import { ApiError, useApi } from '../../lib/api';
 import { dateTime, fullName, money, preferredTimeZone, time, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import type { Appointment } from '../portal/PortalPages';
+import { SiteVisitsSummary } from './AnalyticsPage';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 import { RecordPayment } from './StaffPages';
 import { PendingTodos } from './TodoPages';
@@ -20,6 +21,11 @@ export function StaffHome() {
   return (
     <Page>
       <PageHeader title="Dashboard" description={today} />
+      {can('read', 'website') && (
+        <div className="mb-6">
+          <SiteVisitsSummary />
+        </div>
+      )}
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="grid gap-4">
           {can('read', 'appointments') && <TodayAppointments zone={zone} />}
