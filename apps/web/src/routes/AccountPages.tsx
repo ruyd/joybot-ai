@@ -90,7 +90,7 @@ function TeamChatPreferences() {
     <label className="flex items-start gap-3 text-sm">
       <input
         type="checkbox"
-        className="mt-0.5"
+        className="switch mt-0.5"
         checked={me.profile[field] !== false}
         disabled={save.isPending}
         onChange={(e) => save.mutate({ [field]: e.target.checked })}

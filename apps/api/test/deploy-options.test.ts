@@ -80,7 +80,7 @@ describe('MESSAGING_MODE=resend', () => {
 
   it('sends every email through Resend, verification codes included; before setup it says what is missing', async () => {
     const early = await api(app, customer(C.pat)).post('/api/me/contacts', { type: 'email', value: 'pat.early@example.com' }).expect(503);
-    expect(early.body.message).toMatch(/Admin › Email/);
+    expect(early.body.message).toMatch(/Settings › Email/);
 
     const admin = api(app, employee(U.ada));
     await admin.put('/api/admin/email/api-key', { api_key: KEY }).expect(200);

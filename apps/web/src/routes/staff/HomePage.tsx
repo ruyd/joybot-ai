@@ -12,15 +12,15 @@ import { CustomerPicker, type Customer } from './CustomerPicker';
 import { RecordPayment } from './StaffPages';
 import { PendingTodos } from './TodoPages';
 
-/** Staff home: today's appointments on the left; customer lookup and payment capture on the right. */
+/** Staff dashboard: today's appointments on the left; customer lookup and payment capture on the right. */
 export function StaffHome() {
   const { can, me } = useMe();
   const zone = preferredTimeZone(me?.profile.time_zone);
   const today = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: zone }).format(new Date());
   return (
     <Page>
-      <PageHeader title="Today" description={today} />
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <PageHeader title="Dashboard" description={today} />
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="grid gap-4">
           {can('read', 'appointments') && <TodayAppointments zone={zone} />}
           {can('read', 'tasks') && <PendingTodos />}

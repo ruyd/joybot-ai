@@ -4,7 +4,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   /* Blue to teal, after the reference buttons (#0789BF → #56A4AE), a shade deeper so white text
      stays readable on it (5.1:1 at the blue end, 4.3:1 at the teal end). 600 is the link and flat-fill color (5.1:1 on white). */
   --color-brand-50: #eff8fc;
@@ -165,6 +165,120 @@
   }
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-brand-500;
+  }
+}
+
+/* Checkboxes, radios and switches (`.switch` on a checkbox), drawn by us instead of the browser. */
+@layer base {
+  input[type='checkbox'],
+  input[type='radio'] {
+    appearance: none;
+    display: inline-grid;
+    place-content: center;
+    flex-shrink: 0;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin: 0;
+    border: 1.5px solid #cbd5e1;
+    background-color: #ffffff;
+    cursor: pointer;
+    vertical-align: -0.2em;
+    transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
+  }
+  input[type='checkbox'] {
+    border-radius: 0.375rem;
+  }
+  input[type='radio'] {
+    border-radius: 9999px;
+  }
+  input[type='checkbox']:hover:not(:disabled),
+  input[type='radio']:hover:not(:disabled) {
+    border-color: var(--color-brand-400);
+  }
+  input[type='checkbox']::before {
+    content: '';
+    width: 0.65rem;
+    height: 0.65rem;
+    background: var(--color-on-brand);
+    clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+    transform: scale(0);
+    transition: transform 120ms ease-out;
+  }
+  input[type='checkbox']:checked {
+    border-color: var(--color-brand-600);
+    background-color: var(--color-brand-600);
+  }
+  input[type='checkbox']:checked::before {
+    transform: scale(1);
+  }
+  input[type='radio']::before {
+    content: '';
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 9999px;
+    background: var(--color-brand-600);
+    transform: scale(0);
+    transition: transform 120ms ease-out;
+  }
+  input[type='radio']:checked {
+    border-color: var(--color-brand-600);
+  }
+  input[type='radio']:checked::before {
+    transform: scale(1);
+  }
+  input[type='checkbox']:disabled,
+  input[type='radio']:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* A toggle switch for on/off settings. */
+  input[type='checkbox'].switch {
+    width: 2.25rem;
+    height: 1.25rem;
+    padding: 0.125rem;
+    place-content: center start;
+    border: 0;
+    border-radius: 9999px;
+    background-color: #cbd5e1;
+  }
+  input[type='checkbox'].switch::before {
+    width: 1rem;
+    height: 1rem;
+    border-radius: 9999px;
+    background: #ffffff;
+    clip-path: none;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.25);
+    transform: none;
+    transition: transform 150ms ease-out;
+  }
+  input[type='checkbox'].switch:checked {
+    background-color: var(--color-brand-600);
+  }
+  input[type='checkbox'].switch:checked::before {
+    transform: translateX(1rem);
+  }
+
+  .dark input[type='checkbox'],
+  .dark input[type='radio'] {
+    border-color: #475569;
+    background-color: #0f172a;
+  }
+  .dark input[type='checkbox']:checked {
+    border-color: var(--color-brand-600);
+    background-color: var(--color-brand-600);
+  }
+  .dark input[type='radio']:checked {
+    border-color: var(--color-brand-600);
+  }
+  .dark input[type='checkbox'].switch {
+    background-color: #334155;
+  }
+  .dark input[type='checkbox'].switch:checked {
+    background-color: var(--color-brand-600);
+  }
+  .dark input[type='checkbox'].switch::before {
+    background: #f8fafc;
   }
 }
 

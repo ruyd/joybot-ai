@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { Layout, type NavItem } from './components/Layout';
+import { BookOpen, CreditCard, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { Layout, type NavItem, type SideSection } from './components/Layout';
 import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
 import { LoadingMark } from './lib/loading';
@@ -115,38 +116,36 @@ const PORTAL_NAV: NavItem[] = [
 ];
 
 const STAFF_NAV: NavItem[] = [
-  { to: '/staff', label: 'Home', end: true },
+  { to: '/staff', label: 'Dashboard', end: true },
   { to: '/staff/calendar', label: 'Calendar', can: ['read', 'appointments'] },
   { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
   { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
   { to: '/staff/tickets', label: 'Tickets', can: ['read', 'tickets'] },
-  {
-    label: 'Billing',
-    items: [
-      { to: '/staff/payments', label: 'Payments', can: ['create', 'payments'] },
-      { to: '/staff/invoices', label: 'Invoices', can: ['create', 'payments'] },
-    ],
-  },
   { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
-  { to: '/staff/help', label: 'Knowledge', can: ['read', 'knowledge'] },
+  { to: '/staff/sales-calls', label: 'Sales calls', can: ['read', 'website'] },
+];
+
+/** Less frequent pages, in the collapsible side menu. */
+const STAFF_SIDEBAR: SideSection[] = [
   {
-    label: 'Marketing',
     items: [
-      { to: '/staff/website', label: 'Website', can: ['read', 'website'] },
-      { to: '/staff/sales-calls', label: 'Sales calls', can: ['read', 'website'] },
+      { to: '/staff/payments', label: 'Payments', icon: CreditCard, can: ['create', 'payments'] },
+      { to: '/staff/invoices', label: 'Invoices', icon: FileText, can: ['create', 'payments'] },
+      { to: '/staff/website', label: 'Website', icon: Globe, can: ['read', 'website'] },
+      { to: '/staff/help', label: 'Articles', icon: BookOpen, can: ['read', 'knowledge'] },
+      { to: '/staff/knowledge', label: 'Answers', icon: MessageSquareQuote, can: ['update', 'knowledge'] },
     ],
   },
   {
-    label: 'Admin',
+    label: 'Settings',
     items: [
-      { to: '/staff/employees', label: 'Employees', can: ['read', 'users'] },
-      { to: '/staff/access', label: 'Access', can: ['update', 'access'] },
-      { to: '/staff/knowledge', label: 'Answers', can: ['update', 'knowledge'] },
-      { to: '/staff/admin', label: 'Settings', can: ['update', 'settings'] },
-      { to: '/staff/email', label: 'Email', can: ['update', 'settings'] },
-      { to: '/staff/ai', label: 'AI', can: ['update', 'settings'] },
-      { to: '/staff/claude', label: 'Claude access', role: 'admin' },
-      { to: '/staff/audit', label: 'Audit log', can: ['read', 'audit'] },
+      { to: '/staff/admin', label: 'General', icon: Settings, can: ['update', 'settings'] },
+      { to: '/staff/employees', label: 'Employees', icon: Users, can: ['read', 'users'] },
+      { to: '/staff/access', label: 'Access', icon: ShieldCheck, can: ['update', 'access'] },
+      { to: '/staff/email', label: 'Email', icon: Mail, can: ['update', 'settings'] },
+      { to: '/staff/ai', label: 'AI', icon: Sparkles, can: ['update', 'settings'] },
+      { to: '/staff/claude', label: 'Claude access', icon: KeyRound, role: 'admin' },
+      { to: '/staff/audit', label: 'Audit log', icon: ScrollText, can: ['read', 'audit'] },
     ],
   },
 ];
@@ -209,7 +208,7 @@ export function App() {
             element={
               <SessionProvider audience="employee">
                 <RequireSession>
-                  <Layout title="JoyBot" nav={STAFF_NAV} base="/staff" assistant={{ audience: 'employee', path: '/staff/assistant' }} />
+                  <Layout title="JoyBot" nav={STAFF_NAV} sidebar={STAFF_SIDEBAR} base="/staff" assistant={{ audience: 'employee', path: '/staff/assistant' }} />
                 </RequireSession>
               </SessionProvider>
             }

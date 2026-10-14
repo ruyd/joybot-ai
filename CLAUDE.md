@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-JoyBot AI is a chatbot for customers and employees. Its own Postgres database is the source of truth, and chat uses Gemma 4 (E2B self-hosted, or a model chosen in Admin › AI, e.g. OpenRouter). Design and roadmap: [plan.md](plan.md) (§11). Setup: [README.md](README.md). **Before changing email, AI settings, video calls, the website, sales calls, MCP, appointment types, merged customers, tickets or Supabase Auth, read that area's section in [docs/features.md](docs/features.md).**
+JoyBot AI is a chatbot for customers and employees. Its own Postgres database is the source of truth, and chat uses Gemma 4 (E2B self-hosted, or a model chosen in Settings › AI, e.g. OpenRouter). Design and roadmap: [plan.md](plan.md) (§11). Setup: [README.md](README.md). **Before changing email, AI settings, video calls, the website, sales calls, MCP, appointment types, merged customers, tickets or Supabase Auth, read that area's section in [docs/features.md](docs/features.md).**
 
 ## Workflow
 
@@ -30,7 +30,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web |
 | `apps/api` | NestJS, one folder per feature, plus `auth/` guards and `config/config.ts` (Zod) |
 | `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
-| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability) |
+| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, website, articles, answers, then Settings) |
 | `cloudformation` | AWS: `main.yaml`, nested `stacks/`, Lambda `functions/` (own pnpm package), `scripts/`, `guard/`, `bootstrap/` |
 | `deploy`, `render.yaml` | Free-tier deploy (Render + Supabase + Cloudflare Pages), [docs/deploy-free.md](docs/deploy-free.md) |
 | `.github/workflows` | `ci.yml`, `release.yml` (AWS), `deploy-free.yml` |
@@ -49,6 +49,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **Errors:** `AppExceptionFilter` maps Postgres errors to HTTP (42501 → 403, 23505 → 409, 23514 → 400).
 - **Dates:** `DATE` columns come back as `YYYY-MM-DD` strings, and the web app parses them as local dates. `timestamptz` values are shown in the location, person or settings time zone.
 - **Config:** an empty env string means unset (CloudFormation passes `''`). Wrap optional settings with `optional()`.
+- **Web controls:** use `Select` from `components/ui` (a styled listbox with `<select>`'s props and `<option>` children; a hidden native select keeps `required` working), not a raw `<select>`. Checkboxes and radios are styled in `index.css`; add `className="switch"` to a checkbox for an on/off setting.
 - **Body limits** (`src/setup.ts`): 100 kB, except `/api/website` (2 MB) and `/api/mcp` (8 MB).
 - **Chat:** the model never supplies IDs; tools take IDs that were already resolved and allowed. Record text goes into the prompt as delimited data. Every lookup is written to `app.retrieval_traces`. Saved answers and article passages (`knowledge/`) are searched for every question and cited like records. Buttons come only from them, never from the model.
 - **Secrets and contact codes:** store only sha256 hashes of tokens and codes, mask contacts in responses, and never log codes.

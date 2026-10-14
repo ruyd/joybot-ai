@@ -56,7 +56,7 @@ export function Profile() {
             <label className="flex items-start gap-2 text-sm">
               <input
                 type="checkbox"
-                className="mt-0.5"
+                className="switch mt-0.5"
                 checked={draft.whatsapp_opt_in !== undefined ? Boolean(draft.whatsapp_opt_in) : Boolean(p.whatsapp_opt_in_at)}
                 onChange={(e) => setDraft({ ...draft, whatsapp_opt_in: e.target.checked })}
               />

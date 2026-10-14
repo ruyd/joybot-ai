@@ -10,12 +10,12 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 
 ## Email (`apps/api/src/email/`)
 
-- Admin › Email (`settings` update) stores Resend's key and the sender in `core.email_settings`.
+- Settings › Email (`settings` update) stores Resend's key and the sender in `core.email_settings`.
 - `MessagingService.send` routes app email (`RESEND_TEMPLATES`: invite, invoice, ticket, sales_call) through Resend once a key and a from address are saved, else through `MESSAGE_SENDER`. There's no on/off switch (`EmailService.delivery()`, cached 30 s).
 - Sign-in and verification codes (`contact_code`) belong to the auth provider and never go through Resend.
 - The Resend key is a third-party secret: see "Third-party keys" in CLAUDE.md.
 
-## AI settings (`apps/api/src/ai/`, Admin › AI)
+## AI settings (`apps/api/src/ai/`, Settings › AI)
 
 - **Assistant on/off:** `core.settings.assistant_customers` / `assistant_employees`. `GET /me` returns `assistant` for the caller's audience; the web app then hides the Assistant page, nav item and dock (the portal opens on Appointments). `ChatService.assertAssistantOn` refuses new conversations and questions with 403 `assistant_off`.
 - **Chat model:** `core.ai_settings` holds the provider (`openrouter`, `custom`, or NULL for the server default `MODEL_ENDPOINT` / `MODEL_NAME`, else evidence-only answers), the model, the base URL (custom only) and `private_only`. The API key is encrypted in `core.ai_secret` (`authz.set_ai_key` / `authz.ai_delivery`).

@@ -168,7 +168,7 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
               </Field>
             </div>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.show_customer_login} onChange={(e) => set({ show_customer_login: e.target.checked })} />
+              <input type="checkbox" className="switch" checked={form.show_customer_login} onChange={(e) => set({ show_customer_login: e.target.checked })} />
               Show “Customer login” in the header
             </label>
           </div>
