@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { ApiError } from './api';
 import { appConfig } from './config';
 import type { SiteFontName } from './site-fonts';
@@ -78,6 +79,8 @@ export interface SiteSettings {
   site_name: string | null;
   tagline: string | null;
   logo_asset_id: string | null;
+  /** The browser tab icon; null uses the logo. */
+  favicon_asset_id: string | null;
   accent: string;
   accent_to: string;
   /** Highlighted cards and the hero glow; null means accent_to. */
@@ -95,6 +98,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   site_name: null,
   tagline: null,
   logo_asset_id: null,
+  favicon_asset_id: null,
   accent: '#0878ab',
   accent_to: '#34868f',
   highlight_color: null,
@@ -139,6 +143,25 @@ export const MODULE_LABEL: Record<SiteModule['type'], string> = {
 export function assetUrl(id: string, storage?: 'db' | 's3'): string {
   const { assetBase, apiBase } = appConfig();
   return assetBase && storage !== 'db' ? `${assetBase}/site/${id}` : `${apiBase}/site/assets/${id}`;
+}
+
+/**
+ * The public site's browser tab icon: Site setup's favicon, else its logo, else the app's own icon
+ * (index.html). Put back when leaving the site, so the portal and staff console keep JoyBot's.
+ */
+export function useSiteFavicon(settings: Pick<SiteSettings, 'favicon_asset_id' | 'logo_asset_id'> | null | undefined) {
+  const id = settings?.favicon_asset_id ?? settings?.logo_asset_id ?? null;
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link || !id) return;
+    const before = { href: link.getAttribute('href'), type: link.getAttribute('type') };
+    link.setAttribute('href', assetUrl(id));
+    link.removeAttribute('type');
+    return () => {
+      if (before.href) link.setAttribute('href', before.href);
+      if (before.type) link.setAttribute('type', before.type);
+    };
+  }, [id]);
 }
 
 /** A page's address on the site: "/" for the home page. */

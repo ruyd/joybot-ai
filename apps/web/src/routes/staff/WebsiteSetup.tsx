@@ -31,6 +31,7 @@ const fields = (s: SettingsDoc): SiteSettings => ({
   site_name: s.site_name,
   tagline: s.tagline,
   logo_asset_id: s.logo_asset_id,
+  favicon_asset_id: s.favicon_asset_id,
   accent: s.accent,
   accent_to: s.accent_to,
   highlight_color: s.highlight_color,
@@ -134,6 +135,11 @@ export function SiteSetup({ onDirty }: { onDirty: (dirty: boolean) => void }) {
                 <p className="mb-1 font-medium">Logo</p>
                 <ImagePicker compact value={form.logo_asset_id} onChange={(logo_asset_id) => set({ logo_asset_id })} />
                 <p className="mt-1 text-xs text-slate-500">A square image works best. Without one, the JoyBot mark is shown.</p>
+              </div>
+              <div className="text-sm">
+                <p className="mb-1 font-medium">Browser tab icon</p>
+                <ImagePicker compact value={form.favicon_asset_id} onChange={(favicon_asset_id) => set({ favicon_asset_id })} />
+                <p className="mt-1 text-xs text-slate-500">The favicon: a small square PNG (at least 64×64) with a simple shape. Without one, the logo is used.</p>
               </div>
             </div>
             <div className="space-y-2">

@@ -307,6 +307,8 @@ export const siteSettingsSchema = z
     site_name: optional(80),
     tagline: optional(60),
     logo_asset_id: z.string().uuid().nullable(),
+    /** The browser tab icon; null uses the logo. */
+    favicon_asset_id: z.string().uuid().nullable(),
     accent: color,
     accent_to: color,
     /** A second brand color for highlighted cards and the hero glow; null means accent_to. */
