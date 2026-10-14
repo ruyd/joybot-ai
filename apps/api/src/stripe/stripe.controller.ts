@@ -23,14 +23,23 @@ import { SecretBox } from '../email/secret-box';
 import { verifyStripeSignature } from './signature';
 import { StripeSecrets } from './stripe-secrets';
 
-/** A secret (sk_) or, better, restricted (rk_) key, live or test. */
-const stripeKeySchema = z
-  .object({ api_key: z.string().trim().regex(/^(sk|rk)_(live|test)_[A-Za-z0-9]{16,250}$/, 'Paste a Stripe secret key (sk_…) or restricted key (rk_…)') })
-  .strict();
-/** The webhook endpoint's signing secret. */
+type SecretKind = 'api_key' | 'webhook_secret' | 'test_api_key' | 'test_webhook_secret';
+
+/** A secret (sk_) or, better, restricted (rk_) key of the given mode. */
+const keySchema = (mode: 'live' | 'test') =>
+  z
+    .object({
+      api_key: z
+        .string()
+        .trim()
+        .regex(new RegExp(`^(sk|rk)_${mode}_[A-Za-z0-9]{16,250}$`), `Paste a ${mode} key: sk_${mode}_… or, better, rk_${mode}_…`),
+    })
+    .strict();
+/** A webhook endpoint's signing secret. */
 const webhookSecretSchema = z
   .object({ webhook_secret: z.string().trim().regex(/^whsec_[A-Za-z0-9+/=]{16,250}$/, 'Paste the signing secret (whsec_…) of the webhook endpoint') })
   .strict();
+const modeSchema = z.object({ mode: z.enum(['live', 'test']) }).strict();
 
 /**
  * Stripe sync, API side (plan.md §4.4): the webhook verifies and stores events; the worker applies
@@ -53,15 +62,19 @@ export class StripeController {
     // Acknowledge so Stripe stops retrying while the integration is switched off.
     if (!enabled) return { received: false, reason: 'stripe disabled' };
 
-    const secret = await this.secrets.webhookSigningSecret();
-    if (!secret) throw new ServiceUnavailableException('Stripe webhook secret is not configured');
-    if (!req.rawBody || !verifyStripeSignature(req.rawBody, signature, secret)) {
-      throw new BadRequestException('Invalid Stripe signature');
+    const secrets = await this.secrets.webhookSecrets();
+    if (!secrets.length) throw new ServiceUnavailableException('Stripe webhook secret is not configured');
+    const raw = req.rawBody;
+    const signedWith = raw ? secrets.find((s) => verifyStripeSignature(raw, signature, s.secret)) : undefined;
+    if (!raw || !signedWith) throw new BadRequestException('Invalid Stripe signature');
+    // Live and test endpoints both call here: only the mode in use is applied.
+    if (signedWith.mode && (signedWith.mode === 'test') !== (await this.secrets.testMode())) {
+      return { received: false, reason: `${signedWith.mode} mode event while in ${signedWith.mode === 'test' ? 'live' : 'test'} mode` };
     }
 
     let event: { id?: unknown; type?: unknown; created?: unknown; livemode?: unknown };
     try {
-      event = JSON.parse(req.rawBody.toString('utf8'));
+      event = JSON.parse(raw.toString('utf8'));
     } catch {
       throw new BadRequestException('Invalid JSON');
     }
@@ -70,7 +83,7 @@ export class StripeController {
     }
     const stored = await this.pool.query<{ inserted: boolean }>(
       'SELECT authz.store_stripe_event($1, $2, $3, $4, $5) AS inserted',
-      [event.id, event.type, event.livemode === true, event.created, req.rawBody.toString('utf8')],
+      [event.id, event.type, event.livemode === true, event.created, raw.toString('utf8')],
     );
     return { received: true, duplicate: !stored.rows[0].inserted };
   }
@@ -91,24 +104,32 @@ export class StripeController {
       const lastJob = (
         await db.query(`SELECT status, result, requested_at, finished_at FROM app.worker_jobs WHERE kind = 'stripe_reconcile' ORDER BY requested_at DESC LIMIT 1`)
       ).rows[0] ?? null;
-      const i = (await db.query('SELECT * FROM authz.stripe_secret_info()')).rows[0];
-      const sources = await this.secrets.sources();
+      const saved = Object.fromEntries(
+        (await db.query<{ kind: SecretKind; last4: string | null; set_at: string | null; set_by_name: string | null }>('SELECT * FROM authz.stripe_secret_info()')).rows.map(
+          ({ kind, ...rest }) => [kind, rest],
+        ),
+      );
       return {
         events,
         unmatchedPayments: unmatched,
         lastReconcile: lastJob,
         encryption_available: this.box.available,
-        api_key: { last4: i.api_key_last4, set_at: i.api_key_set_at, set_by_name: i.api_key_set_by_name, source: sources.api_key },
-        webhook_secret: { last4: i.webhook_secret_last4, set_at: i.webhook_secret_set_at, set_by_name: i.webhook_secret_set_by_name, source: sources.webhook_secret },
+        mode: (await this.secrets.testMode()) ? 'test' : 'live',
+        /** Where the key and webhook secret of the mode in use come from. */
+        active: await this.secrets.sources(),
+        api_key: saved.api_key,
+        webhook_secret: saved.webhook_secret,
+        test_api_key: saved.test_api_key,
+        test_webhook_secret: saved.test_webhook_secret,
       };
     });
   }
 
-  /** Saves the Stripe API key (encrypted; only its last four characters are shown again). */
+  /** Saves the live API key (encrypted; only its last four characters are shown again). */
   @Put('admin/stripe/api-key')
   @EmployeesOnly()
   @Can('update', 'settings')
-  setKey(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(stripeKeySchema)) body: { api_key: string }) {
+  setKey(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(keySchema('live'))) body: { api_key: string }) {
     return this.saveSecret(p, 'api_key', body.api_key);
   }
 
@@ -119,7 +140,21 @@ export class StripeController {
     return this.saveSecret(p, 'api_key', null);
   }
 
-  /** Saves the webhook signing secret (encrypted; only its last four characters are shown again). */
+  @Put('admin/stripe/test-api-key')
+  @EmployeesOnly()
+  @Can('update', 'settings')
+  setTestKey(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(keySchema('test'))) body: { api_key: string }) {
+    return this.saveSecret(p, 'test_api_key', body.api_key);
+  }
+
+  @Delete('admin/stripe/test-api-key')
+  @EmployeesOnly()
+  @Can('update', 'settings')
+  removeTestKey(@CurrentPrincipal() p: Principal) {
+    return this.saveSecret(p, 'test_api_key', null);
+  }
+
+  /** Saves the live webhook endpoint's signing secret (encrypted). */
   @Put('admin/stripe/webhook-secret')
   @EmployeesOnly()
   @Can('update', 'settings')
@@ -134,7 +169,31 @@ export class StripeController {
     return this.saveSecret(p, 'webhook_secret', null);
   }
 
-  private async saveSecret(p: Principal, kind: 'api_key' | 'webhook_secret', value: string | null) {
+  @Put('admin/stripe/test-webhook-secret')
+  @EmployeesOnly()
+  @Can('update', 'settings')
+  setTestWebhookSecret(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(webhookSecretSchema)) body: { webhook_secret: string }) {
+    return this.saveSecret(p, 'test_webhook_secret', body.webhook_secret);
+  }
+
+  @Delete('admin/stripe/test-webhook-secret')
+  @EmployeesOnly()
+  @Can('update', 'settings')
+  removeTestWebhookSecret(@CurrentPrincipal() p: Principal) {
+    return this.saveSecret(p, 'test_webhook_secret', null);
+  }
+
+  /** Live or test: which key checkout and reconciling use, and which webhooks are applied. */
+  @Put('admin/stripe/mode')
+  @EmployeesOnly()
+  @Can('update', 'settings')
+  async setMode(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(modeSchema)) body: { mode: 'live' | 'test' }) {
+    await this.db.as(p, (db) => db.query('UPDATE core.settings SET stripe_test_mode = $1 WHERE id = 1', [body.mode === 'test']));
+    this.secrets.forgetSaved();
+    return this.status(p);
+  }
+
+  private async saveSecret(p: Principal, kind: SecretKind, value: string | null) {
     await this.db.as(p, (db) =>
       db.query('SELECT authz.set_stripe_secret($1, $2, $3)', [kind, value === null ? null : this.box.encrypt(value), value === null ? null : value.slice(-4)]),
     );

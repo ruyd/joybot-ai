@@ -22,6 +22,8 @@ export interface NavLinkItem {
   role?: string;
   /** Only shown while the assistant is on (Admin › AI). */
   assistant?: true;
+  /** Only shown while the store is open (Settings › Store). */
+  store?: true;
 }
 
 export type NavItem = NavLinkItem;
@@ -190,7 +192,7 @@ export function Layout({
     );
   }
 
-  const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role) && (!i.assistant || me?.assistant !== false);
+  const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role) && (!i.assistant || me?.assistant !== false) && (!i.store || me?.store === true);
   const sections = (sidebar ?? []).map((s) => ({ ...s, items: s.items.filter(shown) })).filter((s) => s.items.length > 0);
   const toggleCollapsed = () =>
     setCollapsed((c) => {

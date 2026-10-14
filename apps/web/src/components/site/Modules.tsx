@@ -422,7 +422,7 @@ export function SiteButtons({ buttons, onAccent, className = '' }: { buttons?: S
 const MARKDOWN: Components = {
   a: ({ href, children }) => (href ? <SiteLink href={href}>{children}</SiteLink> : <>{children}</>),
 };
-function Markdown({ children }: { children: string }) {
+export function Markdown({ children }: { children: string }) {
   return <ReactMarkdown components={MARKDOWN}>{children}</ReactMarkdown>;
 }
 

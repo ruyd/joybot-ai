@@ -55,6 +55,33 @@ describe('Stripe event processing', () => {
     });
   });
 
+  it('links a store Checkout payment to the order it names and marks the order paid', async () => {
+    const migrator = new Pool({ connectionString: process.env.MIGRATOR_DATABASE_URL, max: 1 });
+    const order = async (customerId: string) => {
+      const o = (
+        await migrator.query(`INSERT INTO core.orders (customer_id, currency, subtotal) VALUES ($1, 'USD', 45) RETURNING id, order_number`, [customerId])
+      ).rows[0];
+      await migrator.query(`INSERT INTO core.order_lines (order_id, position, name, kind, unit_price, quantity) VALUES ($1, 1, 'Coaching', 'service', 45, 1)`, [o.id]);
+      return o as { id: string; order_number: string };
+    };
+    try {
+      const mine = await order(C.maria);
+      const janes = await order(C.jane);
+      await store('payment_intent.succeeded', intent('pi_order', { metadata: { customer_number: 'C-10001', order_number: mine.order_number } }), 1_760_000_025);
+      // Metadata naming someone else's order: the payment is kept, just not linked.
+      await store('payment_intent.succeeded', intent('pi_order_other', { metadata: { customer_number: 'C-10001', order_number: janes.order_number } }), 1_760_000_026);
+      expect(await processPendingEvents(worker, 200, quiet)).toMatchObject({ processed: 2, failed: 0 });
+      expect(await payment('pi_order')).toMatchObject({ order_id: mine.id });
+      expect(await payment('pi_order_other')).toMatchObject({ customer_id: C.maria, order_id: null });
+      const statuses = (await migrator.query('SELECT id, status, amount_paid FROM core.orders WHERE id = ANY($1)', [[mine.id, janes.id]])).rows;
+      expect(statuses).toEqual(expect.arrayContaining([{ id: mine.id, status: 'paid', amount_paid: '45.00' }, { id: janes.id, status: 'pending', amount_paid: '0.00' }]));
+    } finally {
+      await migrator.query(`UPDATE core.payments SET order_id = NULL WHERE stripe_payment_intent_id IN ('pi_order', 'pi_order_other')`);
+      await migrator.query('DELETE FROM core.orders');
+      await migrator.end();
+    }
+  });
+
   it('links a Checkout payment to the invoice it names and marks the invoice paid', async () => {
     const migrator = new Pool({ connectionString: process.env.MIGRATOR_DATABASE_URL, max: 1 });
     const invoice = async (customerId: string) => {

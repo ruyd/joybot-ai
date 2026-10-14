@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { BookOpen, ChartColumn, CreditCard, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users, Wallet } from 'lucide-react';
+import { BookOpen, ChartColumn, CreditCard, Package, ShoppingBag, Store, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users, Wallet } from 'lucide-react';
 import { Layout, type NavItem, type SideSection } from './components/Layout';
 import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
@@ -76,10 +76,18 @@ const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'Schedule
 const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeAccessPage');
 const AnalyticsPage = page(() => import('./routes/staff/AnalyticsPage'), 'AnalyticsPage');
 const StripePage = page(() => import('./routes/staff/StripePage'), 'StripePage');
+const staffStore = () => import('./routes/staff/StorePages');
+const ProductsPage = page(staffStore, 'ProductsPage');
+const OrdersPage = page(staffStore, 'OrdersPage');
+const StoreSettingsPage = page(staffStore, 'StoreSettingsPage');
 const site = () => import('./routes/site/SitePages');
 const SiteLayout = page(site, 'SiteLayout');
 const SitePageView = page(site, 'SitePageView');
 const BookCallPage = page(() => import('./routes/site/BookCall'), 'BookCallPage');
+const shop = () => import('./routes/site/ShopPages');
+const ShopPage = page(shop, 'ShopPage');
+const CartPage = page(shop, 'CartPage');
+const ProductPage = page(shop, 'ProductPage');
 const WebsitePage = page(() => import('./routes/staff/WebsitePages'), 'WebsitePage');
 const EmailPage = page(() => import('./routes/staff/EmailPage'), 'EmailPage');
 const AiPage = page(() => import('./routes/staff/AiPage'), 'AiPage');
@@ -89,6 +97,10 @@ const EmployeesPage = page(() => import('./routes/staff/EmployeesPage'), 'Employ
 const staffInvoices = () => import('./routes/staff/InvoicePages');
 const Invoices = page(staffInvoices, 'Invoices');
 const InvoicePage = page(staffInvoices, 'InvoicePage');
+const portalOrders = () => import('./routes/portal/OrderPages');
+const CheckoutPage = page(portalOrders, 'CheckoutPage');
+const MyOrders = page(portalOrders, 'MyOrders');
+const MyOrder = page(portalOrders, 'MyOrder');
 const portalInvoices = () => import('./routes/portal/InvoicePages');
 const MyInvoices = page(portalInvoices, 'MyInvoices');
 const MyInvoice = page(portalInvoices, 'MyInvoice');
@@ -107,6 +119,7 @@ const PORTAL_NAV: NavItem[] = [
   { to: '/portal', label: 'Assistant', end: true, assistant: true },
   { to: '/portal/appointments', label: 'Appointments' },
   { to: '/portal/book', label: 'Book' },
+  { to: '/portal/orders', label: 'Orders', store: true },
   { to: '/portal/invoices', label: 'Invoices' },
   { to: '/portal/payments', label: 'Payments' },
   { to: '/portal/tickets', label: 'Support' },
@@ -134,8 +147,10 @@ const STAFF_SIDEBAR: SideSection[] = [
     items: [
       { to: '/staff/payments', label: 'Payments', icon: CreditCard, can: ['create', 'payments'] },
       { to: '/staff/invoices', label: 'Invoices', icon: FileText, can: ['create', 'payments'] },
+      { to: '/staff/orders', label: 'Orders', icon: ShoppingBag, can: ['read', 'payments'] },
       { to: '/staff/website', label: 'Website', icon: Globe, can: ['read', 'website'] },
       { to: '/staff/analytics', label: 'Analytics', icon: ChartColumn, can: ['read', 'website'] },
+      { to: '/staff/products', label: 'Products', icon: Package, can: ['read', 'website'] },
       { to: '/staff/help', label: 'Articles', icon: BookOpen, can: ['read', 'knowledge'] },
       { to: '/staff/knowledge', label: 'Answers', icon: MessageSquareQuote, can: ['update', 'knowledge'] },
     ],
@@ -147,6 +162,7 @@ const STAFF_SIDEBAR: SideSection[] = [
       { to: '/staff/employees', label: 'Employees', icon: Users, can: ['read', 'users'] },
       { to: '/staff/access', label: 'Access', icon: ShieldCheck, can: ['update', 'access'] },
       { to: '/staff/email', label: 'Email', icon: Mail, can: ['update', 'settings'] },
+      { to: '/staff/store', label: 'Store', icon: Store, can: ['update', 'settings'] },
       { to: '/staff/stripe', label: 'Stripe', icon: Wallet, can: ['update', 'settings'] },
       { to: '/staff/ai', label: 'AI', icon: Sparkles, can: ['update', 'settings'] },
       { to: '/staff/claude', label: 'Claude access', icon: KeyRound, role: 'admin' },
@@ -171,6 +187,9 @@ export function App() {
           <Route path="/" element={<SiteLayout />}>
             <Route index element={<SitePageView home />} />
             <Route path="book-a-call" element={<BookCallPage />} />
+            <Route path="shop" element={<ShopPage />} />
+            <Route path="shop/cart" element={<CartPage />} />
+            <Route path="shop/:slug" element={<ProductPage />} />
             <Route path=":slug" element={<SitePageView />} />
           </Route>
           <Route path="/auth/callback" element={<AuthCallback />} />
@@ -198,6 +217,9 @@ export function App() {
             <Route path="help" element={<HelpList />} />
             <Route path="help/:slug" element={<ArticleView />} />
             <Route path="payments" element={<MyPayments />} />
+            <Route path="checkout" element={<CheckoutPage />} />
+            <Route path="orders" element={<MyOrders />} />
+            <Route path="orders/:id" element={<MyOrder />} />
             <Route path="invoices" element={<MyInvoices />} />
             <Route path="invoices/:id" element={<MyInvoice />} />
             <Route path="tickets" element={<MyTickets />} />
@@ -227,6 +249,9 @@ export function App() {
             <Route path="claude" element={<ClaudeAccessPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="stripe" element={<StripePage />} />
+            <Route path="store" element={<StoreSettingsPage />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="orders" element={<OrdersPage />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices/:id" element={<InvoicePage />} />
             <Route path="help" element={<HelpList />} />

@@ -7,11 +7,14 @@ import { SiteLink, SiteModules } from '../../components/site/Modules';
 import { PageLoader, rememberBrand, SiteLoader, SiteUnavailable } from '../../components/site/SiteLoader';
 import { SiteTheme } from '../../components/site/Theme';
 import { ApiError } from '../../lib/api';
+import { usePublicStore } from '../../lib/store';
+import { CartLink } from './ShopPages';
 import { assetUrl, pagePath, reportView, retryWhileWaking, siteGet, useSite, useSiteFavicon, type SitePage } from '../../lib/site';
 
 /** The public website at the root of the app: header (pages, links, customer login), page, footer; in the site's own look. */
 export function SiteLayout() {
   const site = useSite();
+  const shop = usePublicStore().data?.enabled === true;
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [location.pathname, location.hash]);
@@ -55,6 +58,11 @@ export function SiteLayout() {
           {l.label}
         </SiteLink>
       ))}
+      {shop && (
+        <NavLink to="/shop" className={navClass}>
+          Shop
+        </NavLink>
+      )}
     </>
   );
 
@@ -75,6 +83,7 @@ export function SiteLayout() {
           </nav>
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2 lg:ml-0">
             <ThemeToggle />
+            {shop && <CartLink />}
             {showLogin && (
               <Link
                 to="/portal"
@@ -99,7 +108,7 @@ export function SiteLayout() {
                 {button.label}
               </SiteLink>
             )}
-            {(header.length > 0 || links.length > 0 || (button && showLogin)) && (
+            {(header.length > 0 || links.length > 0 || shop || (button && showLogin)) && (
               <button
                 type="button"
                 className="press rounded-full p-2 text-slate-600 hover:bg-slate-100 lg:hidden dark:text-slate-300 dark:hover:bg-slate-800"

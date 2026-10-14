@@ -74,10 +74,11 @@ export async function upsertPayment(db: PoolClient, u: PaymentUpsert, syncedAt: 
      INSERT INTO core.payments AS p
        (source, customer_id, appointment_id, location_id, amount, amount_refunded, currency, method, status,
         stripe_payment_intent_id, stripe_charge_id, stripe_customer_id, stripe_invoice_id, failure_reason,
-        receipt_url, card_brand, card_last4, paid_at, stripe_synced_at, invoice_id)
+        receipt_url, card_brand, card_last4, paid_at, stripe_synced_at, invoice_id, order_id)
      SELECT 'stripe', m.customer_id, m.appointment_id, m.location_id, $5, $6, $7, $8, $9,
             $10, $11, $3, $12, $13, $14, $15, $16, $17, $18,
-            (SELECT i.id FROM core.invoices i WHERE i.invoice_number = upper($19))
+            (SELECT i.id FROM core.invoices i WHERE i.invoice_number = upper($19)),
+            (SELECT o.id FROM core.orders o WHERE o.order_number = upper($20))
        FROM (SELECT 1) one LEFT JOIN m ON true
      ON CONFLICT (stripe_payment_intent_id) DO UPDATE SET
        amount = EXCLUDED.amount,
@@ -99,6 +100,7 @@ export async function upsertPayment(db: PoolClient, u: PaymentUpsert, syncedAt: 
        appointment_id = coalesce(p.appointment_id, EXCLUDED.appointment_id),
        location_id = coalesce(p.location_id, EXCLUDED.location_id),
        invoice_id = coalesce(p.invoice_id, EXCLUDED.invoice_id),
+       order_id = coalesce(p.order_id, EXCLUDED.order_id),
        stripe_synced_at = EXCLUDED.stripe_synced_at
      WHERE p.stripe_synced_at IS NULL OR EXCLUDED.stripe_synced_at >= p.stripe_synced_at
      RETURNING p.id, p.customer_id, p.amount, p.paid_at, (xmax = 0) AS inserted`,
@@ -122,6 +124,7 @@ export async function upsertPayment(db: PoolClient, u: PaymentUpsert, syncedAt: 
       u.paidAt,
       syncedAt,
       u.match.invoiceNumber,
+      u.match.orderNumber,
     ],
   );
   const row = res.rows[0];
