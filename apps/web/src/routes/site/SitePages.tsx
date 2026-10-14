@@ -4,10 +4,10 @@ import { Link, NavLink, Outlet, useLocation, useParams } from 'react-router-dom'
 import { BrandMark } from '../../components/BrandMark';
 import { ThemeToggle } from '../../components/HeaderControls';
 import { SiteLink, SiteModules } from '../../components/site/Modules';
+import { PageLoader, rememberBrand, SiteLoader, SiteUnavailable } from '../../components/site/SiteLoader';
 import { SiteTheme } from '../../components/site/Theme';
-import { Spinner } from '../../components/ui';
 import { ApiError } from '../../lib/api';
-import { assetUrl, pagePath, siteGet, useSite, useSiteFavicon, type SitePage } from '../../lib/site';
+import { assetUrl, pagePath, retryWhileWaking, siteGet, useSite, useSiteFavicon, type SitePage } from '../../lib/site';
 
 /** The public website at the root of the app: header (pages, links, customer login), page, footer; in the site's own look. */
 export function SiteLayout() {
@@ -16,6 +16,13 @@ export function SiteLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [location.pathname, location.hash]);
   useSiteFavicon(site.data?.settings);
+  // Remember the look for the loader on the next visit (shown before the site's setup arrives).
+  useEffect(() => {
+    const d = site.data;
+    if (!d) return;
+    const logo = d.settings?.logo_asset_id ?? null;
+    rememberBrand({ name: d.name ?? '', logo: logo ? assetUrl(logo) : null, accent: d.settings?.accent ?? '#0878ab' });
+  }, [site.data]);
   const name = site.data?.name ?? '';
   const s = site.data?.settings;
   const header = site.data?.pages.filter((p) => p.show_in_header) ?? [];
@@ -27,7 +34,9 @@ export function SiteLayout() {
     `rounded-full px-3 py-1.5 text-sm font-medium ${isActive ? 'text-brand-700 dark:text-brand-600' : 'text-slate-600 hover:text-brand-700 dark:text-slate-300 dark:hover:text-brand-600'}`;
   const linkClass = navClass({ isActive: false });
   // Wait for the site setup so the page never shows in the default colors first.
-  if (site.isLoading) return <div className="min-h-dvh" />;
+  if (site.isLoading) return <SiteLoader />;
+  // Not the page below: it would ask for the site again on mount and loop between loading and failing.
+  if (site.error) return <SiteUnavailable onRetry={() => void site.refetch()} retrying={site.isFetching} />;
 
   const nav = (
     <>
@@ -148,7 +157,7 @@ export function SitePageView({ home }: { home?: boolean }) {
   const page = useQuery({
     queryKey: ['site', 'page', home ? '' : slug],
     queryFn: () => siteGet<SitePage>(home ? '/home' : `/pages/${encodeURIComponent(slug ?? '')}`),
-    retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+    retry: retryWhileWaking,
   });
   const name = site.data?.name;
 
@@ -172,7 +181,7 @@ export function SitePageView({ home }: { home?: boolean }) {
     else window.scrollTo(0, 0);
   }, [page.data, hash]);
 
-  if (page.isLoading) return <div className="p-10"><Spinner /></div>;
+  if (page.isLoading) return <PageLoader />;
   if (page.error || !page.data) {
     const missing = page.error instanceof ApiError && page.error.status === 404;
     return (
