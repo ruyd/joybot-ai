@@ -50,23 +50,49 @@ const HISTORY_TURNS = 6;
 /** Turns off Gemma 4's thinking step: `reasoning_effort` for Ollama, `chat_template_kwargs` for vLLM (each ignores the other). */
 const NO_THINKING = { reasoning_effort: 'none', chat_template_kwargs: { enable_thinking: false } };
 
-/** vLLM (AWS) or Ollama (local) through the OpenAI-compatible chat completions API. */
+/** How to reach a hosted provider (OpenRouter, an own deployment): its key and request extras. */
+export interface ProviderConnection {
+  /** Sent as `Authorization: Bearer …`. */
+  apiKey?: string;
+  headers?: Record<string, string>;
+  /** Added to every request body (e.g. OpenRouter's `provider` routing options). */
+  body?: Record<string, unknown>;
+  /** Replaces NO_THINKING where the API turns thinking off another way (OpenRouter's `reasoning`). */
+  noThinking?: Record<string, unknown>;
+}
+
+/** vLLM (AWS), Ollama (local) or a hosted provider through the OpenAI-compatible chat completions API. */
 export class OpenAiCompatibleProvider implements LlmProvider {
   readonly name = 'openai-compatible';
   private readonly logger = new Logger('LlmProvider');
 
   constructor(
     private readonly endpoint: string,
-    private readonly model: string,
+    readonly model: string,
     private readonly timeoutMs = 60_000,
     /** MODEL_DEBUG: log full requests and responses (local development only). */
     private readonly debug = false,
     /** MODEL_THINKING: where the model may reason first (slower). */
     private readonly thinking: 'off' | 'plan' | 'all' = 'plan',
+    private readonly connection: ProviderConnection = {},
   ) {}
 
   private options(step: 'plan' | 'answer') {
-    return this.thinking === 'all' || (this.thinking === 'plan' && step === 'plan') ? {} : NO_THINKING;
+    const extra = this.connection.body ?? {};
+    return this.thinking === 'all' || (this.thinking === 'plan' && step === 'plan') ? extra : { ...extra, ...(this.connection.noThinking ?? NO_THINKING) };
+  }
+
+  /** One short prompt, for Admin › AI's Test button: the reply and how long it took. */
+  async test(): Promise<{ reply: string; ms: number }> {
+    const started = Date.now();
+    const res = await this.post({
+      model: this.model,
+      max_tokens: 20,
+      ...this.options('answer'),
+      messages: [{ role: 'user', content: 'Reply with the single word: ready' }],
+    });
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    return { reply: (body.choices?.[0]?.message?.content ?? '').trim(), ms: Date.now() - started };
   }
 
   async warmUp(): Promise<void> {
@@ -167,17 +193,42 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     const timeout = AbortSignal.timeout(this.timeoutMs);
     const res = await fetch(`${this.endpoint.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        ...this.connection.headers,
+        ...(this.connection.apiKey ? { authorization: `Bearer ${this.connection.apiKey}` } : {}),
+      },
       body: JSON.stringify(body),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
-    if (!res.ok) throw new Error(`model endpoint returned ${res.status}`);
+    if (!res.ok) throw new ModelEndpointError(res.status, await errorMessage(res));
     return res;
   }
 
   private dump(label: string, data: object, text: Record<string, string | undefined> = {}): void {
     const blocks = Object.entries(text).flatMap(([name, value]) => (value ? [`--- ${name} ---\n${value}`] : []));
     this.logger.debug([`=== ${label} ===`, ...(Object.keys(data).length ? [JSON.stringify(data, null, 2)] : []), ...blocks].join('\n'));
+  }
+}
+
+/** The model endpoint refused a request (status and the provider's own message, without secrets). */
+export class ModelEndpointError extends Error {
+  constructor(
+    readonly status: number,
+    readonly detail: string | undefined,
+  ) {
+    super(`model endpoint returned ${status}${detail ? `: ${detail}` : ''}`);
+  }
+}
+
+/** OpenAI-style `{ error: { message } }` (OpenRouter, vLLM), cut short; never the request. */
+async function errorMessage(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { error?: { message?: string } | string; message?: string };
+    const m = typeof body.error === 'string' ? body.error : (body.error?.message ?? body.message);
+    return m ? String(m).slice(0, 300) : undefined;
+  } catch {
+    return undefined;
   }
 }
 

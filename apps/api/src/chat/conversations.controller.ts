@@ -29,7 +29,8 @@ export class ConversationsController {
   }
 
   @Post()
-  create(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(createSchema)) body: z.infer<typeof createSchema>) {
+  async create(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(createSchema)) body: z.infer<typeof createSchema>) {
+    await this.chat.assertAssistantOn(p);
     return this.db.as(p, async (db) =>
       (
         await db.query(
@@ -98,6 +99,7 @@ export class ConversationsController {
     @Res() res: Response,
   ) {
     await this.chat.assertConversation(p, id);
+    await this.chat.assertAssistantOn(p);
     await this.chat.assertQuota(p);
     res.status(200);
     res.setHeader('content-type', 'text/event-stream; charset=utf-8');

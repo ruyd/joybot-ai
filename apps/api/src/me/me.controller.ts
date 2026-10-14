@@ -39,7 +39,14 @@ export class MeController {
                  FROM core.customers WHERE id = $1`,
               [p.id],
             )).rows[0];
-      return { type: p.type, role: p.role, profile, rules: packRules(p.access) };
+      // Admin › AI can turn the assistant off for customers or for staff (the web app hides it).
+      const assistant = (
+        await db.query<{ enabled: boolean }>(
+          `SELECT CASE WHEN $1 = 'customer' THEN assistant_customers ELSE assistant_employees END AS enabled FROM core.settings WHERE id = 1`,
+          [p.type],
+        )
+      ).rows[0]?.enabled ?? true;
+      return { type: p.type, role: p.role, profile, assistant, rules: packRules(p.access) };
     });
   }
 
