@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { date, dateTime, money } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -265,25 +265,17 @@ export function OrdersPage() {
       <PageHeader title="Orders" description="What customers bought in the shop. Mark services done once delivered." />
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,28rem)]">
         <Card>
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap gap-1" role="tablist" aria-label="Orders">
-              {FILTERS.map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={status === key}
-                  onClick={() => choose({ status: key })}
-                  className={`press rounded-full px-3 py-1.5 text-sm font-medium ${status === key ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="ml-auto w-full sm:w-64">
-              <Input aria-label="Search orders" placeholder="Order, customer or email" value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-          </div>
+          <Tabs
+            label="Orders"
+            tabs={FILTERS.map(([key, label]) => ({ key, label }))}
+            value={status as (typeof FILTERS)[number][0]}
+            onChange={(key) => choose({ status: key })}
+            aside={
+              <div className="w-64 max-w-full">
+                <Input aria-label="Search orders" placeholder="Order, customer or email" value={search} onChange={(e) => setSearch(e.target.value)} />
+              </div>
+            }
+          />
           {q.isLoading ? (
             <Spinner />
           ) : q.error ? (
@@ -439,20 +431,12 @@ export function StoreSettingsPage() {
   return (
     <Page>
       <PageHeader title="Store" description="The shop on your website: products are under Products, orders under Orders." />
-      <div role="tablist" aria-label="Store settings" className="mb-4 flex gap-1 overflow-x-auto">
-        {STORE_TABS.map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setParams(key === 'shop' ? {} : { tab: key }, { replace: true })}
-            className={`press whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab === key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Store settings"
+        tabs={STORE_TABS.map(([key, label]) => ({ key, label }))}
+        value={tab}
+        onChange={(key) => setParams(key === 'shop' ? {} : { tab: key }, { replace: true })}
+      />
       {q.isLoading ? (
         <Spinner />
       ) : q.error || !q.data ? (

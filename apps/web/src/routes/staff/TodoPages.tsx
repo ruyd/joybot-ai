@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { date, preferredTimeZone, todayIn } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -201,19 +201,9 @@ export function Todos() {
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_24rem]">
         <Card
           title={
-            <div role="tablist" className="flex gap-1">
-              {STATUS_TABS.map(([key, label]) => (
-                <button
-                  key={key}
-                  role="tab"
-                  aria-selected={status === key}
-                  onClick={() => setStatus(key)}
-                  className={`press rounded-full px-3 py-1 text-sm ${status === key ? 'btn-gradient font-medium' : 'font-normal hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <span className="font-normal">
+              <Tabs bare label="To-dos" tabs={STATUS_TABS.map(([key, label]) => ({ key, label }))} value={status} onChange={setStatus} />
+            </span>
           }
           actions={
             <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">

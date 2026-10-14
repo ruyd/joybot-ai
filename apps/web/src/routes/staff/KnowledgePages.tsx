@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { date } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -83,19 +83,7 @@ export function Knowledge() {
         title="Answers"
         description="Saved answers and articles the assistant uses. It cites them and offers their buttons (book, read an article)."
       />
-      <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto">
-        {TABS.map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={`press whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab === key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Answers" tabs={TABS.map(([key, label]) => ({ key, label }))} value={tab} onChange={setTab} />
       {tab === 'answers' && <Answers />}
       {tab === 'articles' && <Articles />}
       {tab === 'test' && <TestQuestion />}

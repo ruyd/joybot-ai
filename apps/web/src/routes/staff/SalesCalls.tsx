@@ -3,7 +3,7 @@ import { Mail, Phone, Search, Video } from 'lucide-react';
 import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { date, dateTime, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -179,44 +179,28 @@ export function SalesCallsPage() {
           </a>
         }
       />
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Sales calls" className="flex flex-wrap gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={tab === t.key}
-              onClick={() => setParams(t.key === 'upcoming' ? {} : { tab: t.key }, { replace: true })}
-              className={`press inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium ${tab === t.key ? 'btn-gradient' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-900'}`}
-            >
-              {t.label}
-              {(t.key === 'upcoming' || t.key === 'past') && (
-                // Always there (blank while loading) so the tab never changes size.
-                <span
-                  className={`inline-flex h-5 min-w-6 items-center justify-center rounded-full px-1.5 text-xs tabular-nums ${
-                    tab === t.key ? 'bg-white/25' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                  }`}
-                >
-                  {counts[t.key]?.toLocaleString() ?? ''}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        {listing && (
-          <div className="relative ml-auto w-72 max-w-full">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-            <Input
-              type="search"
-              aria-label="Search calls"
-              placeholder="Search name, email or notes"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-        )}
-      </div>
+      <Tabs
+        label="Sales calls"
+        // Upcoming and Past show how many (blank while loading, so the tab never changes size).
+        tabs={TABS.map((t) => (t.key === 'upcoming' || t.key === 'past' ? { ...t, count: counts[t.key] ?? null } : t))}
+        value={tab}
+        onChange={(key) => setParams(key === 'upcoming' ? {} : { tab: key }, { replace: true })}
+        aside={
+          listing && (
+            <div className="relative w-72 max-w-full">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                type="search"
+                aria-label="Search calls"
+                placeholder="Search name, email or notes"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          )
+        }
+      />
       {tab === 'setup' ? (
         <SetupCard editable={editable} />
       ) : tab === 'confirmation' ? (

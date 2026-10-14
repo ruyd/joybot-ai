@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { InvoiceDocument, InvoiceStatus, type Invoice } from '../../components/InvoiceDocument';
 import { Page } from '../../components/Layout';
-import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge } from '../../components/ui';
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Tabs } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
 import { date, dateTime, METHOD_LABEL, money } from '../../lib/format';
 import { CustomerPicker, type Customer } from './CustomerPicker';
@@ -39,24 +39,17 @@ export function Invoices() {
           </Link>
         }
       />
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Status" className="flex flex-wrap gap-1">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              role="tab"
-              aria-selected={tab === t.key}
-              onClick={() => setParams(t.key === 'open' ? {} : { status: t.key }, { replace: true })}
-              className={`press rounded-full px-3 py-1.5 text-sm ${tab === t.key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto w-72 max-w-full">
-          <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Invoice number or customer" aria-label="Search invoices" />
-        </div>
-      </div>
+      <Tabs
+        label="Status"
+        tabs={TABS}
+        value={tab}
+        onChange={(key) => setParams(key === 'open' ? {} : { status: key }, { replace: true })}
+        aside={
+          <div className="w-72 max-w-full">
+            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Invoice number or customer" aria-label="Search invoices" />
+          </div>
+        }
+      />
       <Card>
         {list.isLoading ? (
           <Spinner />
