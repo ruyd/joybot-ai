@@ -114,6 +114,15 @@ describe('site analytics', () => {
   });
 });
 
+describe('privacy policy', () => {
+  it('the standard policy says how visits are counted', async () => {
+    const page = (await request(app.getHttpServer()).get('/api/site/pages/privacy-policy').expect(200)).body;
+    const html = page.modules[0].html as string;
+    expect(html).toContain('<h2>Visits to our website</h2>');
+    expect(html.indexOf('Visits to our website')).toBeLessThan(html.indexOf('How we use it'));
+  });
+});
+
 describe('helpers', () => {
   it('tells devices apart', () => {
     expect(deviceOf(CHROME)).toBe('desktop');
