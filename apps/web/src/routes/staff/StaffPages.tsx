@@ -2,7 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Pager, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Pager, Select, Spinner, StatusBadge, Table, Tabs, Td } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
 import { date, dateTime, fullName, METHOD_LABEL, money } from '../../lib/format';
 import { useMe } from '../../lib/me';
@@ -273,19 +273,7 @@ export function Payments() {
   return (
     <Page>
       <PageHeader title="Payments" description="Manual payments (POS, bank transfer, cash) and Stripe follow-ups." />
-      <div role="tablist" className="mb-4 flex gap-1 overflow-x-auto">
-        {tabs.map(([key, label]) => (
-          <button
-            key={key}
-            role="tab"
-            aria-selected={tab === key}
-            onClick={() => setTab(key)}
-            className={`press whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab === key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs label="Payments" tabs={tabs.map(([key, label]) => ({ key, label }))} value={tab} onChange={setTab} />
       {tab === 'record' && <RecordPayment />}
       {tab === 'pending' && <PendingTransfers />}
       {tab === 'unmatched' && <UnmatchedStripe />}

@@ -241,3 +241,77 @@ export function Pager({
     </nav>
   );
 }
+
+export interface TabItem<K extends string> {
+  key: K;
+  label: ReactNode;
+  /** A count beside the label; null keeps the space while it loads, so the tab never changes size. */
+  count?: number | null;
+}
+
+/**
+ * Text tabs on a hairline, the selected one underlined in the brand color (the OpenRouter look).
+ * `aside` (e.g. a search box) sits at the right end of the row; `bare` drops the line and the space
+ * below, for tabs inside a card header.
+ */
+export function Tabs<K extends string>({
+  tabs,
+  value,
+  onChange,
+  label,
+  aside,
+  bare,
+}: {
+  tabs: readonly TabItem<K>[];
+  value: K;
+  onChange: (key: K) => void;
+  label: string;
+  aside?: ReactNode;
+  bare?: boolean;
+}) {
+  // The hairline is an inset shadow so the selected tab's underline draws over it (a negative margin would be clipped by the scrolling strip).
+  const line = !bare && 'shadow-[inset_0_-1px_0_var(--color-slate-200)] dark:shadow-[inset_0_-1px_0_var(--color-slate-800)]';
+  // The tabs keep their natural width (scrolling only when wider than the row) and the line runs on to
+  // `aside`; when both don't fit, `aside` wraps onto its own row above them (wrap-reverse).
+  return (
+    <div className={cx('flex flex-wrap-reverse items-end gap-x-6 gap-y-3', !bare && 'mb-5')}>
+      <div
+        role="tablist"
+        aria-label={label}
+        className={cx('flex min-w-[min(100%,max-content)] flex-auto gap-6 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', line)}
+      >
+        {tabs.map((t) => {
+          const selected = t.key === value;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => onChange(t.key)}
+              className={cx(
+                'inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-0.5 pt-1 pb-3 text-[15px] transition-colors',
+                selected
+                  ? 'border-brand-600 font-medium text-brand-700 dark:border-brand-500 dark:text-brand-500'
+                  : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-100',
+              )}
+            >
+              {t.label}
+              {t.count !== undefined && (
+                <span
+                  className={cx(
+                    'inline-flex h-5 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums',
+                    selected ? 'bg-brand-50 text-brand-700 dark:bg-slate-800 dark:text-brand-500' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                  )}
+                >
+                  {t.count?.toLocaleString() ?? ''}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {aside && <div className={cx('ml-auto max-w-full', !bare && 'pb-2')}>{aside}</div>}
+    </div>
+  );
+}
