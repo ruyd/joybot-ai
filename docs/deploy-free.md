@@ -169,6 +169,8 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
     installs pnpm (from `packageManager`) and runs `pnpm install` itself; `...` builds `@joybot/access` first.
   - Variables: `NODE_VERSION=22`, `WEB_API_BASE=https://api.appjoy.dev/api`, `SUPABASE_URL`,
     `SUPABASE_PUBLISHABLE_KEY` (public), `APP_URL=https://appjoy.dev`.
+  - `apps/web/public/_headers` caches `/assets/*` (hashed file names) for a year at the edge and in
+    browsers; `index.html` and `config.json` keep Pages' default (revalidated on every request).
   - `write-config.mjs` writes `dist/config.json` and fails the build if a value is missing, so the local
     development config (dev sign-in) is never shipped. SPA routes work without extra config.
   - Project `joybot-web`, custom domain `appjoy.dev` (replaced Firebase Hosting).
