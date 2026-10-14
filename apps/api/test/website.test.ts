@@ -257,7 +257,7 @@ describe('website: sections and setup', () => {
 
   it('keeps the site setup: look and header, for editors to change and anyone to read', async () => {
     const before = (await admin().get('/api/website/settings').expect(200)).body;
-    expect(before).toMatchObject({ highlight_color: null, site_name: null, business_name: 'JoyBot Test', accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
+    expect(before).toMatchObject({ highlight_color: null, favicon_asset_id: null, site_name: null, business_name: 'JoyBot Test', accent: '#0878ab', accent_to: '#34868f', heading_font: 'system', body_font: 'system', header_links: [], show_customer_login: true, header_button_label: null });
 
     const logo = (
       await request(app.getHttpServer()).post('/api/website/assets?filename=logo.png').set('x-dev-principal', `employee:${U.ada}`).set('content-type', 'image/png').send(PNG).expect(201)
@@ -267,6 +267,7 @@ describe('website: sections and setup', () => {
         .put('/api/website/settings', {
           tagline: 'Software Development',
           logo_asset_id: logo.id,
+          favicon_asset_id: logo.id,
           accent: '#6D5DFC',
           accent_to: '#a855f7',
           highlight_color: '#FF7A45',
@@ -282,7 +283,7 @@ describe('website: sections and setup', () => {
     expect(saved).toMatchObject({ highlight_color: '#ff7a45', accent: '#6d5dfc', heading_font: 'instrument-serif', updated_by_name: 'Ada Admin' });
 
     const site = (await visitor().get('/api/site').expect(200)).body;
-    expect(site.settings).toMatchObject({ tagline: 'Software Development', logo_asset_id: logo.id, accent: '#6d5dfc', show_customer_login: false, header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }] });
+    expect(site.settings).toMatchObject({ tagline: 'Software Development', logo_asset_id: logo.id, favicon_asset_id: logo.id, accent: '#6d5dfc', show_customer_login: false, header_links: [{ label: 'Services', url: '/#services' }, { label: 'FAQ', url: '/#faq' }] });
     expect(site.settings.updated_by).toBeUndefined();
     expect(site.name).toBe('JoyBot Test'); // no site name yet: the business name
 
@@ -302,6 +303,7 @@ describe('website: sections and setup', () => {
     await admin().put('/api/website/settings', { header_button_url: null }).expect(400); // the label is still set
     await admin().put('/api/website/settings', { header_button_label: '', header_button_url: '' }).expect(200); // both cleared
     await admin().put('/api/website/settings', { logo_asset_id: '00000000-0000-4000-8000-000000000000' }).expect(400);
+    expect((await admin().put('/api/website/settings', { favicon_asset_id: '00000000-0000-4000-8000-000000000000' }).expect(400)).body.message).toMatch(/browser tab icon/);
     await admin().put('/api/website/settings', { unknown: true }).expect(400);
 
     // Staff as by default (another test here lets them edit pages).
@@ -310,8 +312,8 @@ describe('website: sections and setup', () => {
     await api(app, employee(U.sam)).put('/api/website/settings', { tagline: 'Sam' }).expect(403);
     await api(app, customer(C.maria)).put('/api/website/settings', { tagline: 'Maria' }).expect(403);
 
-    // Deleting the logo image leaves the site without a logo rather than broken.
+    // Deleting the image leaves the site without a logo and favicon rather than broken.
     await admin().delete(`/api/website/assets/${logo.id}`).expect(204);
-    expect((await admin().get('/api/website/settings').expect(200)).body.logo_asset_id).toBeNull();
+    expect((await admin().get('/api/website/settings').expect(200)).body).toMatchObject({ logo_asset_id: null, favicon_asset_id: null });
   });
 });

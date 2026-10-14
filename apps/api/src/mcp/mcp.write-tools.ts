@@ -367,11 +367,12 @@ export function registerWriteTools(server: McpServer, ctx: WriteContext) {
   tool(
     'update_site_setup',
     'Update website setup',
-    'Changes how the public site looks and its header: site_name (the name shown; null for the business name), tagline under the name, logo (an uploaded image id), accent and accent_to colors (#rrggbb; buttons are a gradient between them, white text goes on accent), highlight_color (a second brand color for highlighted cards and the hero glow; null for accent_to), heading_font and body_font (names from get_site_setup), header_links (label + url such as "/#services"; replaces the list), the header button (label and url together; null removes it) and show_customer_login.',
+    'Changes how the public site looks and its header: site_name (the name shown; null for the business name), tagline under the name, logo (an uploaded image id), favicon (favicon_asset_id: the browser tab icon, an uploaded image id; null uses the logo), accent and accent_to colors (#rrggbb; buttons are a gradient between them, white text goes on accent), highlight_color (a second brand color for highlighted cards and the hero glow; null for accent_to), heading_font and body_font (names from get_site_setup), header_links (label + url such as "/#services"; replaces the list), the header button (label and url together; null removes it) and show_customer_login.',
     {
       site_name: z.string().max(80).nullable().optional(),
       tagline: z.string().max(60).nullable().optional(),
       logo_asset_id: uuid.nullable().optional(),
+      favicon_asset_id: uuid.nullable().optional(),
       accent: z.string().optional(),
       accent_to: z.string().optional(),
       highlight_color: z.string().nullable().optional(),

@@ -13,7 +13,7 @@ const LIST_COLUMNS = `p.id, p.slug, p.title, p.description, p.is_home, p.publish
   (SELECT nullif(concat_ws(' ', u.first_name, u.last_name), '') FROM core.users u WHERE u.id = p.updated_by) AS updated_by_name`;
 
 /** Site setup columns, as editors and the public site get them. */
-export const SETTINGS_COLUMNS = `site_name, tagline, logo_asset_id, accent, accent_to, highlight_color, heading_font, body_font, header_links,
+export const SETTINGS_COLUMNS = `site_name, tagline, logo_asset_id, favicon_asset_id, accent, accent_to, highlight_color, heading_font, body_font, header_links,
   header_button_label, header_button_url, show_customer_login`;
 
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -171,8 +171,11 @@ export class WebsiteService {
       const label = body.header_button_label !== undefined ? body.header_button_label : current.header_button_label;
       const url = body.header_button_url !== undefined ? body.header_button_url : current.header_button_url;
       if ((label === null) !== (url === null)) throw new BadRequestException('A header button needs both a label and a link');
-      if (body.logo_asset_id && !(await db.query('SELECT 1 FROM core.site_assets WHERE id = $1', [body.logo_asset_id])).rowCount) {
-        throw new BadRequestException('Choose an uploaded image for the logo');
+      for (const [key, what] of [['logo_asset_id', 'the logo'], ['favicon_asset_id', 'the browser tab icon']] as const) {
+        const id = body[key];
+        if (id && !(await db.query('SELECT 1 FROM core.site_assets WHERE id = $1', [id])).rowCount) {
+          throw new BadRequestException(`Choose an uploaded image for ${what}`);
+        }
       }
       const { header_links, ...fields } = body;
       const set = setClause({ ...fields, ...(header_links ? { header_links: JSON.stringify(header_links) } : {}), updated_by: p.id });
