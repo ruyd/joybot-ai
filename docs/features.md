@@ -23,6 +23,13 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 - **OpenRouter:** base `https://openrouter.ai/api/v1`. `private_only` sends `provider.data_collection = 'deny'`, and thinking is turned off with `reasoning.enabled = false`. Gemma 4 E2B isn't listed there; `google/gemma-4-26b-a4b-it` is the cheapest Gemma 4. Free (`:free`) models log prompts.
 - `POST /admin/ai/test` sends one short prompt. Provider errors come back as 502 with the provider's own message.
 
+## Stripe settings (`apps/api/src/stripe/`, Settings › Stripe)
+
+- **API key and webhook signing secret:** saved encrypted in `core.stripe_secret` (no grants; `authz.set_stripe_secret` and `authz.stripe_secret_info` for admins, `authz.stripe_key_cipher` for the API and the worker, `authz.stripe_webhook_cipher` for the webhook). Each saved one comes before its server setting (`STRIPE_WEBHOOK_SECRET` or the Stripe secret's `webhookSigningSecret`). A saved key comes before the environment / Secrets Manager (`STRIPE_CHECKOUT_KEY`, `STRIPE_RESTRICTED_KEY`, the Stripe secret). One key serves both uses, so a restricted key needs write access to Checkout Sessions and read access to PaymentIntents and Charges. `StripeSecrets` caches it for 60 s and forgets it on save.
+- The worker decrypts with the shared `openSecret` (`packages/db/src/secret-box.ts`), so it needs `SETTINGS_ENCRYPTION_KEY` too (in the AWS worker task; Render shares the API's environment).
+- The page shows the webhook address to paste into Stripe (`apiUrl('/webhooks/stripe')`) and the events the worker applies (`WEBHOOK_EVENTS` in `StripePage.tsx`, mirroring `apps/worker/src/stripe/apply.ts`), plus the sync switch (`core.settings.stripe_enabled`), status and Reconcile now.
+- **Reconcile schedule:** `core.settings.stripe_reconcile_interval_hours` (default 24) and `stripe_reconcile_days` (3), read by the worker through `authz.stripe_reconcile_settings()` (they replace the worker's `STRIPE_RECONCILE_*` variables). Reconcile now without `days` uses the setting.
+
 ## Video calls (`apps/api/src/video/`)
 
 - Sales calls › Setup meeting links connects a Google account by OAuth with only the non-sensitive scope `calendar.app.created`, so no Google verification is needed. JoyBot makes its own "<site> sales calls" calendar there (`google_calendar_id`, remade if deleted) and can't see other calendars.

@@ -30,7 +30,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web |
 | `apps/api` | NestJS, one folder per feature, plus `auth/` guards and `config/config.ts` (Zod) |
 | `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
-| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, website, articles, answers, then Settings) |
+| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, website, analytics, articles, answers, then Settings) |
 | `cloudformation` | AWS: `main.yaml`, nested `stacks/`, Lambda `functions/` (own pnpm package), `scripts/`, `guard/`, `bootstrap/` |
 | `deploy`, `render.yaml` | Free-tier deploy (Render + Supabase + Cloudflare Pages), [docs/deploy-free.md](docs/deploy-free.md) |
 | `.github/workflows` | `ci.yml`, `release.yml` (AWS), `deploy-free.yml` |
@@ -53,7 +53,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 - **Body limits** (`src/setup.ts`): 100 kB, except `/api/website` (2 MB) and `/api/mcp` (8 MB).
 - **Chat:** the model never supplies IDs; tools take IDs that were already resolved and allowed. Record text goes into the prompt as delimited data. Every lookup is written to `app.retrieval_traces`. Saved answers and article passages (`knowledge/`) are searched for every question and cited like records. Buttons come only from them, never from the model.
 - **Secrets and contact codes:** store only sha256 hashes of tokens and codes, mask contacts in responses, and never log codes.
-- **Third-party keys** the app uses (Resend, Google, the AI provider) are encrypted with `SecretBox` (AES-256-GCM, `SETTINGS_ENCRYPTION_KEY`) in tables without grants or audit, reached only through SECURITY DEFINER functions, and never returned to the browser (show the last four characters).
+- **Third-party keys** the app uses (Resend, Google, the AI provider, Stripe) are encrypted with `SecretBox` (AES-256-GCM, `SETTINGS_ENCRYPTION_KEY`) in tables without grants or audit, reached only through SECURITY DEFINER functions, and never returned to the browser (show the last four characters).
 - **External clients are injectable tokens** (`JWT_VERIFIERS`, `SUPABASE_TOKENS`, `SUPABASE_HTTP`, `EMPLOYEE_LOGINS`, `CUSTOMER_LOGINS`, `LLM_PROVIDER`, `MESSAGE_SENDER`, `RESEND_HTTP`, `GOOGLE_HTTP`), so tests can override them. In dev, messages are logged rather than sent.
 
 ### Product constraints from the owner

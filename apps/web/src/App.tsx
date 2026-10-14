@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { BookOpen, CreditCard, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users } from 'lucide-react';
+import { BookOpen, ChartColumn, CreditCard, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users, Wallet } from 'lucide-react';
 import { Layout, type NavItem, type SideSection } from './components/Layout';
 import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
@@ -75,6 +75,7 @@ const CalendarPage = page(() => import('./routes/staff/CalendarPage'), 'Calendar
 const SchedulePage = page(() => import('./routes/staff/SchedulePage'), 'SchedulePage');
 const ClaudeAccessPage = page(() => import('./routes/staff/McpTokens'), 'ClaudeAccessPage');
 const AnalyticsPage = page(() => import('./routes/staff/AnalyticsPage'), 'AnalyticsPage');
+const StripePage = page(() => import('./routes/staff/StripePage'), 'StripePage');
 const site = () => import('./routes/site/SitePages');
 const SiteLayout = page(site, 'SiteLayout');
 const SitePageView = page(site, 'SitePageView');
@@ -134,6 +135,7 @@ const STAFF_SIDEBAR: SideSection[] = [
       { to: '/staff/payments', label: 'Payments', icon: CreditCard, can: ['create', 'payments'] },
       { to: '/staff/invoices', label: 'Invoices', icon: FileText, can: ['create', 'payments'] },
       { to: '/staff/website', label: 'Website', icon: Globe, can: ['read', 'website'] },
+      { to: '/staff/analytics', label: 'Analytics', icon: ChartColumn, can: ['read', 'website'] },
       { to: '/staff/help', label: 'Articles', icon: BookOpen, can: ['read', 'knowledge'] },
       { to: '/staff/knowledge', label: 'Answers', icon: MessageSquareQuote, can: ['update', 'knowledge'] },
     ],
@@ -145,6 +147,7 @@ const STAFF_SIDEBAR: SideSection[] = [
       { to: '/staff/employees', label: 'Employees', icon: Users, can: ['read', 'users'] },
       { to: '/staff/access', label: 'Access', icon: ShieldCheck, can: ['update', 'access'] },
       { to: '/staff/email', label: 'Email', icon: Mail, can: ['update', 'settings'] },
+      { to: '/staff/stripe', label: 'Stripe', icon: Wallet, can: ['update', 'settings'] },
       { to: '/staff/ai', label: 'AI', icon: Sparkles, can: ['update', 'settings'] },
       { to: '/staff/claude', label: 'Claude access', icon: KeyRound, role: 'admin' },
       { to: '/staff/audit', label: 'Audit log', icon: ScrollText, can: ['read', 'audit'] },
@@ -223,6 +226,7 @@ export function App() {
             <Route path="schedule" element={<SchedulePage />} />
             <Route path="claude" element={<ClaudeAccessPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="stripe" element={<StripePage />} />
             <Route path="invoices" element={<Invoices />} />
             <Route path="invoices/:id" element={<InvoicePage />} />
             <Route path="help" element={<HelpList />} />

@@ -121,8 +121,9 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
 - When Render wakes the service (a visitor, or a Stripe webhook), the worker starts too: stored events
   are applied within seconds, and the reconcile runs on start when due. A daily `pg_cron` + `pg_net`
   request to `/api/health` (both on Supabase free) can wake it for the nightly reconcile.
-- **Stripe keys from the environment** already work: `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_KEY`
-  (API) and `STRIPE_RESTRICTED_KEY` (worker).
+- **Stripe keys:** the API key and the webhook signing secret are best saved in Settings › Stripe
+  (encrypted in the database; the key is used by the API and the worker). `STRIPE_CHECKOUT_KEY` (API),
+  `STRIPE_RESTRICTED_KEY` (worker) and `STRIPE_WEBHOOK_SECRET` still work as fallbacks.
 
 ### 6. Settings › AI (OpenRouter or own deployment) ✅
 - `core.ai_settings` (provider `openrouter` | `custom`, base URL, model) and `core.ai_secret` (API key,

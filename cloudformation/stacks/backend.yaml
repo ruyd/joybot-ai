@@ -385,6 +385,8 @@ Resources:
             - { Name: STRIPE_SECRET_ARN, Value: !Ref StripeSecretArn }
           Secrets:
             - { Name: WORKER_DB_PASSWORD, ValueFrom: !Sub "${WorkerDbSecretArn}:password::" }
+            # Decrypts the Stripe key saved in Settings > Stripe.
+            - { Name: SETTINGS_ENCRYPTION_KEY, ValueFrom: !Sub "${SettingsEncryptionSecretArn}:key::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:

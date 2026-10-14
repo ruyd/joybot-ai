@@ -6,6 +6,7 @@ import { Client } from 'pg';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signStripePayload, verifyStripeSignature } from '../src/stripe/signature';
+import { StripeSecrets } from '../src/stripe/stripe-secrets';
 import { api, createApp, customer, employee } from './app';
 
 const SECRET = 'whsec_test_secret';
@@ -46,7 +47,9 @@ describe('Stripe webhook and admin API', () => {
     app = await createApp({ env: { STRIPE_WEBHOOK_SECRET: SECRET } });
   });
   afterAll(async () => {
-    await migrator.query(`UPDATE core.settings SET stripe_enabled = false`);
+    await migrator.query(`UPDATE core.settings SET stripe_enabled = false, stripe_reconcile_interval_hours = 24, stripe_reconcile_days = 3`);
+    await migrator.query(`UPDATE core.stripe_secret SET api_key_cipher = NULL, api_key_last4 = NULL, api_key_set_at = NULL, api_key_set_by = NULL,
+      webhook_secret_cipher = NULL, webhook_secret_last4 = NULL, webhook_secret_set_at = NULL, webhook_secret_set_by = NULL`);
     await migrator.end();
     await app.close();
   });
@@ -93,5 +96,68 @@ describe('Stripe webhook and admin API', () => {
     expect(status.body.lastReconcile).toMatchObject({ status: 'queued' });
     await api(app, employee(U.sam)).post('/api/admin/stripe/reconcile', {}).expect(403);
     await api(app, employee(U.ada)).post('/api/admin/stripe/reconcile', { days: 365 }).expect(400);
+  });
+
+  it('admins save the Stripe API key encrypted, see only its last four, and the app uses it', async () => {
+    const KEY = 'rk_test_51AbCdEfGhIjKlMnOpQrStUvWx1234';
+    const before = (await api(app, employee(U.ada)).get('/api/admin/stripe/status').expect(200)).body;
+    expect(before).toMatchObject({ encryption_available: true, api_key: { last4: null, source: null }, webhook_secret: { last4: null, source: 'server' } });
+
+    await api(app, employee(U.ada)).put('/api/admin/stripe/api-key', { api_key: 'not-a-stripe-key' }).expect(400);
+    await api(app, employee(U.sam)).put('/api/admin/stripe/api-key', { api_key: KEY }).expect(403);
+    await api(app, customer(C.maria)).put('/api/admin/stripe/api-key', { api_key: KEY }).expect(403);
+
+    const saved = (await api(app, employee(U.ada)).put('/api/admin/stripe/api-key', { api_key: KEY }).expect(200)).body;
+    expect(saved.api_key).toMatchObject({ last4: '1234', source: 'settings', set_by_name: 'Ada Admin' });
+    expect(JSON.stringify(saved)).not.toContain(KEY);
+    // Stored encrypted, in a table the API's role can't read.
+    const row = (await migrator.query('SELECT api_key_cipher FROM core.stripe_secret')).rows[0];
+    expect(row.api_key_cipher).toMatch(/^v1\./);
+    expect(row.api_key_cipher).not.toContain(KEY);
+    const appDb = new Client({ connectionString: process.env.APP_DATABASE_URL });
+    await appDb.connect();
+    await expect(appDb.query('SELECT * FROM core.stripe_secret')).rejects.toMatchObject({ code: '42501' });
+    await expect(appDb.query('SELECT * FROM authz.stripe_secret_info()')).rejects.toMatchObject({ code: '42501' });
+    await appDb.end();
+    // Invoice checkout now uses it.
+    expect(await app.get(StripeSecrets).checkoutKey()).toBe(KEY);
+
+    await api(app, employee(U.sam)).delete('/api/admin/stripe/api-key').expect(403);
+    const removed = (await api(app, employee(U.ada)).delete('/api/admin/stripe/api-key').expect(200)).body;
+    expect(removed.api_key).toMatchObject({ last4: null, source: null });
+    expect(await app.get(StripeSecrets).checkoutKey()).toBeUndefined();
+  });
+
+  it('a webhook signing secret saved in Settings › Stripe replaces the server one', async () => {
+    const SAVED = 'whsec_SavedInSettings0123456789abcd';
+    await migrator.query(`UPDATE core.settings SET stripe_enabled = true`);
+    await api(app, employee(U.ada)).put('/api/admin/stripe/webhook-secret', { webhook_secret: 'sk_test_wrongkind' }).expect(400);
+    await api(app, employee(U.sam)).put('/api/admin/stripe/webhook-secret', { webhook_secret: SAVED }).expect(403);
+    const saved = (await api(app, employee(U.ada)).put('/api/admin/stripe/webhook-secret', { webhook_secret: SAVED }).expect(200)).body;
+    expect(saved.webhook_secret).toMatchObject({ last4: 'abcd', source: 'settings' });
+    expect(JSON.stringify(saved)).not.toContain(SAVED);
+
+    const raw = JSON.stringify(event('evt_saved_secret'));
+    const send = (secret: string) =>
+      request(app.getHttpServer()).post('/api/webhooks/stripe').set('content-type', 'application/json').set('stripe-signature', signStripePayload(raw, secret)).send(raw);
+    await send(SECRET).expect(400);
+    expect((await send(SAVED).expect(200)).body).toMatchObject({ received: true });
+
+    const removed = (await api(app, employee(U.ada)).delete('/api/admin/stripe/webhook-secret').expect(200)).body;
+    expect(removed.webhook_secret).toMatchObject({ last4: null, source: 'server' });
+    expect((await send(SECRET).expect(200)).body).toMatchObject({ received: true, duplicate: true });
+  });
+
+  it('admins set the reconcile schedule; Reconcile now without days uses it', async () => {
+    const saved = (await api(app, employee(U.ada)).put('/api/admin/settings', { stripe_reconcile_interval_hours: 6, stripe_reconcile_days: 14 }).expect(200)).body;
+    expect(saved).toMatchObject({ stripe_reconcile_interval_hours: 6, stripe_reconcile_days: 14 });
+    await api(app, employee(U.ada)).put('/api/admin/settings', { stripe_reconcile_interval_hours: 0 }).expect(400);
+    await api(app, employee(U.ada)).put('/api/admin/settings', { stripe_reconcile_days: 91 }).expect(400);
+    await api(app, employee(U.sam)).put('/api/admin/settings', { stripe_reconcile_days: 5 }).expect(403);
+    // Not for customers or staff to see.
+    expect((await api(app, customer(C.maria)).get('/api/settings').expect(200)).body).not.toHaveProperty('stripe_reconcile_days');
+
+    const job = (await api(app, employee(U.ada)).post('/api/admin/stripe/reconcile', {}).expect(202)).body;
+    expect((await migrator.query('SELECT params FROM app.worker_jobs WHERE id = $1', [job.id])).rows[0].params).toEqual({});
   });
 });

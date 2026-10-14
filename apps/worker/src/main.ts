@@ -4,7 +4,7 @@ import { Pool, types } from 'pg';
 
 // DATE columns are calendar dates: keep them as 'YYYY-MM-DD' (no time-zone shift).
 types.setTypeParser(types.builtins.DATE, (value) => value);
-import { loadConfig, stripeRestrictedKey } from './config';
+import { loadConfig, reconcileSettings, stripeRestrictedKey } from './config';
 import { runQueuedJobs } from './jobs';
 import { StripeApi } from './stripe/api';
 import { processPendingEvents } from './stripe/processor';
@@ -24,10 +24,13 @@ async function main(): Promise<void> {
   const stripeEnabled = async () =>
     (await pool.query<{ on: boolean }>('SELECT authz.stripe_enabled() AS on')).rows[0].on;
 
-  const runReconcile = async () => {
-    const key = await stripeRestrictedKey();
-    if (!key) throw new Error('Stripe restricted key is not configured');
-    const result = await reconcile(pool, new StripeApi(key, cfg.stripeApiBase), cfg.reconcileDays);
+  /** Reconciles the last `days` days: a "Reconcile now" request's own, else the setting. */
+  const runReconcile = async (params: Record<string, unknown> = {}) => {
+    const key = await stripeRestrictedKey(pool);
+    if (!key) throw new Error('No Stripe API key: save one in Settings › Stripe');
+    const requested = Number(params.days);
+    const days = Number.isInteger(requested) && requested >= 1 && requested <= 90 ? requested : (await reconcileSettings(pool)).days;
+    const result = await reconcile(pool, new StripeApi(key, cfg.stripeApiBase), days);
     lastReconcile = Date.now();
     console.log(JSON.stringify({ event: 'stripe_reconciled', ...result }));
     return { ...result };
@@ -37,8 +40,8 @@ async function main(): Promise<void> {
     const processed = await processPendingEvents(pool);
     if (processed.processed + processed.failed > 0) console.log(JSON.stringify({ event: 'stripe_events', ...processed }));
     await runQueuedJobs(pool, { stripe_reconcile: runReconcile });
-    const due = Date.now() - lastReconcile > cfg.reconcileIntervalHours * 3_600_000;
-    if (due && (await stripeEnabled()) && (await stripeRestrictedKey())) await runReconcile();
+    const due = Date.now() - lastReconcile > (await reconcileSettings(pool)).intervalHours * 3_600_000;
+    if (due && (await stripeEnabled()) && (await stripeRestrictedKey(pool))) await runReconcile();
   };
 
   const shutdown = () => {
