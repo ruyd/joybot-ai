@@ -65,7 +65,7 @@ export function Invoices() {
         ) : !list.data?.items.length ? (
           <EmptyState>{term ? 'No invoices match that.' : tab === 'open' ? 'No open invoices.' : 'No invoices here yet.'}</EmptyState>
         ) : (
-          <div className="-mx-4 -my-3 overflow-x-auto">
+          <div className="-mx-6 -my-3 overflow-x-auto">
             <table className="w-full min-w-[40rem] text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">

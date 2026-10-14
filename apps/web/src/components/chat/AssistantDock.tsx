@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Audience } from '../../lib/auth';
@@ -82,9 +83,9 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
             >
               Full view
             </Link>
-            <Button size="sm" variant="ghost" aria-label="Minimize assistant" onClick={() => setExpanded(false)}>
-              ▾
-            </Button>
+            <button type="button" aria-label="Minimize assistant" title="Minimize" onClick={() => setExpanded(false)} className="press grid size-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">
+              <ChevronDown className="size-5" aria-hidden="true" />
+            </button>
           </header>
           {audience === 'employee' && <ScopeBar scope={state.scope} onClear={() => void clearScope()} />}
           <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4" aria-live="polite">
@@ -115,7 +116,9 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
             <BrandMark className="size-5" />
             <span className="hidden font-medium sm:inline">Assistant</span>
             {summary && <span className="hidden text-slate-500 md:inline">· {summary}</span>}
-            <span aria-hidden className="text-slate-500">{expanded ? '▾' : '▴'}</span>
+            <span aria-hidden className="grid size-6 place-items-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <ChevronUp className={`size-4 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+            </span>
           </button>
           <div className="min-w-0 flex-1">
             <Composer busy={state.busy} onSend={ask} onStop={stop} audience={audience} inputRef={inputRef} placeholder="Ask the assistant…" className="" />

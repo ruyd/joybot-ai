@@ -78,7 +78,7 @@ export class AwsMessageSender implements MessageSender {
 export class ResendOnlySender implements MessageSender {
   async send(m: OutgoingMessage): Promise<{ providerMessageId?: string }> {
     throw new ServiceUnavailableException(
-      m.channel === 'email' ? 'Email is not set up yet: add a Resend key and a from address in Admin › Email' : 'WhatsApp is not available on this server',
+      m.channel === 'email' ? 'Email is not set up yet: add a Resend key and a from address in Settings › Email' : 'WhatsApp is not available on this server',
     );
   }
 }

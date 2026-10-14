@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes } from 'react';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, Ref } from 'react';
+import { Select } from './Select';
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -30,14 +31,14 @@ export function Button({
 
 export function Card({ title, actions, children, className }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cx('rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900', className)}>
+    <section className={cx('rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900', className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <header className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
+          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
           {actions}
         </header>
       )}
-      <div className="p-4">{children}</div>
+      <div className={title || actions ? 'px-6 pt-4 pb-6' : 'p-6'}>{children}</div>
     </section>
   );
 }
@@ -95,10 +96,10 @@ export function EmptyState({ children }: { children: ReactNode }) {
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+        {description && <p className="mt-2 max-w-3xl text-base text-slate-500 dark:text-slate-400">{description}</p>}
       </div>
       {actions}
     </div>
@@ -106,12 +107,12 @@ export function PageHeader({ title, description, actions }: { title: string; des
 }
 
 const inputClass =
-  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900';
+  'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900';
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="mb-1 block font-medium">{label}</span>
+      <span className="mb-1.5 block font-medium">{label}</span>
       {children}
       {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
     </label>
@@ -122,18 +123,16 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement> & { ref?: Ref
   return <input {...props} className={cx(inputClass, props.className)} />;
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={cx(inputClass, props.className)} />;
-}
+export { Select } from './Select';
 
 export function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
-    <div className="-mx-4 overflow-x-auto">
+    <div className="-mx-6 overflow-x-auto">
       <table className="w-full min-w-[32rem] text-left text-sm">
         <thead className="text-xs uppercase tracking-wide text-slate-500">
           <tr>
             {head.map((h) => (
-              <th key={h} className="px-4 py-2 font-medium">
+              <th key={h} className="px-6 py-3 font-medium">
                 {h}
               </th>
             ))}
@@ -146,7 +145,7 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
 }
 
 export function Td({ children, className }: { children: ReactNode; className?: string }) {
-  return <td className={cx('px-4 py-2 align-top', className)}>{children}</td>;
+  return <td className={cx('px-6 py-3 align-top', className)}>{children}</td>;
 }
 
 /** Page numbers to show: the first, the last, and the current page with its neighbours; null is a gap. */
@@ -195,17 +194,13 @@ export function Pager({
         </span>
         <label className="flex items-center gap-1.5">
           Rows per page
-          <select
-            value={limit}
-            onChange={(e) => onLimit(Number(e.target.value))}
-            className="rounded-md border border-slate-300 bg-white py-1 pr-7 pl-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-          >
+          <Select value={limit} onChange={(e) => onLimit(Number(e.target.value))} className="w-20 text-xs">
             {sizes.map((n) => (
               <option key={n} value={n}>
                 {n}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </div>
       {pages > 1 && (

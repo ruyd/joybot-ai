@@ -708,7 +708,7 @@ function SetupCard({ editable }: { editable: boolean }) {
                   ))}
                 </div>
                 <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm dark:border-slate-800">
-                  <input type="checkbox" className="mt-0.5" checked={form.email_admins} onChange={(e) => set('email_admins', e.target.checked)} />
+                  <input type="checkbox" className="switch mt-0.5" checked={form.email_admins} onChange={(e) => set('email_admins', e.target.checked)} />
                   <span>
                     <span className="font-medium">Email admins when a call is booked</span>
                     <span className="block text-xs text-slate-500">
@@ -765,6 +765,7 @@ function HoursEditor({ hours, onChange }: { hours: HoursInterval[]; onChange: (h
               <label className="flex w-28 items-center gap-2 pt-1.5 text-sm font-medium">
                 <input
                   type="checkbox"
+                  className="switch"
                   checked={rows.length > 0}
                   onChange={(e) =>
                     onChange(e.target.checked ? [...hours, { weekday: day, starts: '09:00', ends: '17:00' }] : hours.filter((h) => h.weekday !== day))

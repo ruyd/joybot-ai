@@ -6,7 +6,7 @@ AWS stacks, Lambdas and defaults (`AUTH_MODE=cognito`, SES, Secrets Manager, ima
 they are. Branch: `supabase`.
 
 Status: items 1–5 and 8 are built on this branch (8 needs the Render, Cloudflare and GitHub
-settings); 6 (Admin › AI) and 7 (images on R2) are still a plan. Free-plan limits quoted here change; check each
+settings); 6 (Settings › AI) and 7 (images on R2) are still a plan. Free-plan limits quoted here change; check each
 provider's current pricing page before relying on a number.
 
 ## The stack
@@ -18,7 +18,7 @@ provider's current pricing page before relying on a number.
 | API (NestJS) + worker                  | **Render** web service (`deploy/render/Dockerfile`: both processes in one container) | 512 MB, sleeps after 15 min idle (~1 min to wake), 750 h/month   | ECS + worker service                       |
 | Web app (site, booking, portal, staff) | **Cloudflare Pages**                                                                 | Unlimited static bandwidth                                       | S3 + CloudFront                            |
 | Website images                         | **Cloudflare R2**, public bucket on `cdn.appjoy.dev`                                 | 10 GB, no egress fees, 10M reads/month                           | `core.site_asset_data` (bytes in Postgres) |
-| Chat model (Gemma 4)                   | **OpenRouter** or own deployment, chosen in Admin › AI                               | Pay per token (free models are rate-limited and may log prompts) | vLLM on a GPU                              |
+| Chat model (Gemma 4)                   | **OpenRouter** or own deployment, chosen in Settings › AI                               | Pay per token (free models are rate-limited and may log prompts) | vLLM on a GPU                              |
 | Email                                  | **Resend** for everything                                                            | 3k emails/month, 100/day                                         | SES                                        |
 | WhatsApp                               | Off at first (later: Meta Cloud API directly)                                        |                                                                  | AWS End User Messaging                     |
 
@@ -111,8 +111,8 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   later as a second option.
 
 ### 4. All email through Resend (`MESSAGING_MODE=resend`) ✅
-- Every email goes through Resend (Admin › Email), including `contact_code` verification codes, which
-  otherwise use the default sender (SES). Before Admin › Email is set up, sends fail with a message
+- Every email goes through Resend (Settings › Email), including `contact_code` verification codes, which
+  otherwise use the default sender (SES). Before Settings › Email is set up, sends fail with a message
   saying so; WhatsApp is refused ("not available on this server") until a non-AWS sender exists.
 
 ### 5. Worker next to the API ✅
@@ -124,11 +124,11 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
 - **Stripe keys from the environment** already work: `STRIPE_WEBHOOK_SECRET`, `STRIPE_CHECKOUT_KEY`
   (API) and `STRIPE_RESTRICTED_KEY` (worker).
 
-### 6. Admin › AI (OpenRouter or own deployment) ✅
+### 6. Settings › AI (OpenRouter or own deployment) ✅
 - `core.ai_settings` (provider `openrouter` | `custom`, base URL, model) and `core.ai_secret` (API key,
-  SecretBox, last four shown), like Admin › Email. `OpenAiCompatibleProvider` reads them (cached ~30 s);
+  SecretBox, last four shown), like Settings › Email. `OpenAiCompatibleProvider` reads them (cached ~30 s);
   `MODEL_ENDPOINT`/`MODEL_NAME` stay the default when nothing is saved.
-- Done as planned; details in "AI settings" in [features.md](features.md). Admin › AI can also turn the assistant off for customers or staff.
+- Done as planned; details in "AI settings" in [features.md](features.md). Settings › AI can also turn the assistant off for customers or staff.
 - OpenRouter: base `https://openrouter.ai/api/v1`, a Gemma model id from its catalogue (Gemma 4 E2B is not
   listed; `google/gemma-4-26b-a4b-it` is the cheapest Gemma 4), and its provider routing option to exclude providers that collect data. Chat sends
   customer record text: use a paid, no-logging provider for real data.

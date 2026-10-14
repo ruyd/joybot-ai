@@ -594,7 +594,7 @@ function SettingsCard() {
           <Input type="number" min={10} max={10000} value={v.team_chat_retention} onChange={(e) => set({ team_chat_retention: Number(e.target.value) })} />
         </Field>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={v.stripe_enabled} onChange={(e) => set({ stripe_enabled: e.target.checked })} /> Stripe sync enabled
+          <input type="checkbox" className="switch" checked={v.stripe_enabled} onChange={(e) => set({ stripe_enabled: e.target.checked })} /> Stripe sync enabled
         </label>
         <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <legend className="px-1 text-sm font-medium">WhatsApp (sign-in codes)</legend>
@@ -606,7 +606,7 @@ function SettingsCard() {
             <Field label="Invite template (utility)" hint="Body: {{1}} name, {{2}} link"><Input value={v.whatsapp_invite_template ?? ''} onChange={(e) => set({ whatsapp_invite_template: e.target.value || null })} /></Field>
           </div>
           <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={v.whatsapp_enabled} onChange={(e) => set({ whatsapp_enabled: e.target.checked })} /> Send codes over WhatsApp
+            <input type="checkbox" className="switch" checked={v.whatsapp_enabled} onChange={(e) => set({ whatsapp_enabled: e.target.checked })} /> Send codes over WhatsApp
           </label>
         </fieldset>
         {save.error && <ErrorBanner error={save.error} />}

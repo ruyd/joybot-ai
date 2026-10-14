@@ -177,7 +177,7 @@ function Answers() {
           <EmptyState>{filtered ? 'No answers match.' : 'No saved answers yet.'}</EmptyState>
         ) : (
           <>
-            <ul className={`-mx-4 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-800 dark:border-slate-800 ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
+            <ul className={`-mx-6 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-800 dark:border-slate-800 ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
               {items.map((a) => (
                 <li key={a.id}>
                   <button
@@ -298,7 +298,7 @@ function AnswerEditor({ answer, onDone }: { answer?: Answer; onDone: () => void 
             </Select>
           </Field>
           <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active
+            <input type="checkbox" className="switch" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active
           </label>
         </div>
 
@@ -374,7 +374,7 @@ function Articles() {
         ) : !list.data?.length ? (
           <EmptyState>No articles yet.</EmptyState>
         ) : (
-          <ul className="-mx-4 -my-4 divide-y divide-slate-100 dark:divide-slate-800">
+          <ul className="-mx-6 -mt-2 -mb-6 divide-y divide-slate-100 dark:divide-slate-800">
             {list.data.map((a) => (
               <li key={a.id}>
                 <button
@@ -514,7 +514,7 @@ function ArticleEditor({ article, onDone }: { article?: Article; onDone: () => v
             </Select>
           </Field>
           <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" checked={published} onChange={(e) => setPublished(e.target.checked)} /> Published
+            <input type="checkbox" className="switch" checked={published} onChange={(e) => setPublished(e.target.checked)} /> Published
           </label>
         </div>
         {(save.error || remove.error) && <ErrorBanner error={save.error ?? remove.error} />}

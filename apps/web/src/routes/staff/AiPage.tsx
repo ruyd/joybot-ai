@@ -69,7 +69,7 @@ function AssistantCard() {
   });
   const toggle = (key: keyof AssistantSettings, label: string, hint: string) => (
     <label className="flex items-start gap-2 text-sm">
-      <input type="checkbox" className="mt-0.5" checked={q.data?.[key] ?? true} disabled={!q.data || save.isPending} onChange={(e) => save.mutate({ [key]: e.target.checked })} />
+      <input type="checkbox" className="switch mt-0.5" checked={q.data?.[key] ?? true} disabled={!q.data || save.isPending} onChange={(e) => save.mutate({ [key]: e.target.checked })} />
       <span>
         <span className="font-medium">{label}</span>
         <span className="block text-xs text-slate-500">{hint}</span>
@@ -162,7 +162,7 @@ function ModelCard({ settings: s }: { settings: AiSettings }) {
         )}
         {provider === 'openrouter' && (
           <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-0.5" checked={privateOnly} onChange={(e) => setPrivateOnly(e.target.checked)} />
+            <input type="checkbox" className="switch mt-0.5" checked={privateOnly} onChange={(e) => setPrivateOnly(e.target.checked)} />
             <span>
               <span className="font-medium">Only providers that don't store prompts</span>
               <span className="block text-xs text-slate-500">
