@@ -1,0 +1,6 @@
+# Cloudflare Pages response headers (docs/deploy-free.md). Ignored by other hosts.
+# Vite puts a content hash in every file name under /assets, so a file there never changes: cache it
+# for a year at Cloudflare's edge and in browsers. index.html and config.json keep Pages' default
+# (revalidate every time), so a new deploy shows up straight away.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
