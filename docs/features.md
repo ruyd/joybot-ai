@@ -72,6 +72,7 @@ Details for specific areas, moved out of [CLAUDE.md](../CLAUDE.md) so they load 
 The plan and account setup are in [deploy-free.md](deploy-free.md).
 
 - `AUTH_MODE=supabase` (`apps/api/src/auth/supabase.ts`): Google sign-in, one user pool for staff and customers. The web app sends `x-joybot-audience: employee` from the staff console.
+- Sessions last until sign-out: access tokens expire hourly, but Supabase's refresh token doesn't (unless a session time-box or inactivity timeout is set in the dashboard, which is a Pro feature). The web app takes each call's token from `auth.getSession()`, which renews an expired one, and on a 401 it refreshes and retries once before signing out (`lib/api.ts`).
 - A login seen for the first time is linked with the Cognito triggers' SQL (`authz.link_employee_login` / `link_customer_signup`), run as `joybot_worker` through `SupabaseLoginLinker`. **The API's role must never get those functions**; a db test checks this.
 - Other free-tier options: `CORS_ORIGINS`, `MESSAGING_MODE=resend` (all email through Resend), and `DB_SSL_CA[_FILE]` (`packages/db/src/ssl.ts`).
 - `deploy/render` runs the API and worker in one container. `render.yaml` defines the service, and `.github/workflows/deploy-free.yml` migrates Supabase and then calls the deploy hook (only when the variable `FREE_DEPLOY` is `true`).
