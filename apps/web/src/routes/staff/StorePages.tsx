@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
@@ -20,7 +20,14 @@ interface StoreSettings {
   allow_promotion_codes: boolean;
   require_terms: boolean;
   notify_admins: boolean;
+  email_customers: boolean;
   max_quantity: number;
+  /** The confirmation email; null sends the standard text (confirmation_defaults). */
+  confirmation_subject: string | null;
+  confirmation_body: string | null;
+  confirmation_defaults: { subject: string; body: string };
+  /** Placeholder → what it stands for. */
+  confirmation_fields: Record<string, string>;
 }
 
 function useCurrency() {
@@ -416,24 +423,67 @@ function OrderDetail({ id, onClose }: { id: string; onClose: () => void }) {
 
 // Settings › Store ------------------------------------------------------------------------------------
 
-/** Settings › Store: open the shop, and how Stripe Checkout behaves. */
+const STORE_TABS = [
+  ['shop', 'Shop'],
+  ['email', 'Confirmation email'],
+] as const;
+type StoreTab = (typeof STORE_TABS)[number][0];
+
+/** Settings › Store: the shop and how Stripe Checkout behaves (one tab), and the confirmation email. */
 export function StoreSettingsPage() {
   const api = useApi();
-  const queryClient = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const tab = (STORE_TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'shop') as StoreTab;
   const q = useQuery({ queryKey: ['store-settings'], queryFn: () => api.get<StoreSettings>('/admin/store') });
-  const [draft, setDraft] = useState<Partial<StoreSettings>>({});
-  const save = useMutation({
-    mutationFn: () => api.put<StoreSettings>('/admin/store', draft),
+
+  return (
+    <Page>
+      <PageHeader title="Store" description="The shop on your website: products are under Products, orders under Orders." />
+      <div role="tablist" aria-label="Store settings" className="mb-4 flex gap-1 overflow-x-auto">
+        {STORE_TABS.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setParams(key === 'shop' ? {} : { tab: key }, { replace: true })}
+            className={`press whitespace-nowrap rounded-full px-3 py-1.5 text-sm ${tab === key ? 'btn-gradient font-medium' : 'hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {q.isLoading ? (
+        <Spinner />
+      ) : q.error || !q.data ? (
+        <ErrorBanner error={q.error} />
+      ) : tab === 'email' ? (
+        <ConfirmationEmailTab settings={q.data} />
+      ) : (
+        <ShopTab settings={q.data} />
+      )}
+    </Page>
+  );
+}
+
+function useSaveStore() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<StoreSettings>) => api.put<StoreSettings>('/admin/store', patch),
     onSuccess: (data) => {
-      setDraft({});
       queryClient.setQueryData(['store-settings'], data);
       void queryClient.invalidateQueries({ queryKey: ['site', 'store'] });
       void queryClient.invalidateQueries({ queryKey: ['me'] });
     },
   });
-  if (q.isLoading) return <Page><Spinner /></Page>;
-  if (q.error || !q.data) return <Page><ErrorBanner error={q.error} /></Page>;
-  const v = { ...q.data, ...draft };
+}
+
+/** The Shop tab: the shop and checkout switches (and the quantity limit), saved together. */
+function ShopTab({ settings }: { settings: StoreSettings }) {
+  const save = useSaveStore();
+  const [draft, setDraft] = useState<Partial<StoreSettings>>({});
+  const v = { ...settings, ...draft };
   const set = (patch: Partial<StoreSettings>) => setDraft({ ...draft, ...patch });
   const toggle = (key: keyof StoreSettings, label: string, hint?: string) => (
     <label className="flex items-start gap-3 text-sm">
@@ -446,39 +496,156 @@ export function StoreSettingsPage() {
   );
 
   return (
-    <Page>
-      <PageHeader title="Store" description="The shop on your website: products are under Products, orders under Orders." />
+    <form
+      className="grid max-w-3xl gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save.mutate(draft, { onSuccess: () => setDraft({}) });
+      }}
+    >
+      <Card title="Shop">
+        <div className="grid gap-4">
+          {toggle('enabled', 'Shop open', 'Shows Shop and the cart on the website, and Orders in the customer portal. Card payments also need Settings › Stripe.')}
+          <Field label="Largest quantity of one product in an order (1–100)">
+            <Input type="number" min={1} max={100} value={v.max_quantity} onChange={(e) => set({ max_quantity: Number(e.target.value) })} className="max-w-32" />
+          </Field>
+          {toggle('email_customers', 'Email customers a confirmation', 'When an order is paid. Edit it on the Confirmation email tab; sent from Settings › Email.')}
+          {toggle('notify_admins', 'Tell admins about new orders', 'A notification in the team drawer when an order is paid.')}
+        </div>
+      </Card>
+      <Card title="Checkout">
+        <div className="grid gap-4">
+          {toggle('automatic_tax', 'Work out tax with Stripe Tax', 'Set up your tax registrations in Stripe first, or checkout will fail.')}
+          {v.automatic_tax && toggle('prices_include_tax', 'Prices include tax', 'Otherwise tax is added on top at checkout.')}
+          {toggle('allow_promotion_codes', 'Allow promotion codes', 'Create the codes in Stripe; checkout shows a box to enter one.')}
+          {toggle('require_terms', 'Customers accept the terms', 'Checkout asks them to agree. Add your terms page’s address in Stripe’s public details first.')}
+        </div>
+      </Card>
+      {save.error && <ErrorBanner error={save.error} />}
+      <div>
+        <Button type="submit" disabled={!Object.keys(draft).length || save.isPending}>
+          Save
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/** The confirmation email: subject and body with placeholders, beside a preview for a made-up order. */
+function ConfirmationEmailTab({ settings }: { settings: StoreSettings }) {
+  const api = useApi();
+  const save = useSaveStore();
+  const defaults = settings.confirmation_defaults;
+  const [subject, setSubject] = useState(settings.confirmation_subject ?? defaults.subject);
+  const [body, setBody] = useState(settings.confirmation_body ?? defaults.body);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const [preview, setPreview] = useState<{ subject: string; text: string; unknown: string[] } | null>(null);
+
+  // The preview follows the editor, a moment after typing stops.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void api
+        .post<{ subject: string; text: string; unknown: string[] }>('/admin/store/confirmation-preview', { subject, body })
+        .then(setPreview)
+        .catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [api, subject, body]);
+
+  const isDefault = subject.trim() === defaults.subject && body.trim() === defaults.body;
+  const changed = subject !== (settings.confirmation_subject ?? defaults.subject) || body !== (settings.confirmation_body ?? defaults.body);
+  const insert = (field: string) => {
+    const el = bodyRef.current;
+    const token = `{{${field}}}`;
+    if (!el) return setBody(body + token);
+    const at = el.selectionStart ?? body.length;
+    setBody(body.slice(0, at) + token + body.slice(el.selectionEnd ?? at));
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(at + token.length, at + token.length);
+    });
+  };
+
+  return (
+    <div className="grid items-start gap-4 xl:grid-cols-2">
       <form
-        className="grid max-w-3xl gap-4"
+        className="grid min-w-0 gap-4"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate();
+          // The standard text is saved as "none", so later improvements to it still reach you.
+          save.mutate(isDefault ? { confirmation_subject: null, confirmation_body: null } : { confirmation_subject: subject, confirmation_body: body });
         }}
       >
-        <Card title="Shop">
-          <div className="grid gap-4">
-            {toggle('enabled', 'Shop open', 'Shows Shop and the cart on the website, and Orders in the customer portal. Card payments also need Settings › Stripe.')}
-            <Field label="Largest quantity of one product in an order (1–100)">
-              <Input type="number" min={1} max={100} value={v.max_quantity} onChange={(e) => set({ max_quantity: Number(e.target.value) })} className="max-w-32" />
+        <Card title="Email">
+          <div className="grid gap-3 text-sm">
+            {!settings.email_customers && (
+              <p role="status" className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                Confirmation emails are off (Shop tab).
+              </p>
+            )}
+            <Field label="Subject">
+              <Input required maxLength={200} value={subject} onChange={(e) => setSubject(e.target.value)} />
             </Field>
-            {toggle('notify_admins', 'Tell admins about new orders', 'A notification in the team drawer when an order is paid.')}
-          </div>
-        </Card>
-        <Card title="Checkout">
-          <div className="grid gap-4">
-            {toggle('automatic_tax', 'Work out tax with Stripe Tax', 'Set up your tax registrations in Stripe first, or checkout will fail.')}
-            {v.automatic_tax && toggle('prices_include_tax', 'Prices include tax', 'Otherwise tax is added on top at checkout.')}
-            {toggle('allow_promotion_codes', 'Allow promotion codes', 'Create the codes in Stripe; checkout shows a box to enter one.')}
-            {toggle('require_terms', 'Customers accept the terms', 'Checkout asks them to agree. Add your terms page’s address in Stripe’s public details first.')}
+            <Field label="Body">
+              <textarea ref={bodyRef} className={`${textareaClass} font-mono`} rows={16} maxLength={10_000} required value={body} onChange={(e) => setBody(e.target.value)} />
+            </Field>
+            <div>
+              <p className="mb-1.5 font-medium">Placeholders</p>
+              <ul className="flex flex-wrap gap-1.5">
+                {Object.entries(settings.confirmation_fields).map(([field, help]) => (
+                  <li key={field}>
+                    <button
+                      type="button"
+                      title={help}
+                      onClick={() => insert(field)}
+                      className="press rounded-full bg-slate-100 px-2.5 py-1 font-mono text-xs hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
+                    >
+                      {`{{${field}}}`}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-xs text-slate-500">Click one to add it to the body where the cursor is; hover for what it stands for.</p>
+            </div>
           </div>
         </Card>
         {save.error && <ErrorBanner error={save.error} />}
-        <div>
-          <Button type="submit" disabled={!Object.keys(draft).length || save.isPending}>
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" disabled={!changed || save.isPending || Boolean(preview?.unknown.length)}>
             Save
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isDefault}
+            onClick={() => {
+              setSubject(defaults.subject);
+              setBody(defaults.body);
+            }}
+          >
+            Use the standard text
           </Button>
         </div>
       </form>
-    </Page>
+      <Card title="Preview" className="min-w-0">
+        {preview ? (
+          <div className="grid gap-3 text-sm">
+            {preview.unknown.length > 0 && (
+              <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800 dark:bg-red-950 dark:text-red-300">
+                Unknown placeholder{preview.unknown.length > 1 ? 's' : ''}: {preview.unknown.map((u) => `{{${u}}}`).join(', ')}
+              </p>
+            )}
+            <p>
+              <span className="text-slate-500">Subject: </span>
+              <span className="font-medium">{preview.subject}</span>
+            </p>
+            <pre className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-4 font-sans text-sm leading-relaxed dark:bg-slate-800/60">{preview.text}</pre>
+            <p className="text-xs text-slate-500">For a made-up order of two products.</p>
+          </div>
+        ) : (
+          <Spinner />
+        )}
+      </Card>
+    </div>
   );
 }
