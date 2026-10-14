@@ -35,6 +35,15 @@ export function appConfig(): AppConfig {
   return config;
 }
 
+/**
+ * An absolute URL on the API, for things used outside this page (e.g. the MCP endpoint pasted into
+ * Claude): the API's own host when it has one (https://api.appjoy.dev/api/…), else this origin
+ * (local development and AWS, where the API is under /api on the same host).
+ */
+export function apiUrl(path: string, origin = window.location.origin): string {
+  return new URL(`${appConfig().apiBase.replace(/\/$/, '')}${path}`, origin).href;
+}
+
 /** For tests. */
 export function setConfig(c: AppConfig): void {
   config = c;

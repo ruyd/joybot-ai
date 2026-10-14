@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner } from '../../components/ui';
 import { useApi } from '../../lib/api';
+import { apiUrl } from '../../lib/config';
 import { date, dateTime } from '../../lib/format';
 import { AuditTable } from './AuditLog';
 
@@ -55,7 +56,7 @@ function McpTokensCard() {
   const [days, setDays] = useState('90');
   const [scope, setScope] = useState<'read' | 'read_write'>('read');
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
-  const endpoint = `${window.location.origin}/api/mcp`;
+  const endpoint = apiUrl('/mcp');
 
   const create = useMutation({
     mutationFn: () => api.post<ApiToken & { token: string }>('/admin/api-tokens', { name: name.trim(), expires_in_days: Number(days), scope }),
