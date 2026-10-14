@@ -66,10 +66,12 @@ describe('audit log', () => {
     expect((await migrator.query('SELECT last_used_at FROM app.api_tokens WHERE id = $1', [token.id])).rows[0].last_used_at).not.toBeNull();
     expect((await audit(`table=api_tokens&row_id=${token.id}`)).total).toBe(1);
 
-    await api(app, employee(U.ada)).post(`/api/admin/api-tokens/${token.id}/revoke`).expect(204);
-    const [revoked] = (await audit(`table=api_tokens&row_id=${token.id}`)).items;
-    expect(revoked).toMatchObject({ action: 'UPDATE', changed_by_name: 'Ada Admin' });
-    expect(Object.keys(revoked.diff).sort()).toEqual(['revoked_at', 'revoked_by']);
+    // Revoking deletes the token; the log keeps who did it, which token (name, prefix) and its last use.
+    await api(app, employee(U.ada)).delete(`/api/admin/api-tokens/${token.id}`).expect(204);
+    const [deleted] = (await audit(`table=api_tokens&row_id=${token.id}`)).items;
+    expect(deleted).toMatchObject({ action: 'DELETE', changed_by_name: 'Ada Admin', label: 'audit test token' });
+    expect(deleted.diff).toMatchObject({ name: 'audit test token', prefix: token.token.slice(0, 12), last_used_at: expect.any(String) });
+    expect(deleted.diff).not.toHaveProperty('token_hash');
   });
 
   it('is for admins only', async () => {

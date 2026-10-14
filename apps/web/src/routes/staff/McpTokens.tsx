@@ -67,7 +67,7 @@ function McpTokensCard() {
     },
   });
   const revoke = useMutation({
-    mutationFn: (id: string) => api.post(`/admin/api-tokens/${id}/revoke`),
+    mutationFn: (id: string) => api.del(`/admin/api-tokens/${id}`),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['api-tokens'] }),
   });
   const submit = (e: FormEvent) => {
@@ -82,7 +82,7 @@ function McpTokensCard() {
         <p className="text-sm text-slate-500">
           Let Claude use this business's data (customers, calendar, payments, invoices, to-dos, knowledge) as you. A read-only token cannot change anything. A read-and-write
           token can also book, reschedule and cancel appointments, manage to-dos and time off, draft, send and void invoices and record payments; cancelling, sending,
-          voiding and payments always show you a preview to confirm first. Each token works until it expires or is revoked, and stops if you are no longer an admin.
+          voiding and payments always show you a preview to confirm first. Each token works until it expires or is revoked (which deletes it; the audit log keeps a record), and stops if you are no longer an admin.
         </p>
 
         {created ? (
@@ -146,11 +146,20 @@ function McpTokensCard() {
                   <div className="flex items-center gap-2">
                     {t.scope === 'read_write' && <Badge tone="amber">read &amp; write</Badge>}
                     <Badge tone={t.active ? 'green' : 'slate'}>{t.active ? 'active' : t.revoked_at ? 'revoked' : 'expired'}</Badge>
-                    {t.active && (
-                      <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(t.id)} aria-label={`Revoke ${t.name}`}>
-                        Revoke
-                      </Button>
-                    )}
+                    {/* Revoking deletes the token; the audit log keeps who did it and which token it was. */}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={revoke.isPending}
+                      onClick={() =>
+                        window.confirm(
+                          t.active ? `Revoke "${t.name}"? Claude stops working with it at once and it is deleted.` : `Delete "${t.name}"?`,
+                        ) && revoke.mutate(t.id)
+                      }
+                      aria-label={`${t.active ? 'Revoke' : 'Delete'} ${t.name}`}
+                    >
+                      {t.active ? 'Revoke' : 'Delete'}
+                    </Button>
                   </div>
                 </li>
               ))}

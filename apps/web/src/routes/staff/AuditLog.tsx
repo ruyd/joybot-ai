@@ -48,6 +48,15 @@ const TABLE_LABEL: Record<string, string> = {
   site_settings: 'Website setup',
   tickets: 'Ticket',
   ticket_messages: 'Ticket message',
+  appointment_types: 'Appointment type',
+  sales_calls: 'Sales call',
+  sales_call_hosts: 'Sales call host',
+  sales_call_hours: 'Sales call hours',
+  sales_call_settings: 'Sales call setup',
+  email_settings: 'Email settings',
+  email_templates: 'Email template',
+  video_settings: 'Meeting links',
+  ai_settings: 'AI settings',
 };
 
 /** Where a change came from (core.change_log.changed_via). */
@@ -73,6 +82,17 @@ function recordLink(c: Change): string | null {
   if (c.table_name === 'customers') return `/staff/customers/${c.row_id}`;
   if (c.table_name === 'tasks') return '/staff/todos';
   return null;
+}
+
+/** A Claude token in the log: its prefix, owner's access and when it was last used ("jbt_ab12… · read & write · last used …"). */
+function tokenSummary(d: Record<string, unknown>): string {
+  return [
+    d.prefix ? `${String(d.prefix)}…` : null,
+    d.scope === 'read_write' ? 'read & write' : 'read only',
+    d.last_used_at ? `last used ${dateTime(String(d.last_used_at))}` : 'never used',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 function show(v: unknown): string {
@@ -122,6 +142,7 @@ export function AuditTable({ filter, pageSize = 25, onHistory }: { filter: Audit
                 <Td>
                   <span className="font-medium">{TABLE_LABEL[c.table_name] ?? c.table_name}</span> {ACTION_LABEL[c.action]}
                   {c.action === 'UPDATE' && <span className="block text-xs text-slate-500">{Object.keys(c.diff).join(', ')}</span>}
+                  {c.table_name === 'api_tokens' && c.action !== 'UPDATE' && <span className="block text-xs text-slate-500">{tokenSummary(c.diff)}</span>}
                 </Td>
                 <Td>
                   {link ? (

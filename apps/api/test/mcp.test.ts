@@ -58,6 +58,8 @@ describe('access tokens', () => {
     await api(app, employee(U.sam)).get('/api/admin/api-tokens').expect(403);
     await api(app, employee(U.sam)).post('/api/admin/api-tokens', { name: 'x' }).expect(403);
     await api(app, customer(C.maria)).post('/api/admin/api-tokens', { name: 'x' }).expect(403);
+    await api(app, employee(U.sam)).delete(`/api/admin/api-tokens/${created.id}`).expect(403);
+    await api(app, customer(C.maria)).delete(`/api/admin/api-tokens/${created.id}`).expect(403);
     await api(app, employee(U.ada)).post('/api/admin/api-tokens', { name: 'x', expires_in_days: 400 }).expect(400);
   });
 });
@@ -108,9 +110,9 @@ describe('MCP endpoint', () => {
     expect(unknown.headers['www-authenticate']).toMatch(/Bearer/);
 
     const revoked = await newToken();
-    await api(app, employee(U.ada)).post(`/api/admin/api-tokens/${revoked.id}/revoke`).expect(204);
+    await api(app, employee(U.ada)).delete(`/api/admin/api-tokens/${revoked.id}`).expect(204);
     await rpc(revoked.token, 'tools/list').expect(401);
-    await api(app, employee(U.ada)).post(`/api/admin/api-tokens/${revoked.id}/revoke`).expect(404);
+    await api(app, employee(U.ada)).delete(`/api/admin/api-tokens/${revoked.id}`).expect(404);
 
     const expired = await newToken();
     await migrator.query(`UPDATE app.api_tokens SET created_at = now() - interval '2 days', expires_at = now() - interval '1 second' WHERE id = $1`, [expired.id]);
