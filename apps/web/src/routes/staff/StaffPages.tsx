@@ -510,7 +510,6 @@ interface Settings {
   business_name: string;
   default_time_zone: string;
   default_currency: string;
-  stripe_enabled: boolean;
   bank_transfer_due_days: number;
   chat_daily_limit_customer: number;
   chat_daily_limit_employee: number;
@@ -526,10 +525,9 @@ interface Settings {
 export function Admin() {
   return (
     <Page>
-      <PageHeader title="Settings" description="Business settings and Stripe sync." />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <PageHeader title="Settings" description="Business settings. Stripe has its own page under Settings › Stripe." />
+      <div className="max-w-3xl">
         <SettingsCard />
-        <StripeCard />
       </div>
     </Page>
   );
@@ -593,9 +591,6 @@ function SettingsCard() {
         <Field label="Team chat: messages kept per channel" hint="Older messages are deleted as new ones arrive (10–10,000)">
           <Input type="number" min={10} max={10000} value={v.team_chat_retention} onChange={(e) => set({ team_chat_retention: Number(e.target.value) })} />
         </Field>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="switch" checked={v.stripe_enabled} onChange={(e) => set({ stripe_enabled: e.target.checked })} /> Stripe sync enabled
-        </label>
         <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
           <legend className="px-1 text-sm font-medium">WhatsApp (sign-in codes)</legend>
           <Field label="Phone number ID" hint="From AWS End User Messaging Social">
@@ -612,38 +607,6 @@ function SettingsCard() {
         {save.error && <ErrorBanner error={save.error} />}
         <div><Button type="submit" disabled={Object.keys(draft).length === 0 || save.isPending}>Save settings</Button></div>
       </form>
-    </Card>
-  );
-}
-
-function StripeCard() {
-  const api = useApi();
-  const queryClient = useQueryClient();
-  const q = useQuery({
-    queryKey: ['stripe-status'],
-    queryFn: () => api.get<{ events: { status: string; count: number }[]; unmatchedPayments: number; lastReconcile: { status: string; finished_at: string | null; result: Record<string, unknown> | null } | null }>('/admin/stripe/status'),
-    refetchInterval: 15_000,
-  });
-  const reconcile = useMutation({ mutationFn: () => api.post('/admin/stripe/reconcile', { days: 3 }), onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['stripe-status'] }) });
-  return (
-    <Card title="Stripe sync" actions={<Button size="sm" variant="secondary" disabled={reconcile.isPending} onClick={() => reconcile.mutate()}>Reconcile now</Button>}>
-      {!q.data ? (
-        <Spinner />
-      ) : (
-        <dl className="grid grid-cols-2 gap-y-2 text-sm">
-          {q.data.events.map((e) => (
-            <div key={e.status} className="contents">
-              <dt className="text-slate-500">Events {e.status}</dt>
-              <dd>{e.count}</dd>
-            </div>
-          ))}
-          <dt className="text-slate-500">Unmatched payments</dt>
-          <dd>{q.data.unmatchedPayments}</dd>
-          <dt className="text-slate-500">Last reconcile</dt>
-          <dd>{q.data.lastReconcile ? `${q.data.lastReconcile.status}${q.data.lastReconcile.finished_at ? ` · ${dateTime(q.data.lastReconcile.finished_at)}` : ''}` : 'never'}</dd>
-        </dl>
-      )}
-      {reconcile.error && <ErrorBanner error={reconcile.error} />}
     </Card>
   );
 }

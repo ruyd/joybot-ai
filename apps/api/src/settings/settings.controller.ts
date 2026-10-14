@@ -9,7 +9,8 @@ const PUBLIC_FIELDS = `business_name, default_time_zone, default_currency, defau
   whatsapp_enabled, whatsapp_display_number, stripe_enabled, assistant_customers, assistant_employees`;
 const ALL_FIELDS = `${PUBLIC_FIELDS}, chat_retention_days, whatsapp_phone_number_id, whatsapp_otp_template,
   whatsapp_invite_template, whatsapp_template_language, manual_payment_methods,
-  bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, invoice_due_days, bank_transfer_instructions, updated_by, updated_at`;
+  bank_transfer_due_days, chat_daily_limit_customer, chat_daily_limit_employee, team_chat_retention, invoice_due_days, bank_transfer_instructions,
+  stripe_reconcile_interval_hours, stripe_reconcile_days, updated_by, updated_at`;
 
 const updateSchema = z
   .object({
@@ -25,6 +26,9 @@ const updateSchema = z
     whatsapp_invite_template: z.string().min(1).nullable(),
     whatsapp_template_language: z.string().min(2),
     stripe_enabled: z.boolean(),
+    /** Settings › Stripe: how often the worker reconciles on its own, and how many days back. */
+    stripe_reconcile_interval_hours: z.number().int().min(1).max(168),
+    stripe_reconcile_days: z.number().int().min(1).max(90),
     manual_payment_methods: z.array(z.enum(['card_pos', 'bank_transfer', 'cash', 'other'])).min(1),
     bank_transfer_due_days: z.number().int().positive(),
     chat_daily_limit_customer: z.number().int().min(1).max(10_000),
