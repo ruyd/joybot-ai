@@ -126,7 +126,7 @@ describe('sales calls: setup', () => {
     await api(app, employee(U.ada)).post(`/api/website/sales-calls/${booked.id}/cancel`).expect(200);
 
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { duration_minutes: 25 }).expect(400);
-    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { meeting_url: 'https://meet.example.com/appjoy' }).expect(400); // gone
+    await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { meeting_url: 'https://meet.example.com/acme' }).expect(400); // gone
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', { title: '' }).expect(400);
     await api(app, employee(U.ada)).put('/api/website/sales-call-settings', {}).expect(400);
     // Back to the defaults for the tests below.

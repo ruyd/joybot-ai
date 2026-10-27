@@ -3,12 +3,12 @@
 // only runs where the build command calls it, after `vite build`:
 //   pnpm --filter @joybot/web build && node apps/web/scripts/write-config.mjs
 //
-//   WEB_API_BASE              the API's base URL, e.g. https://api.appjoy.dev/api   (required)
+//   WEB_API_BASE              the API's base URL, e.g. https://api.example.com/api   (required)
 //   SUPABASE_URL              the Supabase project URL                              (required)
 //   SUPABASE_PUBLISHABLE_KEY  its publishable (anon) key; public by design          (required)
-//   APP_URL                   the web app's own URL, e.g. https://appjoy.dev        (optional)
+//   APP_URL                   the web app's own URL, e.g. https://example.com        (optional)
 //   WEB_ENVIRONMENT           label shown in the app, default "production"          (optional)
-//   SITE_ASSET_BASE_URL       website images bucket, e.g. https://cdn.appjoy.dev    (optional; the API's
+//   SITE_ASSET_BASE_URL       website images bucket, e.g. https://cdn.example.com    (optional; the API's
 //                             SITE_ASSET_STORE=s3 with the same address)
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';

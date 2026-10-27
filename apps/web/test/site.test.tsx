@@ -104,7 +104,7 @@ describe('website', () => {
               heading: 'Rent less. Own more.',
               heading_accent: 'Own more.',
               before: { label: 'Today: rented & scattered', items: [{ label: 'CRM', note: 'per seat' }, { label: 'Help desk', note: 'per agent' }] },
-              after: { label: 'With appjoy', core: 'Your core business app + AI', items: [{ label: 'Customers' }] },
+              after: { label: 'With Acme', core: 'Your core business app + AI', items: [{ label: 'Customers' }] },
             },
           ]}
         />

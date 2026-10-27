@@ -37,7 +37,7 @@ class FakeResend {
     if (key === SENDING) return json(401, { statusCode: 401, name: 'restricted_api_key', message: 'This API key is restricted to only send emails' });
     if (u.pathname === '/usage') return json(200, this.usage);
     if (u.pathname === '/domains')
-      return json(200, { object: 'list', has_more: false, data: [{ id: 'd1', name: 'appjoy.dev', status: 'verified', created_at: '2026-01-01 00:00:00+00', region: 'us-east-1' }] });
+      return json(200, { object: 'list', has_more: false, data: [{ id: 'd1', name: 'example.com', status: 'verified', created_at: '2026-01-01 00:00:00+00', region: 'us-east-1' }] });
     return json(404, { name: 'not_found' });
   };
 }
@@ -130,7 +130,7 @@ describe('usage and domains', () => {
     const usage = (await admin().get('/api/admin/email/usage').expect(200)).body;
     expect(usage).toMatchObject({ emails: { daily: { used: 10, limit: 100 }, monthly: { used: 100, limit: 3000 } }, rate_limit: { limit: 1000, duration: '1000ms' } });
     expect(resend.calls.at(-1)).toMatchObject({ method: 'GET', path: '/usage' });
-    expect((await admin().get('/api/admin/email/domains').expect(200)).body).toEqual([expect.objectContaining({ name: 'appjoy.dev', status: 'verified' })]);
+    expect((await admin().get('/api/admin/email/domains').expect(200)).body).toEqual([expect.objectContaining({ name: 'example.com', status: 'verified' })]);
     await api(app, employee(U.sam)).get('/api/admin/email/usage').expect(403);
   });
 });
@@ -142,10 +142,10 @@ describe('sending', () => {
     expect(early).toMatchObject({ id: expect.stringMatching(/^email-/), from: 'onboarding@resend.dev' });
     expect(resend.calls.at(-1)).toMatchObject({ method: 'POST', path: '/emails', body: { from: 'onboarding@resend.dev', to: ['ada@example.com'] } });
 
-    await admin().put('/api/admin/email', { reply_to: 'team@appjoy.dev' }).expect(400); // no reply-to setting
-    await admin().put('/api/admin/email', { from_name: 'Appjoy', from_email: 'Hello@Appjoy.dev' }).expect(200);
-    expect((await admin().post('/api/admin/email/test', { to: 'ada@example.com' }).expect(200)).body.from).toBe('Appjoy <hello@appjoy.dev>');
-    expect(resend.calls.at(-1)).toMatchObject({ body: { from: 'Appjoy <hello@appjoy.dev>', to: ['ada@example.com'], subject: 'Test email from JoyBot' } });
+    await admin().put('/api/admin/email', { reply_to: 'team@example.com' }).expect(400); // no reply-to setting
+    await admin().put('/api/admin/email', { from_name: 'Acme', from_email: 'Hello@Example.com' }).expect(200);
+    expect((await admin().post('/api/admin/email/test', { to: 'ada@example.com' }).expect(200)).body.from).toBe('Acme <hello@example.com>');
+    expect(resend.calls.at(-1)).toMatchObject({ body: { from: 'Acme <hello@example.com>', to: ['ada@example.com'], subject: 'Test email from JoyBot' } });
   });
 
   it("the app's email goes through Resend once a key and a from address are saved, otherwise the usual sender", async () => {
@@ -157,7 +157,7 @@ describe('sending', () => {
     expect(resend.calls.filter((c) => c.path === '/emails')).toEqual([]);
 
     // Saving a from address (the key is already saved) makes Resend active.
-    expect((await admin().put('/api/admin/email', { from_email: 'hello@appjoy.dev' }).expect(200)).body.active).toBe(true);
+    expect((await admin().put('/api/admin/email', { from_email: 'hello@example.com' }).expect(200)).body.active).toBe(true);
     await new Promise((r) => setTimeout(r, 0));
     // The sending cache holds the old settings for 30 seconds; a new app instance reads them fresh.
     const fresh = await createApp({ overrides: [{ token: RESEND_HTTP, value: resend.http }, { token: MESSAGE_SENDER, value: sender }] });
@@ -168,7 +168,7 @@ describe('sending', () => {
     }
     expect(sender.sent.length).toBe(before + 1); // not the usual sender
     expect(resend.calls.find((c) => c.path === '/emails')).toMatchObject({
-      body: { from: 'Appjoy <hello@appjoy.dev>', to: ['maria@example.com'], tags: [{ name: 'template', value: 'ticket' }] },
+      body: { from: 'Acme <hello@example.com>', to: ['maria@example.com'], tags: [{ name: 'template', value: 'ticket' }] },
     });
 
     // Verification codes are the auth provider's: they keep the usual sender even with Resend on.

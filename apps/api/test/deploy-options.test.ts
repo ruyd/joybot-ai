@@ -29,7 +29,7 @@ class FakeResend {
 describe('CORS_ORIGINS', () => {
   let app: INestApplication;
   beforeAll(async () => {
-    app = await createApp({ env: { CORS_ORIGINS: 'https://appjoy.dev, https://www.appjoy.dev/' } });
+    app = await createApp({ env: { CORS_ORIGINS: 'https://example.com, https://www.example.com/' } });
   });
   afterAll(async () => {
     await app.close();
@@ -38,11 +38,11 @@ describe('CORS_ORIGINS', () => {
   it('lets the listed origins call the API (no credentials) and no others', async () => {
     const ok = await request(app.getHttpServer())
       .options('/api/site')
-      .set('Origin', 'https://www.appjoy.dev')
+      .set('Origin', 'https://www.example.com')
       .set('Access-Control-Request-Method', 'GET')
       .set('Access-Control-Request-Headers', 'authorization');
     expect(ok.status).toBe(204);
-    expect(ok.headers['access-control-allow-origin']).toBe('https://www.appjoy.dev');
+    expect(ok.headers['access-control-allow-origin']).toBe('https://www.example.com');
     expect(ok.headers['access-control-allow-credentials']).toBeUndefined();
     expect(ok.headers['access-control-max-age']).toBe('86400');
 
@@ -53,14 +53,14 @@ describe('CORS_ORIGINS', () => {
   it('is off unless set, and takes origins only', async () => {
     const plain = await createApp();
     try {
-      const res = await request(plain.getHttpServer()).get('/api/site').set('Origin', 'https://appjoy.dev');
+      const res = await request(plain.getHttpServer()).get('/api/site').set('Origin', 'https://example.com');
       expect(res.headers['access-control-allow-origin']).toBeUndefined();
     } finally {
       await plain.close();
     }
     const base = { ...process.env, AUTH_MODE: 'dev' };
-    expect(() => loadConfig({ ...base, CORS_ORIGINS: 'https://appjoy.dev/app' })).toThrow(/origins only/);
-    expect(() => loadConfig({ ...base, CORS_ORIGINS: 'appjoy.dev' })).toThrow();
+    expect(() => loadConfig({ ...base, CORS_ORIGINS: 'https://example.com/app' })).toThrow(/origins only/);
+    expect(() => loadConfig({ ...base, CORS_ORIGINS: 'example.com' })).toThrow();
     expect(loadConfig({ ...base, CORS_ORIGINS: '' }).CORS_ORIGINS).toBeUndefined();
     // .env.example leaves the free-tier settings empty (CI copies it): empty means unset.
     const empty = loadConfig({ ...base, MESSAGING_MODE: '', DB_SSL_CA: '', DB_SSL_CA_FILE: '', SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', SUPABASE_JWT_SECRET: '' });
@@ -84,7 +84,7 @@ describe('MESSAGING_MODE=resend', () => {
 
     const admin = api(app, employee(U.ada));
     await admin.put('/api/admin/email/api-key', { api_key: KEY }).expect(200);
-    await admin.put('/api/admin/email', { from_email: 'hello@appjoy.dev' }).expect(200);
+    await admin.put('/api/admin/email', { from_email: 'hello@example.com' }).expect(200);
 
     await api(app, customer(C.pat)).post('/api/me/contacts', { type: 'email', value: 'pat.new@example.com' }).expect(200);
     expect(resend.emails.at(-1)).toMatchObject({ to: ['pat.new@example.com'], tags: [{ name: 'template', value: 'contact_code' }] });

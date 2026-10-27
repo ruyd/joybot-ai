@@ -39,9 +39,9 @@ describe('SiteLoader', () => {
   });
 
   it("shows the site's name and logo from the last visit, and a dot if the logo can't load", () => {
-    rememberBrand({ name: 'appjoy', logo: 'https://cdn.example.com/site/logo', accent: '#5b3df5' });
+    rememberBrand({ name: 'Acme', logo: 'https://cdn.example.com/site/logo', accent: '#5b3df5' });
     const { container } = render(<SiteLoader />);
-    expect(screen.getByRole('status')).toHaveTextContent('Loading appjoy…');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading Acme…');
     const img = container.querySelector('img')!;
     expect(img).toHaveAttribute('src', 'https://cdn.example.com/site/logo');
     fireEvent.error(img);

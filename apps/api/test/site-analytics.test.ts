@@ -36,7 +36,7 @@ const view = (body: Record<string, unknown>, { ua = CHROME, ip = '203.0.113.7', 
     .set('user-agent', ua)
     .set('cf-connecting-ip', ip)
     .set('cf-ipcountry', country)
-    .set('origin', 'https://appjoy.dev')
+    .set('origin', 'https://example.com')
     .send(body);
 const flush = () => app.get(SiteAnalyticsService).flush();
 
@@ -49,7 +49,7 @@ describe('site analytics', () => {
     // Not counted: bots, other areas of the app, moves within the site.
     await view({ path: '/' }, { ua: 'Googlebot/2.1 (+http://www.google.com/bot.html)' }).expect(204);
     await view({ path: '/staff/customers' }).expect(204);
-    await view({ path: '/contact', referrer: 'https://appjoy.dev/about' }).expect(204);
+    await view({ path: '/contact', referrer: 'https://example.com/about' }).expect(204);
     await flush();
     // The same visitor later in the day is not new.
     await view({ path: '/' }).expect(204);
@@ -133,8 +133,8 @@ describe('helpers', () => {
   });
 
   it('finds where a visit came from', () => {
-    expect(sourceOf({ path: '/', referrer: 'https://www.facebook.com/' }, ['appjoy.dev'])).toBe('facebook.com');
-    expect(sourceOf({ path: '/', referrer: 'https://appjoy.dev/x' }, ['appjoy.dev'])).toBeNull();
+    expect(sourceOf({ path: '/', referrer: 'https://www.facebook.com/' }, ['example.com'])).toBe('facebook.com');
+    expect(sourceOf({ path: '/', referrer: 'https://example.com/x' }, ['example.com'])).toBeNull();
     expect(sourceOf({ path: '/', utm_source: ' Spring ', referrer: 'https://x.com' }, [])).toBe('spring');
     expect(sourceOf({ path: '/', referrer: 'not a url' }, [])).toBeNull();
   });

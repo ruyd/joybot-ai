@@ -11,7 +11,7 @@ const schema = z
     PORT: z.coerce.number().int().positive().default(3000),
     /**
      * Web app origins allowed to call the API from another origin (comma-separated, e.g.
-     * https://appjoy.dev,https://www.appjoy.dev). Unset: no CORS (same origin, as in AWS).
+     * https://example.com,https://www.example.com). Unset: no CORS (same origin, as in AWS).
      */
     CORS_ORIGINS: optional(
       z
@@ -108,7 +108,7 @@ const schema = z
     /** R2 API token keys (Object Read & Write on the bucket). Unset in AWS, which uses the task role. */
     S3_ACCESS_KEY_ID: optional(z.string()),
     S3_SECRET_ACCESS_KEY: optional(z.string()),
-    /** The bucket's public address, e.g. https://cdn.appjoy.dev (objects at <base>/site/<id>). */
+    /** The bucket's public address, e.g. https://cdn.example.com (objects at <base>/site/<id>). */
     SITE_ASSET_BASE_URL: optional(z.string().url()),
     /** Optional: purges a deleted image from Cloudflare's cache (token with Cache Purge on the zone). */
     CLOUDFLARE_API_TOKEN: optional(z.string()),

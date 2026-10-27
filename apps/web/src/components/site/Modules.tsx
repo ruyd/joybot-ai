@@ -27,7 +27,7 @@ const BACKGROUND: Record<SiteBackground, string> = {
 export function SiteModuleView({ module: m }: { module: SiteModule }) {
   const background = m.background ?? (m.type === 'cta' ? 'accent' : 'default');
   const onAccent = background === 'accent';
-  // A call to action on the accent color is a rounded card on the page, as on appjoy.dev.
+  // A call to action on the accent color is a rounded card on the page.
   const ctaCard = m.type === 'cta' && onAccent;
   const aside = m.type === 'cards' && m.buttons_position === 'header' ? <SiteButtons buttons={m.buttons} onAccent={onAccent} /> : null;
   return (
@@ -82,7 +82,7 @@ function SectionHeader({ module: m, onAccent, aside }: { module: SiteModule; onA
   );
 }
 
-/** Section headings: the original appjoy.dev sizes (36 px on phones up to 56 px). */
+/** Section headings: 36 px on phones up to 56 px. */
 const HEADING = 'text-[clamp(36px,4.6vw,56px)] leading-[1.1] font-semibold tracking-[-0.02em] text-balance';
 
 /** Small capitals in the accent color, or (badge) a rounded label in the highlight color. */
@@ -143,7 +143,7 @@ function ModuleBody({ module: m, onAccent }: { module: SiteModule; onAccent: boo
       return <Cards module={m} onAccent={onAccent} />;
     case 'faq':
       return (
-        // Left-aligned sections run the list across the page, as appjoy.dev does; centered ones keep it narrower.
+        // Left-aligned sections run the list across the page; centered ones keep it narrower.
         <div className={`divide-y divide-slate-200 border-y border-slate-200 dark:divide-slate-800 dark:border-slate-800 ${m.align === 'left' ? '' : 'mx-auto max-w-3xl'}`}>
           {m.items.map((q, i) => (
             <details key={i} className="group py-[22px]">
@@ -279,7 +279,7 @@ function Cards({ module: m, onAccent }: { module: SiteModuleOf<'cards'>; onAccen
 }
 
 /**
- * One card. Regular cards follow appjoy.dev's sizes: 32 px padding, 44 px icons, 19 px headings and
+ * One card. Regular cards use 32 px padding, 44 px icons, 19 px headings and
  * 16 px text; in rows of four, 40 px icons, 17 px headings and 15 px text.
  */
 function Card({

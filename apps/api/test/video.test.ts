@@ -35,7 +35,7 @@ class FakeGoogle {
       if (f.client_id !== CLIENT_ID || f.client_secret !== CLIENT_SECRET) return json(401, { error: 'invalid_client' });
       if (f.grant_type === 'authorization_code') {
         if (f.code !== 'good-code' && f.code !== 'no-calendar-code') return json(400, { error: 'invalid_grant', error_description: 'Bad code' });
-        const idToken = ['x', Buffer.from(JSON.stringify({ email: 'owner@appjoy.dev' })).toString('base64url'), 'sig'].join('.');
+        const idToken = ['x', Buffer.from(JSON.stringify({ email: 'owner@example.com' })).toString('base64url'), 'sig'].join('.');
         // Granular consent: the account may untick the calendar permission.
         const scope = f.code === 'good-code' ? `openid ${SCOPE} https://www.googleapis.com/auth/userinfo.email` : 'openid https://www.googleapis.com/auth/userinfo.email';
         return json(200, { access_token: 'access-1', refresh_token: REFRESH, id_token: idToken, expires_in: 3600, scope });
@@ -137,8 +137,8 @@ describe('Google Meet setup', () => {
   it('saves the project, the checklist, the client ID and the secret (encrypted, never shown)', async () => {
     await admin().put('/api/website/video', { google_client_id: 'not-a-client-id' }).expect(400);
     await admin().put('/api/website/video', { checklist: ['project', 'nope'] }).expect(400);
-    const saved = (await admin().put('/api/website/video', { google_project_id: 'appjoyio', checklist: ['project', 'api'], google_client_id: CLIENT_ID }).expect(200)).body;
-    expect(saved).toMatchObject({ google_project_id: 'appjoyio', checklist: ['project', 'api'], google_client_id: CLIENT_ID });
+    const saved = (await admin().put('/api/website/video', { google_project_id: 'acme-site', checklist: ['project', 'api'], google_client_id: CLIENT_ID }).expect(200)).body;
+    expect(saved).toMatchObject({ google_project_id: 'acme-site', checklist: ['project', 'api'], google_client_id: CLIENT_ID });
 
     await admin().post('/api/website/video/google/connect').expect(400); // no secret yet
     const withSecret = (await admin().put('/api/website/video/google/secret', { client_secret: CLIENT_SECRET }).expect(200)).body;
@@ -172,10 +172,10 @@ describe('Google Meet setup', () => {
     expect(decodeURIComponent(cancelled.headers.location)).toContain('You cancelled');
 
     const ok = await visitor().get(`/api/website/video/google/callback?state=${state}&code=good-code`).expect(302);
-    expect(ok.headers.location).toBe('https://app.joybot.test/staff/sales-calls?tab=video&google=connected&account=owner%40appjoy.dev');
+    expect(ok.headers.location).toBe('https://app.joybot.test/staff/sales-calls?tab=video&google=connected&account=owner%40example.com');
     expect(google.calls.find((c) => c.url.host === 'oauth2.googleapis.com')?.body).toMatchObject({ grant_type: 'authorization_code', redirect_uri: REDIRECT });
     const connected = (await admin().get('/api/website/video').expect(200)).body;
-    expect(connected).toMatchObject({ google_account_email: 'owner@appjoy.dev', google_connected_at: expect.any(String), google_calendar_id: expect.stringMatching(/^joybot-/) });
+    expect(connected).toMatchObject({ google_account_email: 'owner@example.com', google_connected_at: expect.any(String), google_calendar_id: expect.stringMatching(/^joybot-/) });
     // JoyBot's own calendar, named after the site, in the business's time zone.
     expect(google.calendars.get(connected.google_calendar_id)).toEqual({ summary: expect.stringMatching(/ sales calls$/), description: expect.any(String), timeZone: expect.any(String) });
     const [tokens] = await asOwner<{ google_refresh_token_cipher: string }>('SELECT google_refresh_token_cipher FROM core.video_secret');
