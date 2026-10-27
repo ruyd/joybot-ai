@@ -72,7 +72,7 @@ beforeAll(async () => {
   migrator = new Client({ connectionString: process.env.MIGRATOR_DATABASE_URL });
   await migrator.connect();
   app = await createApp({
-    env: { AUTH_MODE: 'supabase', SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-for-tests', APP_URL: 'https://appjoy.test' },
+    env: { AUTH_MODE: 'supabase', SUPABASE_URL: 'https://proj.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-for-tests', APP_URL: 'https://app.example.test' },
     overrides: [
       { token: SUPABASE_TOKENS, value: tokens },
       { token: SUPABASE_HTTP, value: supabase.http },
@@ -154,7 +154,7 @@ describe('logins in Supabase', () => {
     expect(supabase.calls[0]).toMatchObject({ key: 'service-role-key-for-tests', bearer: 'Bearer service-role-key-for-tests' });
     expect(sender.sent.at(-1)).toMatchObject({ channel: 'email', to: 'hire@example.com', template: 'invite' });
     expect(sender.sent.at(-1)!.text).toContain('Sign in with Google using this email address (hire@example.com)');
-    expect(sender.sent.at(-1)!.text).toContain('https://appjoy.test/staff');
+    expect(sender.sent.at(-1)!.text).toContain('https://app.example.test/staff');
 
     supabase.calls = [];
     await as('ada', 'employee').post('/api/admin/users', { first_name: 'Came', last_name: 'Back', email: 'back@example.com', role: 'staff' }).expect(201);

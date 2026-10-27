@@ -160,5 +160,5 @@ export class EmailService {
 /** Resend's testing sender: works before a domain is verified, but only to the account's own address. */
 export const RESEND_TEST_SENDER = 'onboarding@resend.dev';
 
-/** "Appjoy <hello@appjoy.dev>", or just the address. */
+/** "Acme <hello@example.com>", or just the address. */
 export const fromHeader = (name: string | null, address: string) => (name ? `${name} <${address}>` : address);

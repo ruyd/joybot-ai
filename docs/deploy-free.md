@@ -17,12 +17,12 @@ provider's current pricing page before relying on a number.
 | Sign-in                                | **Supabase Auth** with Google                                                        | 50k MAU                                                          | Cognito (2 pools) + 2 Lambda triggers      |
 | API (NestJS) + worker                  | **Render** web service (`deploy/render/Dockerfile`: both processes in one container) | 512 MB, sleeps after 15 min idle (~1 min to wake), 750 h/month   | ECS + worker service                       |
 | Web app (site, booking, portal, staff) | **Cloudflare Pages**                                                                 | Unlimited static bandwidth                                       | S3 + CloudFront                            |
-| Website images                         | **Cloudflare R2**, public bucket on `cdn.appjoy.dev`                                 | 10 GB, no egress fees, 10M reads/month                           | `core.site_asset_data` (bytes in Postgres) |
+| Website images                         | **Cloudflare R2**, public bucket on `cdn.example.com`                                 | 10 GB, no egress fees, 10M reads/month                           | `core.site_asset_data` (bytes in Postgres) |
 | Chat model (Gemma 4)                   | **OpenRouter** or own deployment, chosen in Settings › AI                               | Pay per token (free models are rate-limited and may log prompts) | vLLM on a GPU                              |
 | Email                                  | **Resend** for everything                                                            | 3k emails/month, 100/day                                         | SES                                        |
 | WhatsApp                               | Off at first (later: Meta Cloud API directly)                                        |                                                                  | AWS End User Messaging                     |
 
-Domains: `appjoy.dev` → Pages, `api.appjoy.dev` → Render, `cdn.appjoy.dev` → R2. Move the domain's DNS
+Domains: `example.com` → Pages, `api.example.com` → Render, `cdn.example.com` → R2. Move the domain's DNS
 to Cloudflare (free) first: it is needed for the Pages apex domain, `cdn.` and caching in front of the
 API. Check the imported records (Resend DKIM/SPF, Firebase verification) before switching nameservers.
 
@@ -33,7 +33,7 @@ API. Check the imported records (Resend DKIM/SPF, Firebase verification) before 
 - **Supabase Auth over Firebase Auth:** linking logins to customers/employees stays in SQL we already
   have; one vendor with the database. **Google sign-in only**, which needs no auth email at all.
 - **No Vercel:** Hobby is non-commercial. **Cloudflare Pages over Firebase Spark:** unlimited static
-  bandwidth vs 360 MB/day. Same origin is not needed: the web app calls `api.appjoy.dev` with CORS.
+  bandwidth vs 360 MB/day. Same origin is not needed: the web app calls `api.example.com` with CORS.
 - **Stripe webhooks stay in the API** (not an Edge Function): the API must run anyway; a second runtime
   would duplicate signature checks, secrets and tests.
 - **No separate worker service:** the worker is Stripe only (apply events, reconcile, queued jobs,
@@ -42,7 +42,7 @@ API. Check the imported records (Resend DKIM/SPF, Firebase verification) before 
   replaces the *model server*, not the worker.
 - **Website images in a public R2 bucket.** They are already public today (`GET /api/site/assets/:id`
   serves any image by UUID, cached for a year). Conditions: website images only, random UUID keys,
-  served on `cdn.appjoy.dev` with `nosniff`, cache purged on delete.
+  served on `cdn.example.com` with `nosniff`, cache purged on delete.
 
 ## Work items
 
@@ -75,7 +75,7 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
 
 ### 2. CORS (`CORS_ORIGINS`) ✅
 - `enableCors` in `apps/api/src/setup.ts` only when `CORS_ORIGINS` is set (e.g.
-  `https://appjoy.dev,https://www.appjoy.dev`): those origins, no credentials (tokens are bearer
+  `https://example.com,https://www.example.com`): those origins, no credentials (tokens are bearer
   headers), `maxAge` to cache preflights. Unset in AWS (same origin through CloudFront).
 
 ### 3. Supabase Auth with Google (`AUTH_MODE=supabase`) ✅
@@ -105,7 +105,7 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   `authMode: "supabase"` plus `supabase: { url, anonKey }` (a publishable key; public by design).
 - **Dashboard settings:** Google provider ✅ (checked: only external provider enabled, ES256 signing
   keys, sign-ups allowed). Still to confirm: Authentication › URL Configuration › Site URL
-  `https://appjoy.dev` and redirect URLs `https://appjoy.dev/**`, `http://localhost:5173/**`; the Google
+  `https://example.com` and redirect URLs `https://example.com/**`, `http://localhost:5173/**`; the Google
   OAuth client's authorized redirect URI `https://tknchixzrnycvzufbkot.supabase.co/auth/v1/callback`.
 - Customers without a Google account (phone-only) can't sign in yet; phone or email codes can come back
   later as a second option.
@@ -140,12 +140,12 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
 - Production had no images yet (2026-10-13), so nothing needs moving. Images uploaded before the switch are moved from the editor's image library (**Move them**).
 - **Cloudflare setup:**
   1. R2 › Create bucket `joybot-site` (location: Eastern North America).
-  2. The bucket's Settings › Custom Domains › Connect `cdn.appjoy.dev`. Never turn on the `r2.dev` URL.
-  3. Rules › Transform Rules › Modify Response Header: when the hostname equals `cdn.appjoy.dev`, set `X-Content-Type-Options: nosniff`.
+  2. The bucket's Settings › Custom Domains › Connect `cdn.example.com`. Never turn on the `r2.dev` URL.
+  3. Rules › Transform Rules › Modify Response Header: when the hostname equals `cdn.example.com`, set `X-Content-Type-Options: nosniff`.
   4. R2 › Manage API tokens › Create: Object Read & Write, only this bucket. Note the access key ID, the secret and the S3 endpoint (`https://<account id>.r2.cloudflarestorage.com`).
-  5. Optional: a token with Zone › Cache Purge on appjoy.dev, and the zone ID, so deleted images leave the cache straight away.
-- **Render variables:** `SITE_ASSET_STORE=s3`, `S3_ENDPOINT`, `S3_BUCKET=joybot-site`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `SITE_ASSET_BASE_URL=https://cdn.appjoy.dev`, and optionally `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
-- **Pages variable:** `SITE_ASSET_BASE_URL=https://cdn.appjoy.dev`, then redeploy.
+  5. Optional: a token with Zone › Cache Purge on example.com, and the zone ID, so deleted images leave the cache straight away.
+- **Render variables:** `SITE_ASSET_STORE=s3`, `S3_ENDPOINT`, `S3_BUCKET=joybot-site`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `SITE_ASSET_BASE_URL=https://cdn.example.com`, and optionally `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ZONE_ID`.
+- **Pages variable:** `SITE_ASSET_BASE_URL=https://cdn.example.com`, then redeploy.
 - Back up the bucket separately: `pg_dump` no longer has the images.
 
 ### 8. Hosting and deploy ✅ (live 2026-10-13)
@@ -158,7 +158,7 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   variable `FREE_DEPLOY` is `true`. Secrets: `SUPABASE_MIGRATOR_URL`, `APP_DB_PASSWORD`,
   `READER_DB_PASSWORD`, `WORKER_DB_PASSWORD`, `RENDER_DEPLOY_HOOK_URL`.
 - **Render** (`render.yaml`; service `joybot-api` was created through Render's API with the same settings): one free web service from `deploy/render/Dockerfile` (API +
-  worker), Ohio, health check `/api/health`, custom domain `api.appjoy.dev`, `autoDeploy: false` (the
+  worker), Ohio, health check `/api/health`, custom domain `api.example.com`, `autoDeploy: false` (the
   Action deploys after migrating). Fixed values in the file; enter in the dashboard: `SUPABASE_URL`,
   `SUPABASE_SERVICE_ROLE_KEY`, the three `*_DATABASE_URL`s (transaction pooler, 6543), `DB_SSL_CA` (the
   PEM text of `deploy/supabase/prod-ca-2021.crt`), Stripe keys, `MODEL_ENDPOINT`/`MODEL_NAME`. Copy the
@@ -168,18 +168,18 @@ Each is a small PR on its own; together they make the free deploy work. Defaults
   - Production branch `main`; root directory empty (repo root); output `apps/web/dist`.
   - Build command: `pnpm --filter "@joybot/web..." build && node apps/web/scripts/write-config.mjs`. Pages
     installs pnpm (from `packageManager`) and runs `pnpm install` itself; `...` builds `@joybot/access` first.
-  - Variables: `NODE_VERSION=22`, `WEB_API_BASE=https://api.appjoy.dev/api`, `SUPABASE_URL`,
-    `SUPABASE_PUBLISHABLE_KEY` (public), `APP_URL=https://appjoy.dev`.
+  - Variables: `NODE_VERSION=22`, `WEB_API_BASE=https://api.example.com/api`, `SUPABASE_URL`,
+    `SUPABASE_PUBLISHABLE_KEY` (public), `APP_URL=https://example.com`.
   - `apps/web/public/_headers` caches `/assets/*` (hashed file names) for a year at the edge and in
     browsers; `index.html` and `config.json` keep Pages' default (revalidated on every request).
   - `write-config.mjs` writes `dist/config.json` and fails the build if a value is missing, so the local
     development config (dev sign-in) is never shipped. SPA routes work without extra config.
-  - Project `joybot-web`, custom domain `appjoy.dev` (replaced Firebase Hosting).
-- **Google sign-in** URLs: Supabase › URL Configuration has `https://appjoy.dev/**`; the Google OAuth
+  - Project `joybot-web`, custom domain `example.com` (replaced Firebase Hosting).
+- **Google sign-in** URLs: Supabase › URL Configuration has `https://example.com/**`; the Google OAuth
   client redirects to `https://tknchixzrnycvzufbkot.supabase.co/auth/v1/callback` (both checked).
 - **Google Meet** (Setup meeting links): redirect URI becomes
-  `https://api.appjoy.dev/api/website/video/google/callback`. **Stripe** webhook URL
-  `https://api.appjoy.dev/api/webhooks/stripe`.
+  `https://api.example.com/api/website/video/google/callback`. **Stripe** webhook URL
+  `https://api.example.com/api/webhooks/stripe`.
 
 ## Order
 

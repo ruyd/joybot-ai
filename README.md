@@ -89,7 +89,7 @@ Admins can let Claude read, and optionally change, their business's data through
 
 1. **Settings › Claude access** → create a token (7 days to 1 year, **read only** or **read and write**). It is shown once; only its hash is stored.
 2. Connect Claude, using the commands the page shows:
-   - **Claude Code:** `claude mcp add --transport http joybot https://<your API>/api/mcp --header "Authorization: Bearer jbt_…"`. The page fills in the API's address: the app's own host where the API is under `/api` (AWS, local development), or the API's host where it runs elsewhere (`https://api.appjoy.dev/api/mcp` on the free-tier deploy, where `appjoy.dev` is static).
+   - **Claude Code:** `claude mcp add --transport http joybot https://<your API>/api/mcp --header "Authorization: Bearer jbt_…"`. The page fills in the API's address: the app's own host where the API is under `/api` (AWS, local development), or the API's host where it runs elsewhere (`https://api.example.com/api/mcp` on the free-tier deploy, where `example.com` is static).
    - **Claude Desktop:** an `mcp-remote` entry in `claude_desktop_config.json`.
 3. Ask, for example, "who has overdue invoices?" or "what's on Sam's calendar this week?".
 

@@ -219,9 +219,9 @@ describe('MCP write tools', () => {
     expect((await call(ro, 'get_site_page', { slug: 'mcp-landing' })).data).toMatchObject({ id: page.id, title: 'Landing' });
 
     const setup = (
-      await call(rw, 'update_site_setup', { site_name: 'appjoy', tagline: 'Software Development', logo_asset_id: image.id, accent: '#6d5dfc', heading_font: 'instrument-serif', header_links: [{ label: 'FAQ', url: '/mcp-landing#faq' }] })
+      await call(rw, 'update_site_setup', { site_name: 'Acme', tagline: 'Software Development', logo_asset_id: image.id, accent: '#6d5dfc', heading_font: 'instrument-serif', header_links: [{ label: 'FAQ', url: '/mcp-landing#faq' }] })
     ).data;
-    expect(setup).toMatchObject({ site_name: 'appjoy', tagline: 'Software Development', accent: '#6d5dfc', heading_font: 'instrument-serif' });
+    expect(setup).toMatchObject({ site_name: 'Acme', tagline: 'Software Development', accent: '#6d5dfc', heading_font: 'instrument-serif' });
     expect((await call(rw, 'update_site_setup', { body_font: 'papyrus' })).isError).toBe(true);
     const read = (await call(ro, 'get_site_setup')).data as { settings: { accent: string }; fonts: string[]; icons: string[]; images: { id: string }[] };
     expect(read.settings.accent).toBe('#6d5dfc');

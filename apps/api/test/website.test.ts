@@ -288,8 +288,8 @@ describe('website: sections and setup', () => {
     expect(site.name).toBe('JoyBot Test'); // no site name yet: the business name
 
     // The site's own name, for website editors; blank goes back to the business name.
-    expect((await admin().put('/api/website/settings', { site_name: '  appjoy ' }).expect(200)).body).toMatchObject({ site_name: 'appjoy', business_name: 'JoyBot Test' });
-    expect((await visitor().get('/api/site').expect(200)).body).toMatchObject({ name: 'appjoy', business_name: 'JoyBot Test' });
+    expect((await admin().put('/api/website/settings', { site_name: '  Acme ' }).expect(200)).body).toMatchObject({ site_name: 'Acme', business_name: 'JoyBot Test' });
+    expect((await visitor().get('/api/site').expect(200)).body).toMatchObject({ name: 'Acme', business_name: 'JoyBot Test' });
     await admin().put('/api/website/settings', { site_name: 'x'.repeat(81) }).expect(400);
     await admin().put('/api/website/settings', { site_name: '' }).expect(200);
     expect((await visitor().get('/api/site').expect(200)).body.name).toBe('JoyBot Test');

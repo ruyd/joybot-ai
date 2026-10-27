@@ -16,7 +16,7 @@ export interface AppConfig {
   customers?: PoolConfig;
   employees?: PoolConfig;
   appUrl?: string;
-  /** Website images in a bucket (SITE_ASSET_STORE=s3): its public address, e.g. https://cdn.appjoy.dev. Unset: the API serves them. */
+  /** Website images in a bucket (SITE_ASSET_STORE=s3): its public address, e.g. https://cdn.example.com. Unset: the API serves them. */
   assetBase?: string;
 }
 
@@ -37,7 +37,7 @@ export function appConfig(): AppConfig {
 
 /**
  * An absolute URL on the API, for things used outside this page (e.g. the MCP endpoint pasted into
- * Claude): the API's own host when it has one (https://api.appjoy.dev/api/…), else this origin
+ * Claude): the API's own host when it has one (https://api.example.com/api/…), else this origin
  * (local development and AWS, where the API is under /api on the same host).
  */
 export function apiUrl(path: string, origin = window.location.origin): string {
