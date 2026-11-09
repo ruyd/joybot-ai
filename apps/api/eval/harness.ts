@@ -183,7 +183,7 @@ async function loadWorld(db: Client): Promise<World> {
       payments: r.payments,
     };
   }
-  const refs: Record<string, string> = { balance: 'balance', 'svc:HAIRCUT': 'HAIRCUT', 'svc:DEEP-CLEAN': 'DEEP-CLEAN' };
+  const refs: Record<string, string> = { balance: 'balance', 'svc:CODE-REVIEW': 'CODE-REVIEW', 'svc:ARCH-WORKSHOP': 'ARCH-WORKSHOP' };
   for (const [k, id] of Object.entries(S.appointments)) refs[`appt:${k}`] = (await db.query('SELECT appointment_number FROM core.appointments WHERE id = $1', [id])).rows[0].appointment_number;
   for (const [k, id] of Object.entries(S.payments)) refs[`pay:${k}`] = (await db.query('SELECT payment_number FROM core.payments WHERE id = $1', [id])).rows[0].payment_number;
   for (const [k, id] of Object.entries(S.orgs)) refs[`org:${k}`] = (await db.query('SELECT org_number FROM core.organizations WHERE id = $1', [id])).rows[0].org_number;

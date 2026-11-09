@@ -267,7 +267,7 @@ function recordNumber(c: Citation): string | null {
   return c.type === 'balance' || c.type === 'answer' || c.type === 'article' ? null : c.id;
 }
 
-/** "Ticket #5001", "Service HAIRCUT", "Saved answer": the source's kind and number, for tooltips. */
+/** "Ticket #5001", "Service CODE-REVIEW", "Saved answer": the source's kind and number, for tooltips. */
 const describe = (c: Citation) => [typeLabel(c), recordNumber(c)].filter(Boolean).join(' ') + `: ${c.title}`;
 
 /** Markdown answer text whose [n] markers link to their sources. */

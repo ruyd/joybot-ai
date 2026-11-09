@@ -53,7 +53,7 @@ afterAll(async () => {
   await app.close();
 });
 
-const draft = (lines = [{ description: 'Haircut', quantity: 2, unit_price: 50, service_id: S.haircut }, { description: 'Hair product', unit_price: 20 }]) =>
+const draft = (lines = [{ description: 'Code review', quantity: 2, unit_price: 50, service_id: S.codeReview }, { description: 'Hosting setup', unit_price: 20 }]) =>
   api(app, employee(U.sam)).post('/api/invoices', { customer_id: C.maria, notes: 'Thanks for coming in!', lines });
 
 const cash = (invoiceId: string, amount: number, who: string = U.sam, customerId: string = C.maria) =>

@@ -154,7 +154,7 @@ describe('the configured model', () => {
     model.status = 503;
     const answer = await ask(customer(C.maria), 'When is my next appointment?');
     expect(model.requests.some((r) => r.body.stream === true)).toBe(true); // the model was asked
-    expect(answer).toMatch(/Here is what I found:\n- Haircut/);
+    expect(answer).toMatch(/Here is what I found:\n- Code review/);
   });
 
   it('"No model — search only" sends nothing to a model, even with one saved', async () => {

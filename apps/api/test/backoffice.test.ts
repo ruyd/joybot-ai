@@ -24,18 +24,18 @@ const inDays = (d: number, hour = 15) => {
 describe('catalog', () => {
   it('admins manage the price list; customers only see active services', async () => {
     const created = await api(app, employee(U.ada))
-      .post('/api/admin/services', { code: 'color', name: 'Hair color', price: 85, duration_minutes: 90, category: 'Hair' })
+      .post('/api/admin/services', { code: 'audit', name: 'Security audit', price: 85, duration_minutes: 90, category: 'Engineering' })
       .expect(201);
-    expect(created.body).toMatchObject({ code: 'COLOR', currency: 'USD', price: '85.00', active: true });
+    expect(created.body).toMatchObject({ code: 'AUDIT', currency: 'USD', price: '85.00', active: true });
 
     await api(app, employee(U.sam)).post('/api/admin/services', { code: 'X', name: 'X', price: 1 }).expect(403);
 
-    let visible = await api(app, customer(C.maria)).get('/api/services?category=Hair').expect(200);
-    expect(visible.body.map((s: { code: string }) => s.code)).toContain('COLOR');
+    let visible = await api(app, customer(C.maria)).get('/api/services?category=Engineering').expect(200);
+    expect(visible.body.map((s: { code: string }) => s.code)).toContain('AUDIT');
 
     await api(app, employee(U.ada)).put(`/api/admin/services/${created.body.id}`, { active: false }).expect(200);
     visible = await api(app, customer(C.maria)).get('/api/services').expect(200);
-    expect(visible.body.map((s: { code: string }) => s.code)).not.toContain('COLOR');
+    expect(visible.body.map((s: { code: string }) => s.code)).not.toContain('AUDIT');
     await api(app, customer(C.maria)).get(`/api/services/${created.body.id}`).expect(404);
   });
 
@@ -120,7 +120,7 @@ describe('appointments', () => {
     const res = await api(app, customer(C.maria)).get('/api/appointments').expect(200);
     expect(ids(res.body)).toEqual([A.mariaDone, A.mariaNext].sort());
     const done = res.body.find((a: { id: string }) => a.id === A.mariaDone);
-    expect(done).toMatchObject({ service_name: 'Haircut', location_name: 'New York — Midtown', time_zone: 'America/New_York', employee_name: 'Sam Staff' });
+    expect(done).toMatchObject({ service_name: 'Code review', location_name: 'New York — Midtown', time_zone: 'America/New_York', employee_name: 'Sam Staff' });
     expect(done.local_start).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
     expect(done).not.toHaveProperty('notes_internal');
     expect(done).not.toHaveProperty('customer_name');
@@ -139,7 +139,7 @@ describe('appointments', () => {
 
   it('staff book with service defaults (duration, price, currency)', async () => {
     const res = await api(app, employee(U.sam))
-      .post('/api/appointments', { customer_id: C.jane, service_id: S.haircut, location_id: L.nyc, employee_id: U.sam, scheduled_start: inDays(20) })
+      .post('/api/appointments', { customer_id: C.jane, service_id: S.codeReview, location_id: L.nyc, employee_id: U.sam, scheduled_start: inDays(20) })
       .expect(201);
     expect(res.body).toMatchObject({ status: 'scheduled', price_quoted: '50.00', currency: 'USD', employee_id: U.sam });
     expect(new Date(res.body.scheduled_end).getTime() - new Date(res.body.scheduled_start).getTime()).toBe(45 * 60_000);
@@ -147,7 +147,7 @@ describe('appointments', () => {
 
   it('detects employee double-booking and allows confirming', async () => {
     const mariaNext = (await api(app, employee(U.sam)).get(`/api/appointments/${A.mariaNext}`).expect(200)).body;
-    const body = { customer_id: C.jane, service_id: S.haircut, location_id: L.nyc, employee_id: U.sam, scheduled_start: mariaNext.scheduled_start };
+    const body = { customer_id: C.jane, service_id: S.codeReview, location_id: L.nyc, employee_id: U.sam, scheduled_start: mariaNext.scheduled_start };
     const conflict = await api(app, employee(U.sam)).post('/api/appointments', body).expect(409);
     expect(conflict.body).toMatchObject({ code: 'employee_double_booked' });
     expect(conflict.body.conflicts[0].appointment_number).toBe(mariaNext.appointment_number);
@@ -156,19 +156,19 @@ describe('appointments', () => {
 
   it('rejects employees who do not work at the location, and customers out of scope', async () => {
     await api(app, employee(U.sam))
-      .post('/api/appointments', { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, employee_id: U.lia, scheduled_start: inDays(21) })
+      .post('/api/appointments', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, employee_id: U.lia, scheduled_start: inDays(21) })
       .expect(400);
     await api(app, employee(U.sam))
-      .post('/api/appointments', { customer_id: C.john, service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(21) })
+      .post('/api/appointments', { customer_id: C.john, service_id: S.codeReview, location_id: L.nyc, scheduled_start: inDays(21) })
       .expect(404);
     await api(app, customer(C.maria))
-      .post('/api/appointments', { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(21) })
+      .post('/api/appointments', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, scheduled_start: inDays(21) })
       .expect(403);
   });
 
   it('enforces status transitions; only admins reopen terminal appointments', async () => {
     const created = await api(app, employee(U.sam))
-      .post('/api/appointments', { customer_id: C.maria, service_id: S.deepClean, location_id: L.nyc, scheduled_start: inDays(30) })
+      .post('/api/appointments', { customer_id: C.maria, service_id: S.workshop, location_id: L.nyc, scheduled_start: inDays(30) })
       .expect(201);
     const id = created.body.id;
     await api(app, employee(U.sam)).put(`/api/appointments/${id}`, { status: 'completed' }).expect(400);

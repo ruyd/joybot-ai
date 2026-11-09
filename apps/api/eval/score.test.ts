@@ -36,7 +36,7 @@ describe('eval access oracle', () => {
   });
 
   it('flags internal notes and staff-only fields for customers, not for staff', () => {
-    const leaky = obs({ evidence: [{ type: 'appointment', id: 'A-1', title: 'Haircut', fields: { internal_notes: 'Prefers short appointments' } }] });
+    const leaky = obs({ evidence: [{ type: 'appointment', id: 'A-1', title: 'Code review', fields: { internal_notes: 'Prefers short appointments' } }] });
     expect(gate(score(kase(), world, 'q', leaky, 'evidence-only'))).toHaveLength(1);
     expect(gate(score(kase({ as: 'sam' }), world, 'q', leaky, 'evidence-only'))).toEqual([]);
   });

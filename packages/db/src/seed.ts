@@ -24,8 +24,8 @@ export const SAMPLE = {
     pat: '40000000-0000-4000-8000-000000000006', // phone only, LA
   },
   services: {
-    haircut: '50000000-0000-4000-8000-000000000001',
-    deepClean: '50000000-0000-4000-8000-000000000002',
+    codeReview: '50000000-0000-4000-8000-000000000001',
+    workshop: '50000000-0000-4000-8000-000000000002', // architecture workshop
   },
   appointments: {
     mariaDone: '60000000-0000-4000-8000-000000000001',
@@ -48,7 +48,7 @@ export const SAMPLE = {
   },
   answers: {
     reschedule: 'b0000000-0000-4000-8000-000000000001', // all; book + read buttons
-    bookHaircut: 'b0000000-0000-4000-8000-000000000002', // customers; book a haircut
+    bookReview: 'b0000000-0000-4000-8000-000000000002', // customers; book a code review
     waysToPay: 'b0000000-0000-4000-8000-000000000003', // all; read button
   },
 } as const;
@@ -133,10 +133,10 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
 
     await client.query(
       `INSERT INTO core.services (id, code, name, category, duration_minutes, price, currency) VALUES
-         ($1, 'HAIRCUT', 'Haircut', 'Hair', 45, 50.00, 'USD'),
-         ($2, 'DEEP-CLEAN', 'Deep clean', 'Cleaning', 120, 120.00, 'USD')
+         ($1, 'CODE-REVIEW', 'Code review', 'Engineering', 45, 50.00, 'USD'),
+         ($2, 'ARCH-WORKSHOP', 'Architecture workshop', 'Consulting', 120, 120.00, 'USD')
        ON CONFLICT (id) DO NOTHING`,
-      [S.services.haircut, S.services.deepClean],
+      [S.services.codeReview, S.services.workshop],
     );
 
     const a = S.appointments;
@@ -154,7 +154,7 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
        ON CONFLICT (id) DO NOTHING`,
       [a.mariaDone, a.mariaNext, a.johnDone, a.janeNext, a.victorNext, a.patNext,
        c.maria, c.john, c.jane, c.victor, c.pat,
-       S.services.haircut, S.services.deepClean, S.users.sam, S.users.lia,
+       S.services.codeReview, S.services.workshop, S.users.sam, S.users.lia,
        S.locations.nyc, S.locations.la],
     );
 
@@ -202,7 +202,7 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
           E'## Change the time\nReply to your confirmation or ask the assistant, and we will offer the next free times. You can also book a new time and we will cancel the old one.\n\n## Cancel\nCancel at least 24 hours ahead at no charge. Later cancellations may be charged half the service price.\n\n## Running late\nIf you are more than 15 minutes late we may need to shorten or move your appointment.',
           'all', true, $4, $4),
          ($2, 'payment-options', 'Ways to pay', 'Card, bank transfer or cash.',
-          E'## Card\nPay by card at the front desk, or online with the payment link we send.\n\n## Bank transfer\nUse your customer number as the reference. Transfers can take up to three working days to show.\n\n## Cash\nCash is accepted at every location; ask for a receipt.',
+          E'## Card\nPay by card at the studio, or online with the payment link we send.\n\n## Bank transfer\nUse your customer number as the reference. Transfers can take up to three working days to show.\n\n## Cash\nCash is accepted at every studio; ask for a receipt.',
           'customer', true, $4, $4),
          ($3, 'handling-booking-requests', 'Handling booking requests', 'Confirming or declining appointments customers request online.',
           E'## Where to find them\nOpen Review in the staff console. Booking requests waiting for confirmation are listed soonest first.\n\n## Confirming\nPick a staff member who works at the location, then Confirm. The customer sees it as confirmed.\n\n## Declining\nDecline when the time does not work, and call the customer to offer another.',
@@ -215,9 +215,9 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
          ($1, 0, 'Change the time', 'Reply to your confirmation or ask the assistant, and we will offer the next free times. You can also book a new time and we will cancel the old one.'),
          ($1, 1, 'Cancel', 'Cancel at least 24 hours ahead at no charge. Later cancellations may be charged half the service price.'),
          ($1, 2, 'Running late', 'If you are more than 15 minutes late we may need to shorten or move your appointment.'),
-         ($2, 0, 'Card', 'Pay by card at the front desk, or online with the payment link we send.'),
+         ($2, 0, 'Card', 'Pay by card at the studio, or online with the payment link we send.'),
          ($2, 1, 'Bank transfer', 'Use your customer number as the reference. Transfers can take up to three working days to show.'),
-         ($2, 2, 'Cash', 'Cash is accepted at every location; ask for a receipt.'),
+         ($2, 2, 'Cash', 'Cash is accepted at every studio; ask for a receipt.'),
          ($3, 0, 'Where to find them', 'Open Review in the staff console. Booking requests waiting for confirmation are listed soonest first.'),
          ($3, 1, 'Confirming', 'Pick a staff member who works at the location, then Confirm. The customer sees it as confirmed.'),
          ($3, 2, 'Declining', 'Decline when the time does not work, and call the customer to offer another.')
@@ -231,21 +231,21 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
           ARRAY['How do I reschedule my appointment?', 'Can I move my booking?', 'How do I cancel an appointment?', 'I need to change my appointment time'],
           'You can cancel at no charge up to 24 hours before your appointment. To move it, book a new time and we will cancel the old one, or reply to your confirmation.',
           $4, 'all', $6, $6),
-         ($2, 'Booking a haircut',
-          ARRAY['Can I book a haircut?', 'How do I make an appointment?', 'I want to book an appointment'],
-          'You can request a time online and we will confirm it shortly. Haircuts take about 45 minutes.',
+         ($2, 'Booking a code review',
+          ARRAY['Can I book a code review?', 'How do I make an appointment?', 'I want to book an appointment'],
+          'You can request a time online and we will confirm it shortly. Code reviews take about 45 minutes, on a call or at the studio.',
           $5, 'customer', $6, $6),
          ($3, 'Ways to pay',
           ARRAY['How can I pay?', 'What payment methods do you accept?', 'Can I pay by bank transfer?', 'Do you take cash?'],
-          'We accept card (at the front desk or with our online payment link), bank transfer with your customer number as the reference, and cash at every location.',
+          'We accept card (at the studio or with our online payment link), bank transfer with your customer number as the reference, and cash at every studio.',
           $7, 'all', $6, $6)
        ON CONFLICT (id) DO NOTHING`,
       [
         ans.reschedule,
-        ans.bookHaircut,
+        ans.bookReview,
         ans.waysToPay,
         JSON.stringify([{ type: 'book', service_id: null }, { type: 'article', article_id: art.reschedule }]),
-        JSON.stringify([{ type: 'book', service_id: S.services.haircut }]),
+        JSON.stringify([{ type: 'book', service_id: S.services.codeReview }]),
         S.users.ada,
         JSON.stringify([{ type: 'article', article_id: art.payments }]),
       ],
@@ -254,11 +254,11 @@ export async function seedSampleData(connectionString: string | ClientConfig): P
     // Support tickets (numbers 5001–5006, as the chat eval expects): the first message is the
     // request; #5001 has a staff reply and an internal note customers never see.
     const tickets: [number, string, string, string, number, string][] = [
-      [5001, S.customers.maria, 'Refund for cancelled haircut', 'open', 1, 'I cancelled my appointment on time but was still charged.'],
+      [5001, S.customers.maria, 'Refund for cancelled code review', 'open', 1, 'I cancelled my appointment on time but was still charged.'],
       [5002, S.customers.maria, 'Change my appointment time', 'resolved', 9, 'Can I move my next appointment to the afternoon?'],
       [5003, S.customers.john, 'Acme invoice question', 'pending', 2, 'Our accounting team needs an itemized invoice for September.'],
-      [5004, S.customers.jane, 'Parking at the Midtown office', 'closed', 20, 'Is there parking near the Midtown location?'],
-      [5006, S.customers.pat, 'Deep clean availability', 'open', 0, 'Do you have deep clean slots next week?'],
+      [5004, S.customers.jane, 'Parking at the Midtown studio', 'closed', 20, 'Is there parking near the Midtown studio?'],
+      [5006, S.customers.pat, 'Architecture workshop availability', 'open', 0, 'Do you have architecture workshop slots next week?'],
     ];
     for (const [number, customer, subject, status, ageDays, request] of tickets) {
       const created = `now() - interval '${ageDays + 2} days'`;
