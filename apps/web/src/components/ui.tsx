@@ -14,27 +14,27 @@ export function Button({
     <button
       {...props}
       className={cx(
-        'press inline-flex items-center justify-center gap-1.5 rounded-full font-semibold disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'px-3 py-1 text-sm' : 'px-4.5 py-2 text-sm',
+        'press inline-flex items-center justify-center gap-1.5 rounded-lg font-semibold disabled:cursor-not-allowed disabled:opacity-50',
+        size === 'sm' ? 'min-h-8 px-3 py-1 text-sm' : 'min-h-10 px-4 py-2 text-sm',
         variant === 'primary' && 'btn-gradient shadow-sm',
-        variant === 'secondary' && 'btn-outline-gradient text-brand-700 dark:text-brand-600',
-        variant === 'ghost' && 'font-medium text-slate-600 hover:bg-slate-100 hover:text-brand-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-brand-600',
-        variant === 'danger' && 'bg-red-600 text-white shadow-sm hover:bg-red-700 hover:shadow-md hover:shadow-red-600/25',
+        variant === 'secondary' &&
+          'border border-slate-300 bg-white text-slate-900 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800',
+        variant === 'ghost' && 'font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white',
+        variant === 'danger' && 'bg-red-600 text-white shadow-sm hover:bg-red-700',
         className,
       )}
     >
-      {/* Outlined buttons with a text label get gradient text, like their border. */}
-      {variant === 'secondary' && typeof children === 'string' ? <span className="text-gradient">{children}</span> : children}
+      {children}
     </button>
   );
 }
 
 export function Card({ title, actions, children, className }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={cx('rounded-2xl border border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900', className)}>
+    <section className={cx('rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900', className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
-          <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-6 py-4 dark:border-slate-800">
+          <h2 className="text-base font-semibold tracking-tight">{title}</h2>
           {actions}
         </header>
       )}
@@ -52,7 +52,7 @@ const BADGE: Record<string, string> = {
 };
 
 export function Badge({ tone = 'slate', children }: { tone?: keyof typeof BADGE; children: ReactNode }) {
-  return <span className={cx('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', BADGE[tone])}>{children}</span>;
+  return <span className={cx('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold', BADGE[tone])}>{children}</span>;
 }
 
 /** Badge colour for appointment/payment statuses. */
@@ -96,10 +96,10 @@ export function EmptyState({ children }: { children: ReactNode }) {
 
 export function PageHeader({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        {description && <p className="mt-2 max-w-3xl text-base text-slate-500 dark:text-slate-400">{description}</p>}
+        <h1 className="text-[1.75rem] leading-tight font-bold tracking-tight">{title}</h1>
+        {description && <p className="mt-1 max-w-3xl text-sm text-slate-500 dark:text-slate-400">{description}</p>}
       </div>
       {actions}
     </div>
@@ -107,7 +107,7 @@ export function PageHeader({ title, description, actions }: { title: string; des
 }
 
 const inputClass =
-  'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900';
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm shadow-xs placeholder:text-slate-400 focus:border-brand-500 dark:border-slate-700 dark:bg-slate-900';
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -129,10 +129,10 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
   return (
     <div className="-mx-6 overflow-x-auto">
       <table className="w-full min-w-[32rem] text-left text-sm">
-        <thead className="text-xs uppercase tracking-wide text-slate-500">
+        <thead className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
           <tr>
             {head.map((h) => (
-              <th key={h} className="px-6 py-3 font-medium">
+              <th key={h} className="px-6 py-3 font-semibold">
                 {h}
               </th>
             ))}
@@ -223,7 +223,7 @@ export function Pager({
                 aria-current={p === page ? 'page' : undefined}
                 disabled={busy && p !== page}
                 onClick={() => p !== page && go(p)}
-                className={`press min-w-8 rounded-full px-2 py-1 text-sm ${
+                className={`press min-w-8 rounded-lg px-2 py-1 text-sm ${
                   p === page ? 'btn-gradient font-semibold' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'
                 }`}
               >
@@ -290,10 +290,10 @@ export function Tabs<K extends string>({
               aria-selected={selected}
               onClick={() => onChange(t.key)}
               className={cx(
-                'inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-0.5 pt-1 pb-3 text-[15px] transition-colors',
+                'inline-flex items-center gap-2 whitespace-nowrap border-b-2 px-0.5 pt-1 pb-3 text-sm font-semibold transition-colors',
                 selected
-                  ? 'border-brand-600 font-medium text-brand-700 dark:border-brand-500 dark:text-brand-500'
-                  : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-100',
+                  ? 'border-brand-600 text-slate-900 dark:border-brand-500 dark:text-white'
+                  : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-600 dark:hover:text-slate-100',
               )}
             >
               {t.label}

@@ -1,7 +1,32 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { lazy, Suspense, type ComponentType } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { BookOpen, ChartColumn, CreditCard, Package, ShoppingBag, Store, FileText, Globe, KeyRound, Mail, MessageSquareQuote, ScrollText, Settings, ShieldCheck, Sparkles, Users, Wallet } from 'lucide-react';
+import {
+  BookOpen,
+  CalendarDays,
+  ChartColumn,
+  ClipboardCheck,
+  Contact,
+  CreditCard,
+  FileText,
+  Globe,
+  Inbox,
+  KeyRound,
+  LayoutDashboard,
+  ListTodo,
+  Mail,
+  MessageSquareQuote,
+  Package,
+  PhoneCall,
+  ScrollText,
+  Settings,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  Store,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import { Layout, type NavItem, type SideSection } from './components/Layout';
 import { RequireSession } from './components/SignIn';
 import { Spinner } from './components/ui';
@@ -130,24 +155,30 @@ const PORTAL_NAV: NavItem[] = [
   { to: '/portal/profile', label: 'Profile' },
 ];
 
+/** The daily pages: the side menu's first section, "Workspace". */
 const STAFF_NAV: NavItem[] = [
-  { to: '/staff', label: 'Dashboard', end: true },
-  { to: '/staff/calendar', label: 'Calendar', can: ['read', 'appointments'] },
-  { to: '/staff/customers', label: 'Customers', can: ['read', 'customers'] },
-  { to: '/staff/todos', label: 'To-dos', can: ['read', 'tasks'] },
-  { to: '/staff/tickets', label: 'Tickets', can: ['read', 'tickets'] },
-  { to: '/staff/review', label: 'Review', can: ['update', 'appointments'] },
-  { to: '/staff/sales-calls', label: 'Sales calls', can: ['read', 'website'] },
-  { to: '/staff/analytics', label: 'Analytics', can: ['read', 'website'] },
+  { to: '/staff', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/staff/calendar', label: 'Calendar', icon: CalendarDays, can: ['read', 'appointments'] },
+  { to: '/staff/customers', label: 'Customers', icon: Contact, can: ['read', 'customers'] },
+  { to: '/staff/tickets', label: 'Tickets', icon: Inbox, can: ['read', 'tickets'] },
+  { to: '/staff/todos', label: 'To-dos', icon: ListTodo, can: ['read', 'tasks'] },
+  { to: '/staff/review', label: 'Review', icon: ClipboardCheck, can: ['update', 'appointments'] },
+  { to: '/staff/sales-calls', label: 'Sales calls', icon: PhoneCall, can: ['read', 'website'] },
 ];
 
-/** Less frequent pages, in the collapsible side menu. */
+/** The rest of the side menu, grouped. */
 const STAFF_SIDEBAR: SideSection[] = [
   {
+    label: 'Money',
     items: [
       { to: '/staff/payments', label: 'Payments', icon: CreditCard, can: ['create', 'payments'] },
       { to: '/staff/invoices', label: 'Invoices', icon: FileText, can: ['create', 'payments'] },
       { to: '/staff/orders', label: 'Orders', icon: ShoppingBag, can: ['read', 'payments'] },
+    ],
+  },
+  {
+    label: 'Grow',
+    items: [
       { to: '/staff/website', label: 'Website', icon: Globe, can: ['read', 'website'] },
       { to: '/staff/analytics', label: 'Analytics', icon: ChartColumn, can: ['read', 'website'] },
       { to: '/staff/products', label: 'Products', icon: Package, can: ['read', 'website'] },

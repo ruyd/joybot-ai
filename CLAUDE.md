@@ -30,7 +30,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web |
 | `apps/api` | NestJS, one folder per feature, plus `auth/` guards and `config/config.ts` (Zod) |
 | `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
-| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: frequent pages in the top bar (`STAFF_NAV`, no dropdowns), the rest in the collapsible icon side menu (`STAFF_SIDEBAR`: payments, invoices, orders, website, analytics, products, articles, answers, then Settings) |
+| `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: one dark, collapsible icon side menu (`Layout.tsx`) with Workspace (`STAFF_NAV`), then the `STAFF_SIDEBAR` groups Money, Grow and Settings; the portal shows `PORTAL_NAV` as top-bar tabs. `Layout` puts `app-theme` (green accent, `index.css`) on `<html>`; the public website keeps its own colors |
 | `cloudformation` | AWS: `main.yaml`, nested `stacks/`, Lambda `functions/` (own pnpm package), `scripts/`, `guard/`, `bootstrap/` |
 | `deploy`, `render.yaml` | Free-tier deploy (Render + Supabase + Cloudflare Pages), [docs/deploy-free.md](docs/deploy-free.md) |
 | `.github/workflows` | `ci.yml`, `release.yml` (AWS), `deploy-free.yml` |
