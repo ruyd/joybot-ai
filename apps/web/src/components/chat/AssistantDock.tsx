@@ -108,7 +108,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
 
       <aside
         aria-label={label}
-        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
+        className="fixed inset-x-0 bottom-0 z-30 border-t lg:left-[var(--side-w,0px)] border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
       >
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3">
           <button

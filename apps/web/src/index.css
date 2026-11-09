@@ -70,6 +70,61 @@
   background-image: linear-gradient(90deg, #6cc8ea, #7fd0d6);
 }
 
+/*
+ * App theme (staff console and customer portal): one green accent, flat fills, a dark ink side menu.
+ * Layout puts `app-theme` on <html> while it is mounted, so menus portalled to <body> match, and the
+ * public website (which has its own accent in Site setup) keeps its look.
+ * 600 is the link and fill color: 5.3:1 for white text, 5.0:1 as text on white.
+ */
+.app-theme {
+  --color-brand-50: #eef7f4;
+  --color-brand-100: #e3f4ee;
+  --color-brand-200: #bfe5d9;
+  --color-brand-300: #8dd3be;
+  --color-brand-400: #4fb89a;
+  --color-brand-500: #12a37f;
+  --color-brand-600: #0b7a62;
+  --color-brand-700: #0b6b56;
+  --color-brand-800: #0a5646;
+  --color-brand-900: #08463a;
+  --color-brand-950: #042a23;
+  --color-brand-teal: #0b7a62;
+  --color-on-brand: #ffffff;
+  --grad-from: #0b7a62;
+  --grad-to: #0b7a62;
+  --logo-teal: #0b7a62;
+  --logo-cyan: #7fe0c4;
+  /* The side menu, dark in both themes. */
+  --ink: #0e1116;
+  --ink-raised: #1c2129;
+  --ink-hover: #1a1f27;
+  --ink-text: #aeb5c0;
+  --ink-muted: #9aa1ad;
+  --ink-accent: #7fe0c4;
+  background-color: #f5f6f8;
+}
+.app-theme.dark {
+  --color-brand-500: #3dc9a2;
+  --color-brand-600: #5fd6b2;
+  --color-brand-700: #8fe3c9;
+  --color-on-brand: #042a23;
+  --grad-from: #0b7a62;
+  --grad-to: #0b7a62;
+  --ink: #090b0f;
+  --ink-raised: #191e26;
+  --ink-hover: #151a21;
+  background-color: #0f1217;
+}
+.app-theme .btn-gradient:hover:not(:disabled) {
+  --grad-from: #0a6a55;
+  --grad-to: #0a6a55;
+  box-shadow: 0 1px 2px rgb(16 24 40 / 0.12);
+}
+/* The loading line under the top bar shows only while loading. */
+.app-theme .nav-accent:not(.is-loading) {
+  opacity: 0;
+}
+
 /* Header accent: the logo's teal and cyan as a thin line under the navigation bar. While the app
    loads (lib/loading.ts) its colours flow, a bright streak sweeps across and it glows (same thickness);
    with reduced motion it only pulses. */
