@@ -97,6 +97,8 @@ export async function searchKnowledge(
 ) {
   const q = query.trim().slice(0, 500);
   if (q.length < 3) return { answers: [] as AnswerHit[], passages: [] as PassageHit[] };
+  // Typed as a search ("booking", "gift card"), not a question: then a single keyword is enough.
+  const keywordSearch = q.split(/\s+/).length <= 2;
   const answers = (
     await db.query<AnswerHit>(
       `SELECT a.id, a.title, a.body, a.actions,
@@ -106,11 +108,13 @@ export async function searchKnowledge(
          FROM core.answers a
         WHERE a.active AND a.audience IN ($4, 'all')
           -- Keywords count when at least two of them match: one shared word ("appointment") is not enough.
-          AND ((numnode(websearch_to_tsquery('english', $1)) >= 3 AND a.search @@ websearch_to_tsquery('english', $1))
+          -- A search of one or two words ("booking") is for that word, so then the word alone counts.
+          AND ((numnode(websearch_to_tsquery('english', $1)) >= 3 OR ($5 AND numnode(websearch_to_tsquery('english', $1)) = 1))
+               AND a.search @@ websearch_to_tsquery('english', $1)
                OR (SELECT max(similarity(lower($1), lower(x))) FROM unnest(a.questions) x) >= $2)
         ORDER BY score DESC, a.title
         LIMIT $3`,
-      [q, QUESTION_SIMILARITY, limits.answers, audience],
+      [q, QUESTION_SIMILARITY, limits.answers, audience, keywordSearch],
     )
   ).rows.filter((a, _, all) => a.score >= all[0].score * RUNNER_UP);
   // Best passage per article.
@@ -120,11 +124,11 @@ export async function searchKnowledge(
               ts_rank_cd(s.search, websearch_to_tsquery('english', $1), 32) AS score
          FROM core.article_sections s JOIN core.articles a ON a.id = s.article_id
         WHERE a.published AND a.audience IN ($3, 'all')
-          AND numnode(websearch_to_tsquery('english', $1)) >= 3 -- two or more keywords, as for answers
+          AND (numnode(websearch_to_tsquery('english', $1)) >= 3 OR ($4 AND numnode(websearch_to_tsquery('english', $1)) = 1)) -- two or more keywords, or a one-word search
           AND s.search @@ websearch_to_tsquery('english', $1)
           AND ts_rank_cd(s.search, websearch_to_tsquery('english', $1), 32) >= $2
         ORDER BY s.article_id, score DESC`,
-      [q, PASSAGE_RANK, audience],
+      [q, PASSAGE_RANK, audience, keywordSearch],
     )
   ).rows
     .sort((x, y) => y.score - x.score)

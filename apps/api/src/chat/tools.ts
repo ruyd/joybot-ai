@@ -29,6 +29,8 @@ export type ToolName =
   | 'list_organization_members'
   | 'search_customers'
   | 'list_tickets'
+  | 'search_tickets'
+  | 'search_products'
   | 'get_ticket'
   | 'search_knowledge';
 
@@ -42,7 +44,7 @@ export interface ChatScope {
 }
 
 export interface Evidence {
-  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location' | 'ticket' | 'answer' | 'article';
+  type: 'customer' | 'organization' | 'appointment' | 'payment' | 'balance' | 'service' | 'location' | 'ticket' | 'product' | 'answer' | 'article';
   id: string;
   title: string;
   fields: Record<string, string | number | boolean | null>;
@@ -50,6 +52,8 @@ export interface Evidence {
   url?: string;
   /** The record's customer (never shown to the model): used to link staff to the customer's page. */
   customerId?: string;
+  /** The record's own UUID where its link needs one (never shown to the model): a service to book, a location for the calendar. */
+  recordId?: string;
 }
 
 export interface ToolResult {
@@ -152,6 +156,17 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     audience: ['employee', 'customer'],
     requires: 'services',
   },
+  search_products: {
+    description: 'Products in the online shop whose name contains every word of the query (customers: while the shop is open).',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', minLength: 2 } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    audience: ['employee', 'customer'],
+    requires: 'services',
+  },
   list_locations: {
     description: 'Locations with address, phone and time zone.',
     parameters: { type: 'object', properties: {}, additionalProperties: false },
@@ -200,6 +215,17 @@ export const TOOL_SPECS: Record<ToolName, ToolSpec> = {
     audience: ['employee', 'customer'],
     requires: 'tickets',
     needs: 'customer_or_org',
+  },
+  search_tickets: {
+    description: 'Support tickets whose subject contains every word of the query (staff: any customer they can see; customers: their own).',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', minLength: 2 } },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    audience: ['employee', 'customer'],
+    requires: 'tickets',
   },
   get_ticket: {
     description: 'One support ticket with its public replies, by ticket number.',
@@ -306,7 +332,7 @@ export class ChatToolsService {
   async run(p: Principal, scope: ChatScope, name: ToolName, rawArgs: unknown): Promise<ToolResult> {
     if (!availableTools(p, scope).includes(name)) return { evidence: [], status: 'denied', note: 'tool not available' };
     const args = validateArgs(name, rawArgs);
-    if (name === 'list_tickets' || name === 'get_ticket') {
+    if (name === 'list_tickets' || name === 'search_tickets' || name === 'get_ticket') {
       const evidence = await this.tickets(p, scope, name, args);
       return { evidence, status: evidence.length ? 'ok' : 'empty' };
     }
@@ -338,7 +364,7 @@ export class ChatToolsService {
   }
 
   /** Ticket tools: the tickets service as the reader role; internal notes only for staff allowed to read them. */
-  private async tickets(p: Principal, scope: ChatScope, name: 'list_tickets' | 'get_ticket', a: Record<string, unknown>): Promise<Evidence[]> {
+  private async tickets(p: Principal, scope: ChatScope, name: 'list_tickets' | 'search_tickets' | 'get_ticket', a: Record<string, unknown>): Promise<Evidence[]> {
     if (name === 'get_ticket') {
       const t = await this.ticketsService.detail(p, String(a.ticket_id), 'reader');
       const [request, ...rest] = t.messages;
@@ -361,15 +387,22 @@ export class ChatToolsService {
         },
       ];
     }
-    const customerIds = await this.db.read(p, async (db) =>
-      (
-        await db.query<{ id: string }>(
-          scope.organizationId ? 'SELECT id FROM core.customers WHERE organization_id = $1' : 'SELECT id FROM core.customers WHERE id = $1',
-          [scope.organizationId ?? scope.customerId],
-        )
-      ).rows.map((r) => r.id),
-    );
-    const tickets = await this.ticketsService.list(p, { customerIds, status: a.status as string | undefined, limit: 10 }, 'reader');
+    // By words in the subject: customers their own tickets, staff every ticket RLS lets them read.
+    const customerIds =
+      name === 'search_tickets'
+        ? p.type === 'customer'
+          ? [p.id]
+          : undefined
+        : await this.db.read(p, async (db) =>
+            (
+              await db.query<{ id: string }>(
+                scope.organizationId ? 'SELECT id FROM core.customers WHERE organization_id = $1' : 'SELECT id FROM core.customers WHERE id = $1',
+                [scope.organizationId ?? scope.customerId],
+              )
+            ).rows.map((r) => r.id),
+          );
+    const subject = name === 'search_tickets' ? String(a.query) : undefined;
+    const tickets = await this.ticketsService.list(p, { customerIds, subject, status: a.status as string | undefined, limit: 10 }, 'reader');
     return tickets.map((t) => ({
       type: 'ticket' as const,
       id: `#${t.id}`,
@@ -577,7 +610,7 @@ export class ChatToolsService {
         }
         const rows = (
           await db.query(
-            `SELECT code, name, description, category, duration_minutes, price, currency FROM core.services
+            `SELECT id, code, name, description, category, duration_minutes, price, currency FROM core.services
               WHERE ${where.join(' AND ')} ORDER BY category NULLS LAST, name LIMIT 20`,
             params,
           )
@@ -585,16 +618,42 @@ export class ChatToolsService {
         return rows.map((r) => ({
           type: 'service' as const,
           id: r.code,
+          recordId: r.id,
           title: `${r.name} — ${money(r.price, r.currency)}`,
           fields: { name: r.name, price: money(r.price, r.currency), duration_minutes: r.duration_minutes, category: r.category, description: r.description },
         }));
       }
 
+      case 'search_products': {
+        // RLS shows active products, and drafts to website editors. Customers see the shop only while it's open.
+        const words = String(a.query).split(/\s+/).filter(Boolean);
+        const params: unknown[] = [p.type === 'employee'];
+        const named = words.map((w) => `name ILIKE '%' || $${params.push(w.replace(/[\\%_]/g, '\\$&'))} || '%'`);
+        const rows = (
+          await db.query(
+            `SELECT id, slug, name, summary, kind, price, active FROM core.products
+              WHERE ${named.join(' AND ')}
+                AND ($1 OR (active AND coalesce((SELECT enabled FROM core.store_settings WHERE id = 1), false)))
+              ORDER BY sort_order, name LIMIT 10`,
+            params,
+          )
+        ).rows;
+        const currency = (await db.query<{ c: string }>('SELECT default_currency AS c FROM core.settings WHERE id = 1')).rows[0]?.c ?? 'USD';
+        return rows.map((r) => ({
+          type: 'product' as const,
+          id: r.slug,
+          recordId: r.id,
+          title: `${r.name} — ${money(r.price, currency)}${r.active ? '' : ' (draft)'}`,
+          fields: { name: r.name, price: money(r.price, currency), kind: r.kind, summary: r.summary, ...(p.type === 'employee' ? { active: r.active } : {}) },
+        }));
+      }
+
       case 'list_locations': {
-        const rows = (await db.query('SELECT code, name, address, phone, time_zone FROM core.locations WHERE active ORDER BY name')).rows;
+        const rows = (await db.query('SELECT id, code, name, address, phone, time_zone FROM core.locations WHERE active ORDER BY name')).rows;
         return rows.map((r) => ({
           type: 'location' as const,
           id: r.code,
+          recordId: r.id,
           title: r.name,
           fields: { name: r.name, phone: r.phone, time_zone: r.time_zone, address: r.address ? JSON.stringify(r.address) : null },
         }));
@@ -635,6 +694,7 @@ export class ChatToolsService {
       }
 
       case 'list_tickets':
+      case 'search_tickets':
       case 'get_ticket':
         return []; // handled by tickets() before reaching SQL tools
 

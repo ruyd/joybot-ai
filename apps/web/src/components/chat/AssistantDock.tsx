@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Audience } from '../../lib/auth';
+import { useSearchOnly } from '../../lib/me';
 import { Button } from '../ui';
 import { Composer, MessageView, ScopeBar, Welcome } from './ChatPage';
 import { BrandMark } from '../BrandMark';
@@ -33,6 +34,8 @@ function remember(audience: Audience, conversationId: string | null) {
  */
 export function AssistantDock({ audience, fullView, hidden }: { audience: Audience; fullView: string; hidden: boolean }) {
   const { conversationId, state, open, send, choose, clearScope, stop } = useChat(audience);
+  const searchOnly = useSearchOnly();
+  const label = searchOnly ? 'Search' : 'Assistant';
   const [expanded, setExpanded] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -61,21 +64,23 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
   };
 
   if (hidden) return null;
-  const summary = state.busy ? 'answering…' : state.messages.length ? `${state.messages.length} message${state.messages.length === 1 ? '' : 's'}` : '';
+  const summary = state.busy ? (searchOnly ? 'searching…' : 'answering…') : state.messages.length ? searchOnly
+      ? `${Math.ceil(state.messages.length / 2)} search${Math.ceil(state.messages.length / 2) === 1 ? '' : 'es'}`
+      : `${state.messages.length} message${state.messages.length === 1 ? '' : 's'}` : '';
 
   return (
     <div onKeyDown={onKeyDown}>
       {expanded && (
         <section
           id="assistant-dock-panel"
-          aria-label="Assistant conversation"
+          aria-label={`${label} conversation`}
           className="fixed inset-x-2 bottom-[4.5rem] z-30 flex h-[min(60dvh,32rem)] flex-col rounded-xl border border-slate-200 bg-white shadow-xl sm:inset-x-auto sm:right-4 sm:w-[28rem] dark:border-slate-800 dark:bg-slate-950"
         >
           <header className="flex items-center gap-1 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
             <BrandMark className="size-5" />
-            <h2 className="flex-1 pl-1 text-sm font-semibold">Assistant</h2>
+            <h2 className="flex-1 pl-1 text-sm font-semibold">{label}</h2>
             <Button size="sm" variant="ghost" onClick={() => void open(null)} disabled={state.busy}>
-              New chat
+              {searchOnly ? 'New search' : 'New chat'}
             </Button>
             <Link
               to={conversationId ? `${fullView}?c=${conversationId}` : fullView}
@@ -83,7 +88,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
             >
               Full view
             </Link>
-            <button type="button" aria-label="Minimize assistant" title="Minimize" onClick={() => setExpanded(false)} className="press grid size-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">
+            <button type="button" aria-label={`Minimize ${label.toLowerCase()}`} title="Minimize" onClick={() => setExpanded(false)} className="press grid size-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white">
               <ChevronDown className="size-5" aria-hidden="true" />
             </button>
           </header>
@@ -102,7 +107,7 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
       )}
 
       <aside
-        aria-label="Assistant"
+        aria-label={label}
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
       >
         <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3">
@@ -114,14 +119,14 @@ export function AssistantDock({ audience, fullView, hidden }: { audience: Audien
             className="flex shrink-0 items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-900"
           >
             <BrandMark className="size-5" />
-            <span className="hidden font-medium sm:inline">Assistant</span>
+            <span className="hidden font-medium sm:inline">{label}</span>
             {summary && <span className="hidden text-slate-500 md:inline">· {summary}</span>}
             <span aria-hidden className="grid size-6 place-items-center rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               <ChevronUp className={`size-4 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
             </span>
           </button>
           <div className="min-w-0 flex-1">
-            <Composer busy={state.busy} onSend={ask} onStop={stop} audience={audience} inputRef={inputRef} placeholder="Ask the assistant…" className="" />
+            <Composer busy={state.busy} onSend={ask} onStop={stop} audience={audience} inputRef={inputRef} placeholder={searchOnly ? 'Search…' : 'Ask the assistant…'} className="" />
           </div>
         </div>
       </aside>

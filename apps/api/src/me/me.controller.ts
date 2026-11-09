@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Put } from '@nestjs/common';
 import { packRules } from '@joybot/access';
 import { z } from 'zod';
 import { CurrentPrincipal, EmployeesOnly, type Principal } from '../auth/principal';
 import { ZodPipe } from '../common/zod.pipe';
+import { LLM_PROVIDER, type LlmProvider } from '../chat/llm/llm.provider';
 import { DbService } from '../db/db.module';
 
 const employeeProfileSchema = z
@@ -20,11 +21,16 @@ const employeeProfileSchema = z
 
 @Controller('me')
 export class MeController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
+  ) {}
 
   /** Who am I + permission rules for the frontend (@casl/react). */
   @Get()
-  me(@CurrentPrincipal() p: Principal) {
+  async me(@CurrentPrincipal() p: Principal) {
+    // No model configured (Settings › AI): the assistant box searches records instead of writing replies.
+    const searchOnly = (await this.llm.searchOnly?.()) ?? false;
     return this.db.as(p, async (db) => {
       const profile =
         p.type === 'employee'
@@ -48,7 +54,7 @@ export class MeController {
       ).rows[0]?.enabled ?? true;
       // Settings › Store: the portal shows Orders while the store is open.
       const store = (await db.query<{ enabled: boolean }>('SELECT enabled FROM core.store_settings WHERE id = 1')).rows[0]?.enabled ?? false;
-      return { type: p.type, role: p.role, profile, assistant, store, rules: packRules(p.access) };
+      return { type: p.type, role: p.role, profile, assistant, assistant_mode: searchOnly ? 'search' : 'chat', store, rules: packRules(p.access) };
     });
   }
 

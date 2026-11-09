@@ -9,6 +9,8 @@ export interface Citation {
   url: string | null;
   /** Where the record opens in the app, for this user (older messages have none). */
   link?: string | null;
+  /** A line from a saved answer or article passage. */
+  excerpt?: string | null;
 }
 
 export interface Candidate {

@@ -231,11 +231,15 @@ function BookAppointment() {
   const [params] = useSearchParams();
   const cardRef = useRef<HTMLDivElement>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
-  // ?book=<service id>: from the assistant's "Book" button.
-  const [serviceId, setServiceId] = useState(params.get('book') ?? '');
+  // ?book=<service id>: from the assistant's "Book" button or a service in search results. Followed
+  // while the dashboard is already open too, so the service is picked whenever the link changes.
+  const bookParam = params.get('book');
+  const [serviceId, setServiceId] = useState(bookParam ?? '');
   useEffect(() => {
-    if (params.has('book')) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [params]);
+    if (bookParam === null) return;
+    if (bookParam) setServiceId(bookParam);
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [bookParam]);
   const [locationId, setLocationId] = useState('');
   const [typeId, setTypeId] = useState('');
   const types = useAppointmentTypes();

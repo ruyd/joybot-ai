@@ -45,6 +45,17 @@ export function ProductsPage() {
   const q = useQuery({ queryKey: ['products'], queryFn: () => api.get<Product[]>('/products') });
   const store = useQuery({ queryKey: ['store-settings'], queryFn: () => api.get<StoreSettings>('/admin/store'), enabled: can('update', 'settings') });
   const [editing, setEditing] = useState<Product | 'new' | null>(null);
+  // ?product=<id> (a product found in search): open its editor once the list is loaded.
+  const [params, setParams] = useSearchParams();
+  const wanted = params.get('product');
+  useEffect(() => {
+    if (!wanted || !q.data) return;
+    const found = q.data.find((p) => p.id === wanted);
+    if (found) setEditing(found);
+    const next = new URLSearchParams(params);
+    next.delete('product');
+    setParams(next, { replace: true });
+  }, [wanted, q.data, params, setParams]);
 
   return (
     <Page>

@@ -33,7 +33,7 @@ export function planByRules(
 
   const customerScoped = ctx.audience === 'customer' || ctx.hasCustomerScope || ctx.hasOrgScope;
   if (customerScoped) {
-    if (has(t, /\b(appointment|appointments|booking|booked|schedule|scheduled|visit|session)s?\b/)) {
+    if (has(t, /\b(appointment|appointments|booking|booked|schedule|scheduled|visit|session)s?\b|\bcoming up\b|\bcome in\b/)) {
       calls.push({ tool: 'list_appointments', args: { ...range, upcoming_only: !ctx.range && has(t, /\b(next|upcoming|coming|future)\b/) } });
     }
     if (has(t, /\b(owe|owed|owing|balance|outstanding|unpaid|due)\b|\b(all )?square\b|\bpaid up\b|\bin the clear\b/)) {
@@ -50,15 +50,15 @@ export function planByRules(
       calls.push({ tool: 'list_organization_members', args: {} });
     }
     // "address of your branches" is about locations, not the customer's profile.
-    const aboutLocations = has(t, /\b(locations?|branch(es)?|where are you|opening)\b/);
-    if (calls.length === 0 && !aboutLocations && has(t, /\b(profile|details|contact|email|phone|address|who is|info)\b/)) {
+    const aboutLocations = has(t, /\b(locations?|branch(es)?|where are you|opening)\b|\bfind you\b/);
+    if (calls.length === 0 && !aboutLocations && has(t, /\b(profile|details|contact|email|phone|address|who is|info)\b|\b(should|need to) know\b|\b(tell me|know) about (her|him|them)\b/)) {
       calls.push({ tool: 'get_customer_profile', args: {} });
     }
   }
   if (has(t, /\b(price|prices|cost|costs|how much|services?|offer|menu)\b/) && !calls.some((c) => c.tool === 'get_balance')) {
     calls.push({ tool: 'list_services', args: {} });
   }
-  if (has(t, /\b(location|locations|address|where are you|branch|branches|open hours|opening)\b/)) {
+  if (has(t, /\b(location|locations|address|where are you|branch|branches|open hours|opening)\b|\bfind you\b|\bget to you\b/)) {
     calls.push({ tool: 'list_locations', args: {} });
   }
   return calls;
@@ -78,4 +78,27 @@ export function customerSearch(text: string): string | undefined {
     /\b(?:named|called|name)\s+["“]?([\p{L}'’.-]+(?:\s+[\p{L}'’.-]+){0,2}?)["”]?\s*(?:[?.!,]|$)/iu.exec(text)?.[1] ??
     /\b(?:customers?|clients?)\s+(?:named|called|like)?\s*([\p{L}'’.-]{2,}(?:\s+[\p{L}'’.-]+){0,2}?)\s*(?:[?.!,]|$)/iu.exec(text)?.[1];
   return name && name.length >= 2 ? name.trim() : undefined;
+}
+
+// Words that make a short query a question or a topic rather than someone's name.
+const NOT_A_NAME = new Set(
+  (
+    'what when where which who whom why how is are was were do does did can could would should will show list find get ' +
+    'give tell please hi hello hey thanks thank yes no ok okay help the a an and or for of to from in on at by with about ' +
+    'any all my our your me i we you it this that today tomorrow yesterday next last week month appointment appointments ' +
+    'booking bookings payment payments invoice invoices balance schedule calendar ticket tickets service services price ' +
+    'prices location locations hours customer customers organization organizations staff refund refunds transfer transfers'
+  ).split(' '),
+);
+
+/**
+ * Just a name or a word or two ("maria", "jane park", "deep"): one to three words that are neither a
+ * question nor a topic. Staff search customers with it (capitalized names are already resolved from the
+ * question; only the model used to catch lowercase ones), and anyone services and locations by name.
+ * Returns the words to search for.
+ */
+export function bareTerms(text: string): string | undefined {
+  const t = text.trim().replace(/[?.!]+$/, '').trim();
+  if (t.length < 2 || !/^[\p{L}'’.-]+(?:\s+[\p{L}'’.-]+){0,2}$/u.test(t)) return undefined;
+  return t.split(/\s+/).some((w) => NOT_A_NAME.has(w.toLowerCase())) ? undefined : t;
 }

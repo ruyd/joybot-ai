@@ -5,7 +5,7 @@ import { DbService } from '../db/db.module';
 import { DIRECT_ANSWER_SIMILARITY, type ChatAction } from '../knowledge/knowledge';
 import { extractIdentifiers, hasIdentifiers, type Identifiers } from './extraction';
 import { ungroundedFacts } from './grounding';
-import { customerSearch, planByRules, type PlannedCall } from './intents';
+import { bareTerms, customerSearch, planByRules, type PlannedCall } from './intents';
 import { EvidenceOnlyProvider, LLM_PROVIDER, type ChatTurn, type LlmProvider } from './llm/llm.provider';
 import { parseRelativeRange } from './time';
 import { availableTools, ChatToolsService, toolDefinitions, validateArgs, TOOL_SPECS, type ChatScope, type Evidence, type ToolName, type ToolResult } from './tools';
@@ -181,12 +181,40 @@ export class ChatService implements OnApplicationBootstrap {
     // Asked by number: that record, not the whole list (the model would mix them up).
     if (ids.appointmentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_appointments');
     if (ids.paymentNumbers.length) calls = calls.filter((c) => c.tool !== 'list_payments');
-    const searchFor = p.type === 'employee' ? customerSearch(question) : undefined;
+    let searchFor = p.type === 'employee' ? customerSearch(question) : undefined;
     if (searchFor) calls = [{ tool: 'search_customers', args: { query: searchFor } }];
     for (const n of ids.appointmentNumbers) calls.push({ tool: 'get_appointment', args: { appointment_number: n } });
     for (const n of ids.paymentNumbers) calls.push({ tool: 'get_payment', args: { payment_number: n } });
+    // Just a name or a word or two ("maria", "deep"): staff look for customers first and get the matches
+    // listed. Otherwise services, locations, shop products and support tickets whose names contain every word.
+    // Nothing matched: carry on as usual.
+    const wordHits: Awaited<ReturnType<ChatService['runCall']>>[] = [];
+    const terms = !searchFor && calls.length === 0 && !strongAnswer ? bareTerms(question) : undefined;
+    if (terms) {
+      const hit = allowed.includes('search_customers') ? await this.runCall(p, scope, { tool: 'search_customers', args: { query: terms } }, sink) : undefined;
+      if (hit?.result.evidence.some((e) => e.type === 'customer')) {
+        searchFor = terms;
+        wordHits.push(hit);
+      } else {
+        const words = terms.toLowerCase().split(/\s+/);
+        const named = (e: Evidence) => words.every((w) => e.title.toLowerCase().includes(w));
+        for (const tool of ['list_services', 'list_locations'] as const) {
+          if (!allowed.includes(tool)) continue;
+          const listed = await this.runCall(p, scope, { tool, args: {} }, sink);
+          const evidence = listed.result.evidence.filter(named);
+          if (evidence.length) wordHits.push({ ...listed, result: { ...listed.result, evidence } });
+        }
+        for (const tool of ['search_products', 'search_tickets'] as const) {
+          if (!allowed.includes(tool)) continue;
+          const found = await this.runCall(p, scope, { tool, args: { query: terms } }, sink);
+          if (found.result.evidence.length) wordHits.push(found);
+        }
+      }
+    }
 
-    if (calls.length === 0 && allowed.length > 0 && !strongAnswer) {
+    // No model (search mode): nothing to plan with, so skip the step and its "Thinking…" status.
+    const searchOnly = (await this.llm.searchOnly?.()) ?? false;
+    if (calls.length === 0 && allowed.length > 0 && !strongAnswer && !wordHits.length && !searchOnly) {
       sink.event('status', { message: 'Thinking about what to look up…' });
       try {
         const planned = await this.llm.plan({
@@ -203,10 +231,10 @@ export class ChatService implements OnApplicationBootstrap {
         this.logger.warn(`planner failed: ${(err as Error).message}`);
       }
     }
-    calls = calls.filter((c) => c.tool !== 'search_knowledge' && allowed.includes(c.tool)).slice(0, MAX_TOOL_CALLS - (knowledge ? 1 : 0));
+    calls = calls.filter((c) => c.tool !== 'search_knowledge' && allowed.includes(c.tool)).slice(0, MAX_TOOL_CALLS - (knowledge ? 1 : 0) - wordHits.length);
 
     // 3. Retrieve ----------------------------------------------------------------------------------
-    const results = [...(knowledge ? [knowledge] : []), ...(await Promise.all(calls.map((call) => this.runCall(p, scope, call, sink))))];
+    const results = [...(knowledge ? [knowledge] : []), ...wordHits, ...(await Promise.all(calls.map((call) => this.runCall(p, scope, call, sink))))];
     const seen = new Set<string>();
     const evidence: Evidence[] = [];
     for (const { result } of results) {
@@ -507,7 +535,15 @@ function uniqueActions(actions: ChatAction[]): ChatAction[] {
 
 /** Numbered sources with an in-app link to each record, for this principal (and the external URL, if any). */
 function citationsFor(p: Principal, evidence: Evidence[]) {
-  return evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null, link: linkFor(p, e) }));
+  return evidence.map((e, i) => ({ n: i + 1, type: e.type, id: e.id, title: e.title, url: e.url ?? null, link: linkFor(p, e), excerpt: excerptFor(e) }));
+}
+
+/** A line of text shown under a saved answer or article passage in the sources (search results). */
+function excerptFor(e: Evidence): string | null {
+  const text = e.type === 'answer' ? e.fields.approved_answer : e.type === 'article' ? e.fields.text : null;
+  if (typeof text !== 'string' || !text.trim()) return null;
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 220 ? `${flat.slice(0, 219).trimEnd()}…` : flat;
 }
 
 /** Where a source opens in the app: the customer's page for staff, the matching portal page for customers. */
@@ -525,8 +561,14 @@ export function linkFor(p: Principal, e: Evidence): string | null {
         return `/staff/help/${e.id}`;
       case 'answer':
         return p.access.can('update', 'knowledge') ? `/staff/knowledge?answer=${e.id}` : null;
+      case 'service':
+        return e.recordId ? `/staff?book=${e.recordId}` : null; // the dashboard's booking form, with this service
+      case 'location':
+        return e.recordId ? `/staff/calendar?location=${e.recordId}` : null;
+      case 'product':
+        return e.recordId ? `/staff/products?product=${e.recordId}` : null;
       default:
-        return null; // services, locations, organizations: no staff page
+        return null; // organizations: no staff page
     }
   }
   switch (e.type) {
@@ -542,9 +584,11 @@ export function linkFor(p: Principal, e: Evidence): string | null {
     case 'ticket':
       return `/portal/tickets/${e.id.replace(/^#/, '')}`;
     case 'service':
-      return '/portal/services';
+      return e.recordId ? `/portal/book?service=${e.recordId}` : '/portal/services';
     case 'location':
       return '/portal/locations';
+    case 'product':
+      return `/shop/${e.id}`;
     case 'article':
       return `/portal/help/${e.id}`;
     default:
@@ -567,6 +611,8 @@ const LOOKUP_LABELS: Record<ToolName, string> = {
   get_organization: 'organization',
   list_organization_members: 'organization members',
   list_tickets: 'support tickets',
+  search_tickets: 'support tickets by subject',
+  search_products: 'shop products',
   get_ticket: 'support ticket by number',
   search_knowledge: 'saved answers and articles',
   search_customers: 'customer search',

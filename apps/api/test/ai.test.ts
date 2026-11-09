@@ -136,6 +136,9 @@ describe('the configured model', () => {
     await admin().put('/api/admin/ai', { provider: 'custom', model: 'google/gemma-4-26b-a4b-it', base_url: model.url }).expect(200);
     const test = (await admin().post('/api/admin/ai/test').expect(200)).body;
     expect(test).toMatchObject({ reply: 'ready', model: 'google/gemma-4-26b-a4b-it', ms: expect.any(Number) });
+    // With a model the assistant writes replies (the web app says "Ask"), for customers and staff alike.
+    expect((await api(app, customer(C.maria)).get('/api/me').expect(200)).body.assistant_mode).toBe('chat');
+    expect((await api(app, employee(U.sam)).get('/api/me').expect(200)).body.assistant_mode).toBe('chat');
     expect(model.requests[0]).toMatchObject({ path: '/v1/chat/completions', auth: `Bearer ${KEY}`, body: { model: 'google/gemma-4-26b-a4b-it' } });
 
     expect(await ask(customer(C.maria), 'What are your opening hours?')).toContain('Hello from the configured model.');
@@ -148,6 +151,9 @@ describe('the configured model', () => {
 
   it('goes back to the server default (here: answers that list records) when the provider is cleared', async () => {
     await admin().put('/api/admin/ai', { provider: null }).expect(200);
+    // No model on this server: the box searches records (the web app labels it Search).
+    expect((await api(app, customer(C.maria)).get('/api/me').expect(200)).body.assistant_mode).toBe('search');
+    expect((await api(app, employee(U.sam)).get('/api/me').expect(200)).body.assistant_mode).toBe('search');
     // The cache is cleared on save, so the next question no longer reaches the model server.
     const before = model.requests.length;
     await ask(customer(C.maria), 'What are your opening hours?');

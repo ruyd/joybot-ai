@@ -193,7 +193,10 @@ export function Layout({
   }
 
   const shown = (i: NavLinkItem) => (!i.can || can(i.can[0], i.can[1])) && (!i.role || i.role === me?.role) && (!i.assistant || me?.assistant !== false) && (!i.store || me?.store === true);
-  const sections = (sidebar ?? []).map((s) => ({ ...s, items: s.items.filter(shown) })).filter((s) => s.items.length > 0);
+  // No model configured (Settings › AI): the assistant searches records, so it is called Search.
+  const relabel = (i: NavLinkItem) => (i.assistant && me?.assistant_mode === 'search' ? { ...i, label: 'Search' } : i);
+  const visible = (items: NavLinkItem[]) => items.filter(shown).map(relabel);
+  const sections = (sidebar ?? []).map((s) => ({ ...s, items: visible(s.items) })).filter((s) => s.items.length > 0);
   const toggleCollapsed = () =>
     setCollapsed((c) => {
       try {
@@ -225,7 +228,7 @@ export function Layout({
           <BrandMark className="size-8" />
         </Link>
         <nav aria-label="Main" className={`flex-1 gap-1 overflow-x-auto [scrollbar-width:none] ${sections.length ? 'hidden sm:flex' : 'flex'}`}>
-          {nav.filter(shown).map((n) => (
+          {visible(nav).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => navClass(isActive)}>
               {n.label}
             </NavLink>
@@ -238,7 +241,7 @@ export function Layout({
       </header>
       <div className="flex">
         {sections.length > 0 && (
-          <SideMenu main={nav.filter(shown)} sections={sections} collapsed={collapsed} onToggle={toggleCollapsed} open={menuOpen} onClose={closeMenu} bottomGap={dockGap} />
+          <SideMenu main={visible(nav)} sections={sections} collapsed={collapsed} onToggle={toggleCollapsed} open={menuOpen} onClose={closeMenu} bottomGap={dockGap} />
         )}
         <div className={`min-w-0 flex-1 ${dockGap ? 'pb-20' : ''}`} aria-busy={busy}>
           <ErrorBoundary key={location.pathname}>

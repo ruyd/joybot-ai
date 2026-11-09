@@ -172,6 +172,10 @@ export class ConfiguredLlmProvider implements LlmProvider {
     if (p === this.fallback) await this.fallback.warmUp?.();
   }
 
+  async searchOnly(): Promise<boolean> {
+    return (await (await this.current()).searchOnly?.()) ?? false;
+  }
+
   private async current(): Promise<LlmProvider> {
     return (await this.ai.provider()) ?? this.fallback;
   }
