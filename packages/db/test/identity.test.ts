@@ -73,6 +73,33 @@ describe('customer sign-up linking', () => {
     });
   });
 
+  it('a second link of the same login waits for the first and finds it (no review)', async () => {
+    const sub = 'sub-race';
+    const first = await workerPool.connect();
+    const second = await workerPool.connect();
+    try {
+      await first.query('BEGIN');
+      const created = await signup(first, sub, 'race.person@example.com', true, null, false);
+      expect(created.outcome).toBe('created');
+      // The first call's transaction is still open: the second waits on the per-login lock.
+      await second.query('BEGIN');
+      const later = signup(second, sub, 'race.person@example.com', true, null, false);
+      const early = await Promise.race([later.then(() => 'done'), new Promise((r) => setTimeout(() => r('waiting'), 300))]);
+      expect(early).toBe('waiting');
+      await first.query('COMMIT');
+      expect(await later).toEqual({ outcome: 'existing', customer_id: created.customer_id });
+      const q = await second.query(`SELECT count(*)::int AS n FROM app.link_review_queue WHERE cognito_sub = $1`, [sub]);
+      expect(q.rows[0].n).toBe(0);
+      await second.query('ROLLBACK');
+    } finally {
+      await first.query('ROLLBACK').catch(() => undefined);
+      await second.query('ROLLBACK').catch(() => undefined);
+      await first.query(`DELETE FROM core.customers WHERE cognito_sub = $1`, [sub]);
+      first.release();
+      second.release();
+    }
+  });
+
   it('sends contacts that point to two different customers to review', async () => {
     await asWorker(async (db) => {
       // maria's email + pat's phone
