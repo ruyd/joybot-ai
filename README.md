@@ -17,9 +17,9 @@ Design screens with sample data for a dev studio. [UI.md](UI.md) has all 13 scre
 
 ![Staff dashboard](docs/screens/dashboard.png)
 
-**Sales calls**: website visitors who booked a call, with the Meet link, their question, notes and follow-up emails.
+**Knowledge — saved answers**: test what the assistant would find for a question, then edit the saved answers it cites, with example questions and the buttons it offers.
 
-![Sales calls](docs/screens/sales-calls.png)
+![Knowledge, saved answers](docs/screens/knowledge.png)
 
 **Customer portal: Assistant**: answers from the customer's own records and saved answers, with sources and buttons, beside their next appointment and balance.
 
