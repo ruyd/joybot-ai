@@ -10,6 +10,8 @@ export interface Me {
   profile: { id: string; first_name?: string | null; last_name?: string | null; email?: string | null; [k: string]: unknown };
   /** The assistant is on for this audience (Admin › AI). */
   assistant?: boolean;
+  /** `search` when no model is configured (Settings › AI): the box lists matching records instead of writing replies. */
+  assistant_mode?: 'chat' | 'search';
   /** The store is open (Settings › Store). */
   store?: boolean;
   rules: { action: string; subject: string }[];
@@ -22,4 +24,9 @@ export function useMe() {
   const query = useQuery({ queryKey: ['me', audience], queryFn: () => api.get<Me>('/me'), staleTime: 60_000 });
   const ability = useMemo(() => buildAbility(query.data?.rules ?? []), [query.data]);
   return { ...query, me: query.data, can: (action: string, subject: string) => ability.can(action, subject) };
+}
+
+/** No model is configured: the assistant box is labelled Search. */
+export function useSearchOnly(): boolean {
+  return useMe().me?.assistant_mode === 'search';
 }

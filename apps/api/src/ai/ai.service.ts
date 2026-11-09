@@ -2,7 +2,7 @@ import { BadGatewayException, BadRequestException, Inject, Injectable, Logger, N
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import type { Principal } from '../auth/principal';
-import { ModelEndpointError, OpenAiCompatibleProvider, type LlmProvider } from '../chat/llm/llm.provider';
+import { EvidenceOnlyProvider, ModelEndpointError, OpenAiCompatibleProvider, type LlmProvider } from '../chat/llm/llm.provider';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { APP_POOL, DbService } from '../db/db.module';
 import { SecretBox } from '../email/secret-box';
@@ -11,8 +11,8 @@ export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
 export const aiSettingsSchema = z
   .object({
-    /** null: the server's default model (MODEL_ENDPOINT), or answers that only list records. */
-    provider: z.enum(['openrouter', 'custom']).nullable(),
+    /** null: the server's default model (MODEL_ENDPOINT), or search mode when there is none. 'none': search mode. */
+    provider: z.enum(['openrouter', 'custom', 'none']).nullable(),
     model: z
       .string()
       .trim()
@@ -38,7 +38,7 @@ export const aiKeySchema = z.object({ api_key: z.string().trim().min(1).max(500)
 export type AiSettingsInput = z.infer<typeof aiSettingsSchema>;
 
 export interface AiSettings {
-  provider: 'openrouter' | 'custom' | null;
+  provider: 'openrouter' | 'custom' | 'none' | null;
   model: string | null;
   base_url: string | null;
   private_only: boolean;
@@ -51,7 +51,7 @@ export interface AiSettings {
 }
 
 interface Stored {
-  provider: 'openrouter' | 'custom' | null;
+  provider: 'openrouter' | 'custom' | 'none' | null;
   model: string | null;
   base_url: string | null;
   private_only: boolean;
@@ -68,7 +68,7 @@ const COLUMNS = 'provider, model, base_url, private_only, api_key_last4, api_key
 @Injectable()
 export class AiService {
   private readonly logger = new Logger('AI');
-  private cache?: { value: OpenAiCompatibleProvider | null; at: number };
+  private cache?: { value: OpenAiCompatibleProvider | 'none' | null; at: number };
 
   constructor(
     private readonly db: DbService,
@@ -107,6 +107,7 @@ export class AiService {
   /** Sends one short prompt to the saved provider (or the server's default). */
   async test(): Promise<{ reply: string; ms: number; model: string }> {
     const saved = await this.provider();
+    if (saved === 'none') throw new BadRequestException('Search only: there is no model to test');
     const provider = saved ?? (this.cfg.MODEL_ENDPOINT ? new OpenAiCompatibleProvider(this.cfg.MODEL_ENDPOINT, this.cfg.MODEL_NAME) : null);
     if (!provider) throw new BadRequestException('Choose a provider first');
     try {
@@ -117,10 +118,10 @@ export class AiService {
     }
   }
 
-  /** The saved provider for chat (cached for 30 seconds), or null to use the server's default. */
-  async provider(): Promise<OpenAiCompatibleProvider | null> {
+  /** The saved provider for chat (cached for 30 seconds), 'none' for search only, or null to use the server's default. */
+  async provider(): Promise<OpenAiCompatibleProvider | 'none' | null> {
     if (this.cache && Date.now() - this.cache.at < 30_000) return this.cache.value;
-    let value: OpenAiCompatibleProvider | null = null;
+    let value: OpenAiCompatibleProvider | 'none' | null = null;
     try {
       value = this.build((await this.pool.query<Stored>('SELECT * FROM authz.ai_delivery()')).rows[0]);
     } catch (err) {
@@ -130,7 +131,8 @@ export class AiService {
     return value;
   }
 
-  private build(s: Stored | undefined): OpenAiCompatibleProvider | null {
+  private build(s: Stored | undefined): OpenAiCompatibleProvider | 'none' | null {
+    if (s?.provider === 'none') return 'none';
     if (!s?.provider || !s.model) return null;
     const apiKey = s.api_key_cipher ? this.box.decrypt(s.api_key_cipher) : undefined;
     const debug = this.cfg.MODEL_DEBUG === 'true';
@@ -149,9 +151,10 @@ export class AiService {
   }
 }
 
-/** The model chat uses: Admin › AI's saved provider, else the server's default. */
+/** The model chat uses: Admin › AI's saved provider, search only, else the server's default. */
 export class ConfiguredLlmProvider implements LlmProvider {
   readonly name = 'configured';
+  private readonly searchOnlyProvider = new EvidenceOnlyProvider();
 
   constructor(
     private readonly ai: AiService,
@@ -172,7 +175,13 @@ export class ConfiguredLlmProvider implements LlmProvider {
     if (p === this.fallback) await this.fallback.warmUp?.();
   }
 
+  async searchOnly(): Promise<boolean> {
+    return (await (await this.current()).searchOnly?.()) ?? false;
+  }
+
   private async current(): Promise<LlmProvider> {
-    return (await this.ai.provider()) ?? this.fallback;
+    const saved = await this.ai.provider();
+    if (saved === 'none') return this.searchOnlyProvider;
+    return saved ?? this.fallback;
   }
 }

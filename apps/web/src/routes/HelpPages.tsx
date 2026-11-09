@@ -7,6 +7,7 @@ import { Badge, Card, EmptyState, ErrorBanner, Input, PageHeader, Spinner } from
 import { useApi } from '../lib/api';
 import { useSession } from '../lib/auth';
 import { date } from '../lib/format';
+import { useSearchOnly } from '../lib/me';
 
 interface Article {
   id: string;
@@ -27,6 +28,7 @@ export function HelpList() {
   const { audience } = useSession();
   const [q, setQ] = useState('');
   const term = q.trim();
+  const searchOnly = useSearchOnly();
   const list = useQuery({
     queryKey: ['articles', term],
     queryFn: () => api.get<Article[]>(`/articles${term ? `?q=${encodeURIComponent(term)}` : ''}`),
@@ -35,7 +37,7 @@ export function HelpList() {
     <Page>
       <PageHeader
         title={audience === 'customer' ? 'Help' : 'Knowledge'}
-        description="How-to guides and policies. You can also ask the assistant."
+        description={searchOnly ? 'How-to guides and policies.' : 'How-to guides and policies. You can also ask the assistant.'}
       />
       <div className="max-w-3xl space-y-4">
         <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search articles" aria-label="Search articles" />

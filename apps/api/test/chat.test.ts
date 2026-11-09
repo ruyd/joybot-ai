@@ -150,6 +150,41 @@ describe('chat (evidence-only model)', () => {
     }
   });
 
+  it('a bare word finds services, locations and tickets by name, each linked to its page', async () => {
+    type Cited = { type: string; id: string; link: string | null; excerpt: string | null };
+    const staff = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'new york')).of('citations')[0] as Cited[];
+    expect(staff).toEqual([expect.objectContaining({ type: 'location', link: `/staff/calendar?location=${SAMPLE.locations.nyc}` })]);
+    const service = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'deep')).of('citations')[0] as Cited[];
+    expect(service).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'service', id: 'DEEP-CLEAN', link: expect.stringMatching(/^\/staff\?book=[0-9a-f-]{36}$/) })]));
+    const portal = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'deep')).of('citations')[0] as Cited[];
+    expect(portal).toEqual([expect.objectContaining({ type: 'service', link: expect.stringMatching(/^\/portal\/book\?service=[0-9a-f-]{36}$/) })]);
+    // Words in a ticket's subject: staff find any ticket they can see, customers only their own.
+    const tickets = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'deep')).of('citations')[0] as Cited[];
+    expect(tickets).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'ticket', id: '#5006', link: '/staff/tickets/5006' })]));
+    const own = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'deep')).of('citations')[0] as Cited[];
+    expect(own.map((c) => c.type)).not.toContain('ticket');
+  });
+
+  it('a bare word finds shop products: drafts for website editors, customers only while the shop is open', async () => {
+    type Cited = { type: string; id: string; title: string; link: string | null };
+    const product = (
+      await migrator.query<{ id: string }>(`INSERT INTO core.products (slug, name, kind, price, active) VALUES ('libro-test', 'Libro test', 'digital', 20, false) RETURNING id`)
+    ).rows[0];
+    const cited = async (who: { type: 'employee' | 'customer'; id: string }) =>
+      ((await chat(app, who, await newConversation(app, who), 'libro')).of('citations')[0] as Cited[]).filter((c) => c.type === 'product');
+    try {
+      expect(await cited(employee(U.ada))).toEqual([expect.objectContaining({ id: 'libro-test', title: expect.stringMatching(/\(draft\)$/), link: `/staff/products?product=${product.id}` })]);
+      expect(await cited(customer(C.maria))).toEqual([]); // a draft
+      await migrator.query('UPDATE core.products SET active = true WHERE id = $1', [product.id]);
+      expect(await cited(customer(C.maria))).toEqual([]); // the shop is closed
+      await migrator.query('UPDATE core.store_settings SET enabled = true WHERE id = 1');
+      expect(await cited(customer(C.maria))).toEqual([expect.objectContaining({ id: 'libro-test', link: '/shop/libro-test' })]);
+    } finally {
+      await migrator.query('UPDATE core.store_settings SET enabled = false WHERE id = 1');
+      await migrator.query('DELETE FROM core.products WHERE id = $1', [product.id]);
+    }
+  });
+
   it('choosing from "which one?" answers the question instead of asking again', async () => {
     const lookalike = (await api(app, employee(U.ada)).post('/api/customers', { first_name: 'Maria', last_name: 'Lopes', email: 'maria.lopes.chat@example.com' }).expect(201)).body;
     try {

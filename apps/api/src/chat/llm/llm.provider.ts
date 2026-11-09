@@ -41,6 +41,8 @@ export interface LlmProvider {
   answer(input: AnswerInput, signal?: AbortSignal): AsyncIterable<string>;
   /** Loads the model ahead of the first question (optional). */
   warmUp?(): Promise<void>;
+  /** True when there is no model: answers list the records found (the web app labels the box Search). */
+  searchOnly?(): Promise<boolean>;
 }
 
 export const LLM_PROVIDER = Symbol('LLM_PROVIDER');
@@ -238,6 +240,10 @@ async function errorMessage(res: Response): Promise<string | undefined> {
  */
 export class EvidenceOnlyProvider implements LlmProvider {
   readonly name = 'evidence-only';
+
+  async searchOnly(): Promise<boolean> {
+    return true;
+  }
 
   async plan(): Promise<PlannedToolCall[]> {
     return [];

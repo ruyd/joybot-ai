@@ -82,6 +82,8 @@ export interface ListFilter {
   status?: string;
   /** An employee id, or 'none' for unassigned. */
   assignedTo?: string;
+  /** Words that must all appear in the subject (chat search). */
+  subject?: string;
   limit?: number;
 }
 
@@ -117,6 +119,9 @@ export class TicketsService {
       if (f.status) where.push(`t.status = $${args.push(f.status)}`);
       if (f.assignedTo === 'none') where.push('t.assigned_to IS NULL');
       else if (f.assignedTo) where.push(`t.assigned_to = $${args.push(f.assignedTo)}`);
+      for (const word of f.subject?.split(/\s+/).filter(Boolean) ?? []) {
+        where.push(`t.subject ILIKE '%' || $${args.push(word.replace(/[\\%_]/g, '\\$&'))} || '%'`);
+      }
       const limit = Math.min(Math.max(f.limit ?? 200, 1), 500);
       return (
         await db.query<TicketSummary>(
