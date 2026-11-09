@@ -194,7 +194,7 @@ export class ChatService implements OnApplicationBootstrap {
           question,
           history: ctx.history,
           scopeSummary: this.scopeSummary(p, scope),
-          now: new Date().toISOString(),
+          now: localIso(new Date(), ctx.timeZone),
           timeZone: ctx.timeZone,
           tools: toolDefinitions(allowed),
         });
@@ -588,4 +588,19 @@ function searchReply(name: string, evidence: Evidence[]): string {
   if (matches.length === 0) return `I couldn't find any customers matching "${name}" among the records you have access to.`;
   const lines = matches.map(({ e, n }) => `- ${e.title} · ${e.id}${e.fields.email ? ` · ${e.fields.email}` : ''} [${n}]`);
   return `Found ${matches.length === 1 ? '1 customer' : `${matches.length} customers`} matching "${name}":\n\n${lines.join('\n')}`;
+}
+
+/** The current time in the business time zone with its UTC offset (e.g. 2026-11-08T20:47:32-05:00), so the
+ *  planner reads the local date: a bare UTC timestamp made "today" the next day every evening in the Americas. */
+function localIso(d: Date, timeZone: string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
+  const local = `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;
+  const offsetMin = Math.round((Date.parse(`${local}Z`) - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  return `${local}${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
 }
