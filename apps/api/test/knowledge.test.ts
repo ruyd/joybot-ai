@@ -62,7 +62,7 @@ describe('help articles', () => {
   });
 
   it('admins write articles; their sections become searchable; staff cannot edit', async () => {
-    const body = '## Parking\nThere is free parking behind the Midtown salon.\n\n## Accessibility\nStep-free entrance on 5th Avenue.';
+    const body = '## Parking\nThere is free parking behind the Midtown studio.\n\n## Accessibility\nStep-free entrance on 5th Avenue.';
     const created = (
       await api(app, employee(U.ada)).post('/api/articles', { slug: 'getting-here', title: 'Getting here', body, audience: 'all', published: true }).expect(201)
     ).body;
@@ -88,28 +88,28 @@ describe('saved answers', () => {
 
     const bad = { title: 'x', body: 'y', actions: [{ type: 'book', service_id: C.maria }] };
     await api(app, employee(U.ada)).post('/api/answers', bad).expect(400);
-    await api(app, employee(U.ada)).post('/api/answers', { ...bad, actions: [{ type: 'article', article_id: S.haircut }] }).expect(400);
+    await api(app, employee(U.ada)).post('/api/answers', { ...bad, actions: [{ type: 'article', article_id: S.codeReview }] }).expect(400);
 
     const created = (
       await api(app, employee(U.ada))
         .post('/api/answers', {
-          title: 'Deep clean',
-          questions: ['How long does a deep clean take?'],
+          title: 'Architecture workshop',
+          questions: ['How long does a architecture workshop take?'],
           body: 'About two hours.',
-          actions: [{ type: 'book', service_id: S.deepClean }],
+          actions: [{ type: 'book', service_id: S.workshop }],
         })
         .expect(201)
     ).body;
-    const match = (await api(app, employee(U.ada)).get('/api/knowledge/match?as=customer&q=how long does a deep clean take').expect(200)).body;
+    const match = (await api(app, employee(U.ada)).get('/api/knowledge/match?as=customer&q=how long does a architecture workshop take').expect(200)).body;
     expect(match.answers[0].id).toBe(created.id);
-    expect(match.actions).toEqual([{ type: 'book', label: 'Book deep clean', service_id: S.deepClean }]);
+    expect(match.actions).toEqual([{ type: 'book', label: 'Book architecture workshop', service_id: S.workshop }]);
 
     // Inactive answers and services drop out.
     await api(app, employee(U.ada)).put(`/api/answers/${created.id}`, { ...created }).expect(400); // id, timestamps: not editable
     await api(app, employee(U.ada))
-      .put(`/api/answers/${created.id}`, { title: 'Deep clean', questions: ['How long does a deep clean take?'], body: 'About two hours.', active: false })
+      .put(`/api/answers/${created.id}`, { title: 'Architecture workshop', questions: ['How long does a architecture workshop take?'], body: 'About two hours.', active: false })
       .expect(200);
-    expect((await api(app, employee(U.ada)).get('/api/knowledge/match?as=customer&q=how long does a deep clean take').expect(200)).body.answers).toEqual([]);
+    expect((await api(app, employee(U.ada)).get('/api/knowledge/match?as=customer&q=how long does a architecture workshop take').expect(200)).body.answers).toEqual([]);
     await api(app, employee(U.ada)).delete(`/api/answers/${created.id}`).expect(204);
   });
 
@@ -163,7 +163,7 @@ describe('saved answers', () => {
 describe('self-booking', () => {
   // Days 8–11: the seed books Sam 1–4 days from now at the current time of day, which could collide.
   const book = (who = C.maria, body: Record<string, unknown> = {}) =>
-    api(app, customer(who)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(8), ...body });
+    api(app, customer(who)).post('/api/appointments/requests', { service_id: S.codeReview, location_id: L.nyc, scheduled_start: inDays(8), ...body });
 
   it('customers request appointments within limits; staff confirm or decline on the Review page', async () => {
     const req = (await book().expect(201)).body;
@@ -181,7 +181,7 @@ describe('self-booking', () => {
 
     // Staff in scope see the queue; customers and out-of-scope staff do not.
     await api(app, customer(C.maria)).get('/api/appointments/requests').expect(403);
-    await api(app, employee(U.sam)).post('/api/appointments/requests', { service_id: S.haircut, location_id: L.nyc, scheduled_start: inDays(8) }).expect(403);
+    await api(app, employee(U.sam)).post('/api/appointments/requests', { service_id: S.codeReview, location_id: L.nyc, scheduled_start: inDays(8) }).expect(403);
     const queue = (await api(app, employee(U.sam)).get('/api/appointments/requests').expect(200)).body;
     expect(queue.map((a: { id: string }) => a.id)).toContain(req.id);
     expect(queue[0]).toMatchObject({ customer_name: 'Maria Lopez' });

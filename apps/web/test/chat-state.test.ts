@@ -9,15 +9,15 @@ describe('chat state', () => {
       { type: 'send', text: 'Maria’s appointments', id: '1' },
       { type: 'event', event: 'status', data: { message: 'Looking up the customer…' } },
       { type: 'event', event: 'customer', data: { id: 'c1', name: 'Maria Lopez', number: 'C-10001', detail: null } },
-      { type: 'event', event: 'citations', data: [{ n: 1, type: 'appointment', id: 'A-1', title: 'Haircut', url: null }] },
+      { type: 'event', event: 'citations', data: [{ n: 1, type: 'appointment', id: 'A-1', title: 'Code review', url: null }] },
       { type: 'event', event: 'token', data: { text: 'Next: ' } },
-      { type: 'event', event: 'token', data: { text: 'Haircut [1]' } },
+      { type: 'event', event: 'token', data: { text: 'Code review [1]' } },
       { type: 'event', event: 'done', data: { messageId: 'm-9' } },
     ]);
     expect(s.busy).toBe(false);
     expect(s.scope).toMatchObject({ kind: 'customer', name: 'Maria Lopez' });
     expect(s.messages).toHaveLength(2);
-    expect(s.messages[1]).toMatchObject({ id: 'm-9', content: 'Next: Haircut [1]', streaming: false, status: undefined });
+    expect(s.messages[1]).toMatchObject({ id: 'm-9', content: 'Next: Code review [1]', streaming: false, status: undefined });
     expect(s.messages[1].citations[0].id).toBe('A-1');
   });
 

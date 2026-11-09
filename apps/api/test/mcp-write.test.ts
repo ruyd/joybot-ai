@@ -115,7 +115,7 @@ describe('MCP write tools', () => {
   });
 
   it('books with the app’s conflict checks; booking anyway needs an explicit flag', async () => {
-    const booking = { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, employee_id: U.sam, scheduled_start: at(20, 16), notes_customer: 'mcp test' };
+    const booking = { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, employee_id: U.sam, scheduled_start: at(20, 16), notes_customer: 'mcp test' };
     const first = await call(rw, 'book_appointment', booking);
     expect(first.isError).toBe(false);
     const clash = await call(rw, 'book_appointment', booking);
@@ -128,11 +128,11 @@ describe('MCP write tools', () => {
   });
 
   it('cancelling needs the confirmation from a preview, for the same arguments, once', async () => {
-    const appt = (await call(rw, 'book_appointment', { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, scheduled_start: at(22, 16), notes_customer: 'mcp test' })).data as {
+    const appt = (await call(rw, 'book_appointment', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, scheduled_start: at(22, 16), notes_customer: 'mcp test' })).data as {
       id: string;
       appointment_number: string;
     };
-    const other = (await call(rw, 'book_appointment', { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, scheduled_start: at(23, 16), notes_customer: 'mcp test' })).data as { id: string };
+    const other = (await call(rw, 'book_appointment', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, scheduled_start: at(23, 16), notes_customer: 'mcp test' })).data as { id: string };
 
     const preview = (await call(rw, 'cancel_appointment', { appointment_id: appt.id })).data as { status: string; preview: string; confirmation: string };
     expect(preview.status).toBe('confirmation_required');
@@ -152,7 +152,7 @@ describe('MCP write tools', () => {
   });
 
   it('drafts, sends (with the email in the preview), takes a payment and refuses to void a paid invoice', async () => {
-    const draft = (await call(rw, 'create_invoice_draft', { customer_id: C.maria, lines: [{ description: 'Haircut', unit_price: 50, service_id: S.haircut }] })).data as {
+    const draft = (await call(rw, 'create_invoice_draft', { customer_id: C.maria, lines: [{ description: 'Code review', unit_price: 50, service_id: S.codeReview }] })).data as {
       id: string;
       status: string;
     };

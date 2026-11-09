@@ -47,7 +47,7 @@ describe('calendar', () => {
     const samBusy = cal.busy.filter((b) => b.employee_id === U.sam);
     expect(samBusy).toHaveLength(2);
     for (const b of samBusy) expect(Object.keys(b).sort()).toEqual(['employee_id', 'location_id', 'scheduled_end', 'scheduled_start']);
-    expect(JSON.stringify(cal.busy)).not.toMatch(new RegExp(`${A.mariaNext}|${A.janeNext}|${C.maria}|${C.jane}|Haircut`));
+    expect(JSON.stringify(cal.busy)).not.toMatch(new RegExp(`${A.mariaNext}|${A.janeNext}|${C.maria}|${C.jane}|Code review`));
   });
 
   it('filters by location and staff member', async () => {

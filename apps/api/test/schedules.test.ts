@@ -79,7 +79,7 @@ describe('booking and the calendar', () => {
   const book = (start: string, confirm = false) =>
     api(app, employee(U.ada)).post('/api/appointments', {
       customer_id: C.maria,
-      service_id: S.haircut,
+      service_id: S.codeReview,
       location_id: L.nyc,
       employee_id: U.sam,
       scheduled_start: start,

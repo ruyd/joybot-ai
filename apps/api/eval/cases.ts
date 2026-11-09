@@ -16,8 +16,8 @@ export type Ref =
   | `cust:${CustomerKey}`
   | `org:${'acme' | 'vip'}`
   | `ticket:${number}`
-  | `svc:${'HAIRCUT' | 'DEEP-CLEAN'}`
-  | `answer:${'reschedule' | 'bookHaircut' | 'waysToPay'}`
+  | `svc:${'CODE-REVIEW' | 'ARCH-WORKSHOP'}`
+  | `answer:${'reschedule' | 'bookReview' | 'waysToPay'}`
   | `article:${'reschedule-or-cancel' | 'payment-options' | 'handling-booking-requests'}`
   | 'balance';
 
@@ -116,7 +116,7 @@ export const CASES: EvalCase[] = [
     category: 'customer.appointments',
     as: 'maria',
     ask: 'What is the status of {appt:mariaNext}?',
-    expect: { tools: ['get_appointment'], cites: ['appt:mariaNext'], citesOnly: ['appt:mariaNext'], says: [/scheduled|Haircut/] },
+    expect: { tools: ['get_appointment'], cites: ['appt:mariaNext'], citesOnly: ['appt:mariaNext'], says: [/scheduled|Code review/] },
   },
   {
     id: 'cust-appt-tz',
@@ -144,7 +144,7 @@ export const CASES: EvalCase[] = [
   ...variants(
     { category: 'customer.payments', as: 'maria', expect: { tools: ['list_payments'], cites: ['pay:mariaPos'], citesOnly: ['pay:mariaPos'], says: [/\$50\.00/] } },
     'cust-payments',
-    ['Show my payments', 'Did my payment go through?', 'Was I charged by card?', 'How did I settle up for my last haircut?'],
+    ['Show my payments', 'Did my payment go through?', 'Was I charged by card?', 'How did I settle up for my last code review?'],
   ),
   ...variants(
     { category: 'customer.payments', as: 'maria', expect: { tools: ['get_balance'], cites: ['balance'], says: [/nothing (is )?owed|\$0\.00/i] } },
@@ -196,16 +196,16 @@ export const CASES: EvalCase[] = [
 
   // Catalog ------------------------------------------------------------------------------------
   ...variants(
-    { category: 'catalog', as: 'pat', expect: { tools: ['list_services'], cites: ['svc:HAIRCUT'], citeTypes: ['service'], says: [/\$50\.00/] } },
-    'catalog-haircut',
-    ['How much is a haircut?', 'What services do you offer?', 'What are your prices?'],
+    { category: 'catalog', as: 'pat', expect: { tools: ['list_services'], cites: ['svc:CODE-REVIEW'], citeTypes: ['service'], says: [/\$50\.00/] } },
+    'catalog-code-review',
+    ['How much is a code review?', 'What services do you offer?', 'What are your prices?'],
   ),
   {
-    id: 'catalog-deep-clean-staff',
+    id: 'catalog-workshop-staff',
     category: 'catalog',
     as: 'sam',
-    ask: 'How much does a deep clean cost?',
-    expect: { tools: ['list_services'], cites: ['svc:DEEP-CLEAN'], says: [/\$120\.00/] },
+    ask: 'How much does an architecture workshop cost?',
+    expect: { tools: ['list_services'], cites: ['svc:ARCH-WORKSHOP'], says: [/\$120\.00/] },
   },
   ...variants(
     { category: 'catalog', as: 'maria', expect: { tools: ['list_locations'], citeTypes: ['location'] } },
@@ -411,28 +411,28 @@ export const CASES: EvalCase[] = [
     expect: { tools: ['search_customers'], cites: ['cust:maria'], says: [/Maria Lopez/] },
   },
   {
-    // A bare word that is no customer's name: the service, and tickets about it (#5001 is a haircut refund).
+    // Bare words that are no customer's name: the service, and tickets about it (#5001 is a code review refund).
     id: 'resolve-bare-word-not-a-name',
     category: 'resolution',
     as: 'ada',
-    ask: 'haircut',
-    expect: { cites: ['svc:HAIRCUT', 'ticket:5001'], citeTypes: ['service', 'ticket'], saysNot: [/couldn't find any customers/i] },
+    ask: 'code review',
+    expect: { cites: ['svc:CODE-REVIEW', 'ticket:5001'], citeTypes: ['service', 'ticket'], saysNot: [/couldn't find any customers/i] },
   },
   {
     // A bare word finds everything named with it: the service and Pat's ticket about it.
     id: 'resolve-bare-word-service-and-ticket',
     category: 'resolution',
     as: 'ada',
-    ask: 'deep',
-    expect: { tools: ['search_tickets'], cites: ['svc:DEEP-CLEAN', 'ticket:5006'], citeTypes: ['service', 'ticket'] },
+    ask: 'workshop',
+    expect: { tools: ['search_tickets'], cites: ['svc:ARCH-WORKSHOP', 'ticket:5006'], citeTypes: ['service', 'ticket'] },
   },
   {
     // Customers: a word from a service's name finds the service (customer search is staff-only).
     id: 'catalog-bare-word-customer',
     category: 'catalog',
     as: 'maria',
-    ask: 'deep',
-    expect: { tools: ['list_services'], cites: ['svc:DEEP-CLEAN'], citeTypes: ['service'], notCites: ['ticket:5006'] },
+    ask: 'workshop',
+    expect: { tools: ['list_services'], cites: ['svc:ARCH-WORKSHOP'], citeTypes: ['service'], notCites: ['ticket:5006'] },
   },
   {
     // A customer typing another customer's name gets no customer records.
@@ -497,7 +497,7 @@ export const CASES: EvalCase[] = [
     category: 'resolution',
     as: 'sam',
     pin: 'maria',
-    ask: 'Show Haircut appointments',
+    ask: 'Show Code review appointments',
     expect: { tools: ['list_appointments'], citesOnly: mariaAppts },
   },
 
@@ -765,11 +765,11 @@ export const CASES: EvalCase[] = [
     expect: { cites: ['answer:waysToPay'], noActions: true },
   },
   {
-    id: 'kb-book-haircut',
+    id: 'kb-book-code-review',
     category: 'knowledge',
     as: 'john',
-    ask: 'Can I book a haircut?',
-    expect: { cites: ['answer:bookHaircut'], actions: [/^Book haircut$/] },
+    ask: 'Can I book a code review?',
+    expect: { cites: ['answer:bookReview'], actions: [/^Book code review$/] },
   },
   {
     id: 'kb-staff-article',

@@ -84,9 +84,9 @@ describe('appointment types', () => {
 
 describe('appointments have a type', () => {
   it('a service unless chosen; staff pick any type but the system ones', async () => {
-    const base = { customer_id: C.jane, service_id: S.haircut, location_id: L.nyc, scheduled_start: new Date(Date.now() + 30 * 86_400_000).toISOString() };
+    const base = { customer_id: C.jane, service_id: S.codeReview, location_id: L.nyc, scheduled_start: new Date(Date.now() + 30 * 86_400_000).toISOString() };
     const plain = (await api(app, employee(U.sam)).post('/api/appointments', base).expect(201)).body;
-    expect(plain).toMatchObject({ type_key: 'service', type_name: 'Service', service_name: 'Haircut' });
+    expect(plain).toMatchObject({ type_key: 'service', type_name: 'Service', service_name: 'Code review' });
 
     const installation = await typeKey('installation');
     const later = { ...base, scheduled_start: new Date(Date.now() + 31 * 86_400_000).toISOString() };
@@ -128,9 +128,9 @@ describe('sales calls are appointments', () => {
     // Customers never see it.
     expect((await api(app, customer(C.maria)).get('/api/appointments?limit=100').expect(200)).body.map((a: { id: string }) => a.id)).not.toContain(booked.id);
 
-    // Booking Sam for a haircut over the call is a double booking.
+    // Booking Sam for a code review over the call is a double booking.
     const clash = await admin()
-      .post('/api/appointments', { customer_id: C.maria, service_id: S.haircut, location_id: L.nyc, employee_id: U.sam, scheduled_start: start })
+      .post('/api/appointments', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, employee_id: U.sam, scheduled_start: start })
       .expect(409);
     expect(clash.body.code).toBe('employee_double_booked');
 

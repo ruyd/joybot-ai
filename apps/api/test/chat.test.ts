@@ -117,7 +117,7 @@ describe('chat (evidence-only model)', () => {
     const id = await newConversation(app, customer(C.john));
     const appts = await chat(app, customer(C.john), id, 'Show our appointments');
     const titles = JSON.stringify(appts.of('citations')[0]);
-    expect(titles).toMatch(/Deep clean|Haircut/);
+    expect(titles).toMatch(/Architecture workshop|Code review/);
     const pays = await chat(app, customer(C.john), id, 'And the payments?');
     const johnPayments = (await migrator.query(`SELECT payment_number FROM core.payments WHERE customer_id = $1`, [C.john])).rows.map((r) => r.payment_number);
     expect(citedIds(pays).every((n: string) => johnPayments.includes(n))).toBe(true);
@@ -154,14 +154,14 @@ describe('chat (evidence-only model)', () => {
     type Cited = { type: string; id: string; link: string | null; excerpt: string | null };
     const staff = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'new york')).of('citations')[0] as Cited[];
     expect(staff).toEqual([expect.objectContaining({ type: 'location', link: `/staff/calendar?location=${SAMPLE.locations.nyc}` })]);
-    const service = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'deep')).of('citations')[0] as Cited[];
-    expect(service).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'service', id: 'DEEP-CLEAN', link: expect.stringMatching(/^\/staff\?book=[0-9a-f-]{36}$/) })]));
-    const portal = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'deep')).of('citations')[0] as Cited[];
+    const service = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'workshop')).of('citations')[0] as Cited[];
+    expect(service).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'service', id: 'ARCH-WORKSHOP', link: expect.stringMatching(/^\/staff\?book=[0-9a-f-]{36}$/) })]));
+    const portal = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'workshop')).of('citations')[0] as Cited[];
     expect(portal).toEqual([expect.objectContaining({ type: 'service', link: expect.stringMatching(/^\/portal\/book\?service=[0-9a-f-]{36}$/) })]);
     // Words in a ticket's subject: staff find any ticket they can see, customers only their own.
-    const tickets = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'deep')).of('citations')[0] as Cited[];
+    const tickets = (await chat(app, employee(U.ada), await newConversation(app, employee(U.ada)), 'workshop')).of('citations')[0] as Cited[];
     expect(tickets).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'ticket', id: '#5006', link: '/staff/tickets/5006' })]));
-    const own = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'deep')).of('citations')[0] as Cited[];
+    const own = (await chat(app, customer(C.maria), await newConversation(app, customer(C.maria)), 'workshop')).of('citations')[0] as Cited[];
     expect(own.map((c) => c.type)).not.toContain('ticket');
   });
 
@@ -255,7 +255,7 @@ describe('chat (evidence-only model)', () => {
 
   it('records an audit trace for every lookup', async () => {
     const id = await newConversation(app, customer(C.pat));
-    const sse = await chat(app, customer(C.pat), id, 'How much is a haircut?');
+    const sse = await chat(app, customer(C.pat), id, 'How much is a code review?');
     const messageId = sse.of('done')[0].messageId;
     const traces = (await migrator.query(`SELECT principal_id, tool, status FROM app.retrieval_traces WHERE message_id = $1`, [messageId])).rows;
     expect(traces).toEqual(
