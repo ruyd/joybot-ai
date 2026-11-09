@@ -5,6 +5,26 @@ A chatbot for customers and employees, backed by JoyBot's own PostgreSQL databas
 - [plan.md](plan.md) is the full design, with the roadmap and next steps in §11.
 - [CLAUDE.md](CLAUDE.md) covers conventions and gotchas for working on the code.
 
+## Screens
+
+Design screens with sample data for a dev studio. [UI.md](UI.md) has all 13 screens.
+
+**Dashboard**: the day's appointments, key numbers, to-dos, quick actions and Ask JoyBot.
+
+![Staff dashboard](docs/screens/dashboard.png)
+
+**Customer profile**: one timeline of appointments, payments, tickets and chats, with contact details, internal notes and who can access the customer.
+
+![Customer profile](docs/screens/customer-profile.png)
+
+**Sales calls**: website visitors who booked a call, with the Meet link, their question, notes and follow-up emails.
+
+![Sales calls](docs/screens/sales-calls.png)
+
+**Customer portal: Assistant**: answers from the customer's own records and saved answers, with sources and buttons, beside their next appointment and balance.
+
+![Customer portal assistant](docs/screens/portal-assistant.png)
+
 ## What's implemented
 
 Phases 1–3 are done; see [plan.md §11](plan.md#11-phased-roadmap) for the remaining work.
