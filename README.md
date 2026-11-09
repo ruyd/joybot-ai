@@ -9,13 +9,13 @@ A chatbot for customers and employees, backed by JoyBot's own PostgreSQL databas
 
 Design screens with sample data for a dev studio. [UI.md](UI.md) has all 13 screens.
 
+**Settings › AI**: turn the assistant on or off for customers and employees, choose how it answers (a model, Auto with search as backup, or search only), and set up and test the chat model.
+
+![Settings, AI](docs/screens/settings-ai.png)
+
 **Dashboard**: the day's appointments, key numbers, to-dos, quick actions and Ask JoyBot.
 
 ![Staff dashboard](docs/screens/dashboard.png)
-
-**Customer profile**: one timeline of appointments, payments, tickets and chats, with contact details, internal notes and who can access the customer.
-
-![Customer profile](docs/screens/customer-profile.png)
 
 **Sales calls**: website visitors who booked a call, with the Meet link, their question, notes and follow-up emails.
 
