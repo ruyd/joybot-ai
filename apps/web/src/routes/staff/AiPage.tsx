@@ -6,7 +6,7 @@ import { Button, Card, ErrorBanner, Field, Input, PageHeader, Spinner } from '..
 import { useApi } from '../../lib/api';
 import { dateTime } from '../../lib/format';
 
-type Provider = 'openrouter' | 'custom' | null;
+type Provider = 'openrouter' | 'custom' | 'none' | null;
 
 interface AiSettings {
   provider: Provider;
@@ -100,11 +100,13 @@ function ModelCard({ settings: s }: { settings: AiSettings }) {
   const [baseUrl, setBaseUrl] = useState(s.base_url ?? '');
   const [privateOnly, setPrivateOnly] = useState(s.private_only);
   const [saved, setSaved] = useState(false);
+  // OpenRouter or an own deployment: a model to name (and maybe a key). Auto and search only: nothing.
+  const hosted = provider === 'openrouter' || provider === 'custom';
   const save = useMutation({
     mutationFn: () =>
       api.put<AiSettings>('/admin/ai', {
         provider,
-        model: provider ? model : null,
+        model: hosted ? model : null,
         base_url: provider === 'custom' ? baseUrl : null,
         private_only: privateOnly,
       }),
@@ -113,7 +115,7 @@ function ModelCard({ settings: s }: { settings: AiSettings }) {
       setSaved(true);
     },
   });
-  const changed = provider !== s.provider || (provider !== null && (model !== (s.model ?? '') || privateOnly !== s.private_only)) || (provider === 'custom' && baseUrl !== (s.base_url ?? ''));
+  const changed = provider !== s.provider || (hosted && (model !== (s.model ?? '') || privateOnly !== s.private_only)) || (provider === 'custom' && baseUrl !== (s.base_url ?? ''));
   const choose = (p: Provider) => {
     setProvider(p);
     setSaved(false);
@@ -141,15 +143,18 @@ function ModelCard({ settings: s }: { settings: AiSettings }) {
       >
         <fieldset className="grid gap-2">
           <legend className="sr-only">Provider</legend>
-          {option('openrouter', 'OpenRouter', 'Hosted models, paid per use. Needs an OpenRouter API key.')}
-          {option('custom', 'Own deployment', 'Any OpenAI-compatible endpoint (vLLM, Ollama, another provider).')}
           {option(
             null,
-            'Server default',
-            s.server_default ? `The model set on the server (${s.server_default}).` : 'No model on this server: answers list the records found, without writing a reply.',
+            'Auto',
+            s.server_default
+              ? `The model set on the server (${s.server_default}), with search as the backup: if it fails, the assistant lists the records it found.`
+              : 'No model on this server, so the assistant is in search mode: it lists the records it finds, with links, without writing a reply. Set a model on the server and Auto uses it.',
           )}
+          {option('none', 'No model — search only', 'The assistant becomes Search: it lists the records it finds, with links. Nothing is sent to a model, even if the server has one.')}
+          {option('openrouter', 'OpenRouter', 'Hosted models, paid per use. Needs an OpenRouter API key. If it fails, the assistant lists the records it found.')}
+          {option('custom', 'Own deployment', 'Any OpenAI-compatible endpoint (vLLM, Ollama, another provider). If it fails, the assistant lists the records it found.')}
         </fieldset>
-        {provider && (
+        {hosted && (
           <Field label="Model" hint={provider === 'openrouter' ? 'An OpenRouter model id, e.g. google/gemma-4-26b-a4b-it' : 'The model name the endpoint expects'}>
             <Input list="ai-model-suggestions" maxLength={200} value={model} onChange={(e) => setModel(e.target.value)} required />
             <datalist id="ai-model-suggestions">{provider === 'openrouter' && OPENROUTER_MODELS.map((m) => <option key={m} value={m} />)}</datalist>
@@ -183,7 +188,7 @@ function ModelCard({ settings: s }: { settings: AiSettings }) {
         </div>
         {save.error && <ErrorBanner error={save.error} />}
       </form>
-      {provider && (
+      {hosted && (
         <div className="mt-4 border-t border-slate-200 pt-4 dark:border-slate-800">
           <ApiKey settings={s} provider={provider} />
         </div>
@@ -225,7 +230,7 @@ function ApiKey({ settings: s, provider }: { settings: AiSettings; provider: 'op
           </a>
           {!s.api_key_last4 && s.provider === 'openrouter' && (
             <p role="status" className="rounded-lg bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-              Until a key is saved, chat uses the server default.
+              Until a key is saved, chat uses Auto.
             </p>
           )}
         </>
@@ -273,7 +278,7 @@ function TestCard({ settings: s }: { settings: AiSettings }) {
   const api = useApi();
   const test = useMutation({ mutationFn: () => api.post<{ reply: string; ms: number; model: string }>('/admin/ai/test', {}) });
   useEffect(() => test.reset(), [s]); // eslint-disable-line react-hooks/exhaustive-deps
-  const usable = s.provider || s.server_default;
+  const usable = s.provider === 'none' ? false : s.provider || s.server_default;
   return (
     <Card title="Test">
       <div className="grid gap-3 text-sm">
@@ -283,7 +288,7 @@ function TestCard({ settings: s }: { settings: AiSettings }) {
             {test.isPending ? 'Asking…' : 'Send test prompt'}
           </Button>
         </div>
-        {!usable && <p className="text-xs text-slate-500">Choose a provider first.</p>}
+        {!usable && <p className="text-xs text-slate-500">{s.provider === 'none' || !s.server_default ? 'Search only: there is no model to test.' : 'Choose a provider first.'}</p>}
         {test.error && <ErrorBanner error={test.error} />}
         {test.data && (
           <p role="status" className="text-emerald-700 dark:text-emerald-400">

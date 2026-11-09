@@ -281,13 +281,13 @@ export class ChatService implements OnApplicationBootstrap {
         }
       } catch (err) {
         if (sink.signal.aborted) return;
-        this.logger.error(`answer failed: ${(err as Error).message}`);
-        sink.event('error', { message: 'The assistant is unavailable right now. Please try again shortly.' });
-        if (!answer) return;
+        // Search is the backup: the model failing (down, refused, timed out) still lists the records found.
+        this.logger.error(`answer failed, listing the records instead: ${(err as Error).message}`);
+        answer = '';
       }
     }
 
-    // Gemma occasionally returns no text, or states a year, time, amount or record number that no
+    // The model failed, Gemma returned no text, or it stated a year, time, amount or record number that no
     // record contains: list the records instead (the streamed text is replaced).
     const ungrounded = approved < 0 && !searchFor ? ungroundedFacts(answer, evidence, question) : [];
     if ((!answer.trim() || ungrounded.length) && !sink.signal.aborted) {

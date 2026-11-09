@@ -87,11 +87,11 @@ async function ask(who: { type: 'employee' | 'customer'; id: string }, question:
       r.on('end', () => cb(null, data));
     })
     .expect(200);
-  return String(res.body)
-    .split('\n\n')
-    .filter((b) => b.startsWith('event: token'))
-    .map((b) => JSON.parse(b.split('\n')[1].slice(6)).text)
-    .join('');
+  const blocks = String(res.body).split('\n\n');
+  const text = (b: string) => JSON.parse(b.split('\n')[1].slice(6)).text as string;
+  // A replaced answer (the record list) wins over the streamed text.
+  const replaced = blocks.filter((b) => b.startsWith('event: replace')).map(text).pop();
+  return replaced ?? blocks.filter((b) => b.startsWith('event: token')).map(text).join('');
 }
 
 describe('AI settings', () => {
@@ -147,6 +147,25 @@ describe('the configured model', () => {
     model.status = 404;
     const refused = await admin().post('/api/admin/ai/test').expect(502);
     expect(refused.body.message).toMatch(/refused the request \(404\): No endpoints found/);
+  });
+
+  it('falls back to search when the model fails: the records found are listed', async () => {
+    await admin().put('/api/admin/ai', { provider: 'custom', model: 'google/gemma-4-26b-a4b-it', base_url: model.url }).expect(200);
+    model.status = 503;
+    const answer = await ask(customer(C.maria), 'When is my next appointment?');
+    expect(model.requests.some((r) => r.body.stream === true)).toBe(true); // the model was asked
+    expect(answer).toMatch(/Here is what I found:\n- Haircut/);
+  });
+
+  it('"No model — search only" sends nothing to a model, even with one saved', async () => {
+    await admin().put('/api/admin/ai', { provider: 'custom', model: 'google/gemma-4-26b-a4b-it', base_url: model.url }).expect(200);
+    const saved = (await admin().put('/api/admin/ai', { provider: 'none', model: null, base_url: null }).expect(200)).body;
+    expect(saved).toMatchObject({ provider: 'none', model: null });
+    expect((await api(app, customer(C.maria)).get('/api/me').expect(200)).body.assistant_mode).toBe('search');
+    const before = model.requests.length;
+    expect(await ask(customer(C.maria), 'When is my next appointment?')).not.toContain('Hello from the configured model.');
+    expect(model.requests.length).toBe(before);
+    expect((await admin().post('/api/admin/ai/test').expect(400)).body.message).toMatch(/no model to test/);
   });
 
   it('goes back to the server default (here: answers that list records) when the provider is cleared', async () => {
