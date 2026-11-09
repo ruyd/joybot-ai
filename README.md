@@ -1,6 +1,6 @@
 # JoyBot AI
 
-A chatbot for customers and employees, backed by JoyBot's own PostgreSQL database as the source of truth and a self-hosted Gemma 4 model. It deploys to AWS (us-east-1) with private CloudFormation Quick-Create links.
+A CRM chatbot for staff and customers, backed by JoyBot's own PostgreSQL database as the source of truth and a self-hosted Gemma 4 model. It deploys to AWS (us-east-1) with private CloudFormation Quick-Create links.
 
 - [plan.md](plan.md) is the full design, with the roadmap and next steps in §11.
 - [CLAUDE.md](CLAUDE.md) covers conventions and gotchas for working on the code.
