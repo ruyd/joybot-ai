@@ -17,9 +17,9 @@ Design screens with sample data for a dev studio. [UI.md](UI.md) has all 13 scre
 
 ![Staff dashboard](docs/screens/dashboard.png)
 
-**Customer profile**: one timeline of appointments, payments, tickets and chats, with contact details, internal notes and who can access the customer.
+**Sales calls**: website visitors who booked a call, with the Meet link, their question, notes and follow-up emails.
 
-![Customer profile](docs/screens/customer-profile.png)
+![Sales calls](docs/screens/sales-calls.png)
 
 **Customer portal: Assistant**: answers from the customer's own records and saved answers, with sources and buttons, beside their next appointment and balance.
 
