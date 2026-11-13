@@ -223,8 +223,10 @@ export function Layout({
     </div>
   );
   const content = (
-    <div className={`min-w-0 flex-1 ${dockGap ? 'pb-20' : ''}`} aria-busy={busy}>
-      <ErrorBoundary key={location.pathname}>
+    // --dock-gap: the room kept for the assistant dock, for full-height pages (the tickets inbox).
+    <div className={`min-w-0 flex-1 ${dockGap ? 'pb-20' : ''}`} style={{ '--dock-gap': dockGap ? '5rem' : '0px' } as React.CSSProperties} aria-busy={busy}>
+      {/* A new page starts fresh; the tickets inbox keeps its list (tab, search, scroll) while tickets open beside it. */}
+      <ErrorBoundary key={location.pathname.replace(/^(\/staff\/tickets)\/[^/]+$/, '$1')}>
         <Outlet />
       </ErrorBoundary>
     </div>
