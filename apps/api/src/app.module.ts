@@ -28,6 +28,7 @@ import { EvidenceOnlyProvider, LLM_PROVIDER, OpenAiCompatibleProvider } from './
 import { ChatToolsService } from './chat/tools';
 import { CustomersController } from './customers/customers.controller';
 import { MergeController } from './customers/merge.controller';
+import { DashboardController } from './dashboard/dashboard.controller';
 import { DbModule } from './db/db.module';
 import { TicketsController } from './tickets/tickets.controller';
 import { TicketsService } from './tickets/tickets.service';
@@ -94,6 +95,7 @@ export class AppModule {
       controllers: [
         HealthController,
         MeController,
+        DashboardController,
         SettingsController,
         EmailController,
         AiController,

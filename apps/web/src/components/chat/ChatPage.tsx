@@ -39,6 +39,16 @@ export function ChatPage({ audience }: { audience: Audience }) {
     setParams({}, { replace: true });
   }, [requested, open, setParams]);
 
+  // ?q=<question>: start a new conversation with it (the dashboard's suggestions). Sent once.
+  const asked = params.get('q');
+  const askedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!asked || askedRef.current === asked) return;
+    askedRef.current = asked;
+    setParams({}, { replace: true });
+    void send(asked);
+  }, [asked, send, setParams]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [state.messages]);
