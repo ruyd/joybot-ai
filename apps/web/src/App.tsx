@@ -86,7 +86,7 @@ const tickets = () => import('./routes/portal/TicketPages');
 const MyTickets = page(tickets, 'MyTickets');
 const TicketView = page(tickets, 'TicketView');
 const Organization = page(tickets, 'Organization');
-const StaffTickets = page(tickets, 'StaffTickets');
+const StaffTickets = page(() => import('./routes/staff/TicketInbox'), 'StaffTickets');
 const account = () => import('./routes/AccountPages');
 const StaffProfile = page(account, 'StaffProfile');
 const StaffHome = page(() => import('./routes/staff/HomePage'), 'StaffHome');
@@ -291,7 +291,7 @@ export function App() {
             <Route path="customers/:id" element={<CustomerDetail />} />
             <Route path="payments" element={<Payments />} />
             <Route path="tickets" element={<StaffTickets />} />
-            <Route path="tickets/:id" element={<TicketView staff />} />
+            <Route path="tickets/:id" element={<StaffTickets />} />
             <Route path="admin" element={<Admin />} />
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="audit" element={<AuditLogPage />} />

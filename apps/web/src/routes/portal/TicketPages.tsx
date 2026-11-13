@@ -5,6 +5,7 @@ import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Td } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { dateTime, fullName } from '../../lib/format';
+import { CustomerPicker, type Customer } from '../staff/CustomerPicker';
 import { useMe } from '../../lib/me';
 import type { Appointment } from './PortalPages';
 
@@ -24,18 +25,12 @@ export interface Ticket {
   message_count: number;
 }
 
-interface TicketDetail extends Ticket {
+export interface TicketDetail extends Ticket {
   messages: { id: string; body: string; from: 'customer' | 'support'; author_name: string | null; internal: boolean; created_at: string }[];
 }
 
 type TicketStatusName = 'open' | 'pending' | 'resolved' | 'closed';
 type TicketPriorityName = 'low' | 'medium' | 'high' | 'urgent';
-interface StaffMember {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-}
-
 const STATUS_LABEL: Record<TicketStatusName, string> = { open: 'open', pending: 'waiting on customer', resolved: 'resolved', closed: 'closed' };
 const CUSTOMER_STATUS_LABEL: Record<TicketStatusName, string> = { open: 'waiting on support', pending: 'replied', resolved: 'resolved', closed: 'closed' };
 const TICKET_TONE: Record<TicketStatusName, 'green' | 'amber' | 'slate' | 'brand'> = { open: 'amber', pending: 'brand', resolved: 'green', closed: 'slate' };
@@ -44,6 +39,10 @@ const PRIORITY_TONE: Record<TicketPriorityName, 'red' | 'amber' | 'slate'> = { u
 /** Status in the reader's words: staff see whose turn it is; customers whether support has replied. */
 export function TicketStatus({ status, staff }: { status: TicketStatusName; staff?: boolean }) {
   return <Badge tone={TICKET_TONE[status] ?? 'slate'}>{(staff ? STATUS_LABEL : CUSTOMER_STATUS_LABEL)[status] ?? status}</Badge>;
+}
+
+export function TicketPriority({ priority }: { priority: TicketPriorityName }) {
+  return <Badge tone={PRIORITY_TONE[priority] ?? 'slate'}>{priority}</Badge>;
 }
 
 /** Tickets table; `base` is where ticket links go (/portal/tickets or /staff/tickets). */
@@ -61,7 +60,7 @@ export function TicketsTable({ tickets, base, showCustomer, staff }: { tickets: 
           </Td>
           {showCustomer && <Td>{t.customer_name ?? '—'}</Td>}
           <Td><TicketStatus status={t.status} staff={staff} /></Td>
-          {staff && <Td><Badge tone={PRIORITY_TONE[t.priority]}>{t.priority}</Badge></Td>}
+          {staff && <Td><TicketPriority priority={t.priority} /></Td>}
           {staff && <Td className="text-slate-500">{t.assigned_to_name ?? '—'}</Td>}
           <Td>{dateTime(t.last_message_at)}</Td>
         </tr>
@@ -109,15 +108,17 @@ export function MyTickets() {
   );
 }
 
-/** Opens a ticket: for the signed-in customer, or (staff) for `customerId`. */
-function NewTicket({ customerId, onDone }: { customerId?: string; onDone: () => void }) {
+/** Opens a ticket: for the signed-in customer, or (staff) for `customerId` or a customer they pick. */
+export function NewTicket({ customerId, staff: pick, onDone }: { customerId?: string; staff?: boolean; onDone: () => void }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const staff = Boolean(customerId);
+  const staff = Boolean(customerId) || Boolean(pick);
+  const [customer, setCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState({ subject: '', message: '', notify: true });
+  const forCustomer = customerId ?? customer?.id;
   const create = useMutation({
-    mutationFn: () => api.post<TicketDetail>('/tickets', { subject: form.subject, message: form.message, ...(staff ? { customer_id: customerId, notify: form.notify } : {}) }),
+    mutationFn: () => api.post<TicketDetail>('/tickets', { subject: form.subject, message: form.message, ...(staff ? { customer_id: forCustomer, notify: form.notify } : {}) }),
     onSuccess: (t) => {
       void queryClient.invalidateQueries({ queryKey: ['tickets'] });
       onDone();
@@ -125,7 +126,7 @@ function NewTicket({ customerId, onDone }: { customerId?: string; onDone: () => 
     },
   });
   return (
-    <Card title={staff ? 'New ticket for this customer' : 'How can we help?'}>
+    <Card title={customerId ? 'New ticket for this customer' : staff ? 'New ticket' : 'How can we help?'}>
       <form
         className="space-y-3"
         onSubmit={(e) => {
@@ -133,6 +134,11 @@ function NewTicket({ customerId, onDone }: { customerId?: string; onDone: () => 
           create.mutate();
         }}
       >
+        {staff && !customerId && (
+          <Field label="Customer">
+            <CustomerPicker value={customer} onChange={setCustomer} />
+          </Field>
+        )}
         <Field label="Subject">
           <Input required maxLength={200} value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })} />
         </Field>
@@ -145,7 +151,7 @@ function NewTicket({ customerId, onDone }: { customerId?: string; onDone: () => 
           </label>
         )}
         <div className="flex gap-2">
-          <Button type="submit" disabled={create.isPending || !form.subject.trim() || !form.message.trim()}>
+          <Button type="submit" disabled={create.isPending || !form.subject.trim() || !form.message.trim() || (staff && !forCustomer)}>
             {staff ? 'Open ticket' : 'Send request'}
           </Button>
           <Button type="button" variant="ghost" onClick={onDone}>
@@ -172,8 +178,8 @@ function TextArea({ value, onChange, rows = 4, required, placeholder }: { value:
   );
 }
 
-/** One ticket: the conversation, a reply box and (staff) status, priority and assignee. */
-export function TicketView({ staff }: { staff?: boolean }) {
+/** Customers: one ticket, its conversation and a reply box (staff use the inbox, TicketInbox.tsx). */
+export function TicketView() {
   const { id } = useParams();
   const api = useApi();
   const queryClient = useQueryClient();
@@ -189,7 +195,7 @@ export function TicketView({ staff }: { staff?: boolean }) {
   const done = t.status === 'resolved' || t.status === 'closed';
   return (
     <Page>
-      <Link to={staff ? '/staff/tickets' : '/portal/tickets'} className="text-sm text-brand-600 hover:underline">
+      <Link to="/portal/tickets" className="text-sm text-brand-600 hover:underline">
         ← All tickets
       </Link>
       <PageHeader
@@ -197,8 +203,8 @@ export function TicketView({ staff }: { staff?: boolean }) {
         description={`Opened ${dateTime(t.created_at)} · last activity ${dateTime(t.last_message_at)}`}
         actions={
           <div className="flex items-center gap-2">
-            <TicketStatus status={t.status} staff={staff} />
-            {!staff && !done && (
+            <TicketStatus status={t.status} />
+            {!done && (
               <Button size="sm" variant="secondary" disabled={update.isPending} onClick={() => update.mutate({ status: 'resolved' })}>
                 Mark as resolved
               </Button>
@@ -206,8 +212,7 @@ export function TicketView({ staff }: { staff?: boolean }) {
           </div>
         }
       />
-      <div className={`grid items-start gap-4 ${staff ? 'lg:grid-cols-[minmax(0,1fr)_18rem]' : ''}`}>
-        <div className="space-y-3">
+      <div className="space-y-3">
           {t.messages.map((m) => (
             <div
               key={m.id}
@@ -226,24 +231,19 @@ export function TicketView({ staff }: { staff?: boolean }) {
               <p className="whitespace-pre-wrap">{m.body}</p>
             </div>
           ))}
-          <Reply ticketId={t.id} staff={staff} done={done} onSent={refresh} />
-        </div>
-        {staff && <TicketControls ticket={t} saving={update.isPending} error={update.error} onChange={(body) => update.mutate(body)} />}
+          <Reply ticketId={t.id} done={done} onSent={refresh} />
       </div>
     </Page>
   );
 }
 
-function Reply({ ticketId, staff, done, onSent }: { ticketId: string; staff?: boolean; done: boolean; onSent: (t: TicketDetail) => void }) {
+function Reply({ ticketId, done, onSent }: { ticketId: string; done: boolean; onSent: (t: TicketDetail) => void }) {
   const api = useApi();
   const [body, setBody] = useState('');
-  const [internal, setInternal] = useState(false);
-  const [notify, setNotify] = useState(true);
   const send = useMutation({
-    mutationFn: () => api.post<TicketDetail>(`/tickets/${ticketId}/messages`, { body, ...(staff ? { internal, notify } : {}) }),
+    mutationFn: () => api.post<TicketDetail>(`/tickets/${ticketId}/messages`, { body }),
     onSuccess: (t) => {
       setBody('');
-      setInternal(false);
       onSent(t);
     },
   });
@@ -256,119 +256,13 @@ function Reply({ ticketId, staff, done, onSent }: { ticketId: string; staff?: bo
           send.mutate();
         }}
       >
-        <TextArea
-          value={body}
-          onChange={setBody}
-          placeholder={internal ? 'A note only staff will see' : staff ? 'Reply to the customer' : done ? 'Write to reopen this request' : 'Write a reply'}
-        />
-        <div className="flex flex-wrap items-center gap-3">
-          <Button type="submit" disabled={send.isPending || !body.trim()}>
-            {internal ? 'Add note' : 'Send'}
-          </Button>
-          {staff && (
-            <>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} /> Internal note
-              </label>
-              {!internal && (
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Email the customer
-                </label>
-              )}
-            </>
-          )}
-        </div>
+        <TextArea value={body} onChange={setBody} placeholder={done ? 'Write to reopen this request' : 'Write a reply'} />
+        <Button type="submit" disabled={send.isPending || !body.trim()}>
+          Send
+        </Button>
         {send.error && <ErrorBanner error={send.error} />}
       </form>
     </Card>
-  );
-}
-
-function TicketControls({ ticket: t, saving, error, onChange }: { ticket: TicketDetail; saving: boolean; error: unknown; onChange: (body: Record<string, unknown>) => void }) {
-  const api = useApi();
-  const staffList = useQuery({ queryKey: ['tickets', 'assignees'], queryFn: () => api.get<StaffMember[]>('/tickets/assignees') });
-  return (
-    <Card title="Ticket">
-      <fieldset disabled={saving} className="space-y-3">
-        <p className="text-sm">
-          Customer:{' '}
-          <Link to={`/staff/customers/${t.customer_id}`} className="font-medium text-brand-600 hover:underline">
-            {t.customer_name ?? 'View customer'}
-          </Link>
-        </p>
-        <Field label="Status">
-          <Select value={t.status} onChange={(e) => onChange({ status: e.target.value })}>
-            <option value="open">Open</option>
-            <option value="pending">Waiting on customer</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-          </Select>
-        </Field>
-        <Field label="Priority">
-          <Select value={t.priority} onChange={(e) => onChange({ priority: e.target.value })}>
-            {(['low', 'medium', 'high', 'urgent'] as const).map((p) => (
-              <option key={p} value={p}>
-                {p[0].toUpperCase() + p.slice(1)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Assigned to">
-          <Select value={t.assigned_to ?? ''} onChange={(e) => onChange({ assigned_to: e.target.value || null })}>
-            <option value="">Nobody</option>
-            {staffList.data?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {fullName(s)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        {error ? <ErrorBanner error={error} /> : null}
-      </fieldset>
-    </Card>
-  );
-}
-
-/** Staff: every ticket they can see, newest activity first, filtered by status and assignee. */
-export function StaffTickets() {
-  const api = useApi();
-  const [status, setStatus] = useState<'active' | TicketStatusName | 'all'>('active');
-  const [assigned, setAssigned] = useState<'all' | 'me' | 'none'>('all');
-  const q = useQuery({
-    queryKey: ['tickets', 'inbox', status, assigned],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (status !== 'active' && status !== 'all') params.set('status', status);
-      if (assigned !== 'all') params.set('assigned', assigned);
-      const list = await api.get<Ticket[]>(`/tickets?${params}`);
-      return status === 'active' ? list.filter((t) => t.status === 'open' || t.status === 'pending') : list;
-    },
-  });
-  return (
-    <Page>
-      <PageHeader
-        title="Tickets"
-        description="Customers' support requests. Open ones wait on you; the rest wait on the customer or are done."
-        actions={
-          <div className="flex gap-2">
-            <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
-              <option value="active">Open and waiting</option>
-              <option value="open">Open</option>
-              <option value="pending">Waiting on customer</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
-              <option value="all">All</option>
-            </Select>
-            <Select aria-label="Assigned" value={assigned} onChange={(e) => setAssigned(e.target.value as typeof assigned)}>
-              <option value="all">Anyone</option>
-              <option value="me">Assigned to me</option>
-              <option value="none">Unassigned</option>
-            </Select>
-          </div>
-        }
-      />
-      <Card>{q.isLoading ? <Spinner /> : q.error ? <ErrorBanner error={q.error} /> : <TicketsTable tickets={q.data ?? []} base="/staff/tickets" showCustomer staff />}</Card>
-    </Page>
   );
 }
 
