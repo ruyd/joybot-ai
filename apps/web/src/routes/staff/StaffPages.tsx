@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
+import { CalendarDays, CreditCard, FileText, Inbox, type LucideIcon } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Pager, Select, Spinner, StatusBadge, Table, Tabs, Td } from '../../components/ui';
@@ -7,7 +8,9 @@ import { ApiError, useApi } from '../../lib/api';
 import { date, dateTime, fullName, METHOD_LABEL, money } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import { PaymentStatus, type Appointment, type Payment } from '../portal/PortalPages';
-import { CustomerTickets } from '../portal/TicketPages';
+import { CustomerTickets, TicketStatus, type Ticket } from '../portal/TicketPages';
+import { InvoiceStatus, type Invoice } from '../../components/InvoiceDocument';
+import { BookAppointment } from './HomePage';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 import { MergeCard } from './ReviewPages';
 import { AssignmentsCard, GrantsCard } from './AccessPages';
@@ -127,57 +130,228 @@ export function Customers() {
   );
 }
 
+type DetailTab = 'overview' | 'appointments' | 'payments' | 'invoices' | 'tickets' | 'access';
+type CustomerDetail = Customer & {
+  email_verified?: boolean;
+  phone_verified?: boolean;
+  preferred_location_id?: string | null;
+  time_zone?: string | null;
+  source?: string | null;
+  created_at?: string;
+};
+
+const initials = (c: Customer) => `${c.first_name?.[0] ?? ''}${c.last_name?.[0] ?? ''}`.toUpperCase() || '?';
+const PAID = ['succeeded', 'partially_refunded'];
+
+/**
+ * A customer: a header with their key facts and actions, then tabs. Overview shows summary numbers,
+ * one activity timeline (appointments, payments, invoices, tickets) and side cards (details,
+ * internal notes, who can access); the other tabs hold the full lists and the access tools.
+ */
 export function CustomerDetail() {
   const { id } = useParams();
   const api = useApi();
   const { can } = useMe();
-  const customer = useQuery({ queryKey: ['customer', id], queryFn: () => api.get<Customer>(`/customers/${id}`) });
-  const appointments = useQuery({ queryKey: ['appointments', 'customer', id], queryFn: () => api.get<(Appointment & { notes_internal?: string })[]>(`/appointments?customer_id=${id}&limit=50`) });
-  const payments = useQuery({ queryKey: ['payments', 'customer', id], queryFn: () => api.get<Payment[]>(`/payments?customer_id=${id}`) });
+  const [params, setParams] = useSearchParams();
+  const [booking, setBooking] = useState(false);
+  const customer = useQuery({ queryKey: ['customer', id], queryFn: () => api.get<CustomerDetail>(`/customers/${id}`) });
+  const appointments = useQuery({
+    queryKey: ['appointments', 'customer', id],
+    queryFn: () => api.get<(Appointment & { notes_internal?: string; employee_name: string | null })[]>(`/appointments?customer_id=${id}&limit=200`),
+  });
+  const payments = useQuery({ queryKey: ['payments', 'customer', id], queryFn: () => api.get<Payment[]>(`/payments?customer_id=${id}&limit=200`) });
+  const invoices = useQuery({
+    queryKey: ['invoices', 'customer', id],
+    enabled: can('read', 'payments'),
+    // The list endpoint answers { items } (with status counts for the Invoices page).
+    queryFn: () => api.get<{ items: Invoice[] }>(`/invoices?customer_id=${id}&limit=200`).then((r) => r.items),
+  });
+  const tickets = useQuery({ queryKey: ['tickets', 'customer', id], enabled: can('read', 'tickets'), queryFn: () => api.get<Ticket[]>(`/tickets?customer_id=${id}`) });
   const access = useQuery({
     queryKey: ['access', id],
     enabled: can('read', 'access'),
     queryFn: () => api.get<{ user_id: string; first_name: string; last_name: string; role: string; can_read: string; can_update: string | null }[]>(`/customers/${id}/access`),
   });
+  const orgId = customer.data?.organization_id;
+  const organization = useQuery({ queryKey: ['organization', orgId], enabled: Boolean(orgId), queryFn: () => api.get<{ id: string; name: string }>(`/organizations/${orgId}`) });
+  const locations = useQuery({ queryKey: ['locations'], queryFn: () => api.get<{ id: string; name: string }[]>('/locations') });
 
   if (customer.isLoading) return <Page><Spinner /></Page>;
   if (customer.error) return <Page><ErrorBanner error={customer.error} /></Page>;
   const c = customer.data!;
+
+  const showAccess = can('read', 'access') || can('update', 'access') || can('merge', 'customers');
+  const tabs: { key: DetailTab; label: string; count?: number | null }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'appointments', label: 'Appointments', count: appointments.data?.length ?? null },
+    { key: 'payments', label: 'Payments', count: payments.data?.length ?? null },
+    ...(can('read', 'payments') ? [{ key: 'invoices' as const, label: 'Invoices', count: invoices.data?.length ?? null }] : []),
+    ...(can('read', 'tickets') ? [{ key: 'tickets' as const, label: 'Tickets', count: tickets.data?.length ?? null }] : []),
+    ...(showAccess ? [{ key: 'access' as const, label: 'Access' }] : []),
+  ];
+  const tab = tabs.find((t) => t.key === params.get('tab'))?.key ?? 'overview';
+  const setTab = (key: DetailTab) => setParams(key === 'overview' ? {} : { tab: key }, { replace: true });
+  const location = locations.data?.find((l) => l.id === c.preferred_location_id)?.name;
+  const since = c.created_at ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(c.created_at)) : null;
+
   return (
     <Page>
-      <PageHeader
-        title={fullName(c)}
-        description={[c.customer_number, c.email, c.phone].filter(Boolean).join(' · ')}
-        actions={
+      <header className="mb-6 flex flex-wrap items-center gap-4">
+        <span className="grid size-16 shrink-0 place-items-center rounded-full bg-brand-50 text-xl font-bold text-brand-700 dark:bg-slate-800 dark:text-brand-600" aria-hidden="true">
+          {initials(c)}
+        </span>
+        <div className="min-w-0 flex-[1_1_16rem]">
           <div className="flex flex-wrap items-center gap-2">
-            {c.restricted && <Badge tone="red">restricted</Badge>}
+            <h1 className="text-[1.75rem] leading-tight font-bold tracking-tight">{fullName(c)}</h1>
             <StatusBadge status={c.status} />
-            {c.has_login ? <Badge tone="green">portal account</Badge> : can('update', 'customers') && <InviteButtons customer={c} />}
-            {can('create', 'payments') && (
-              <Link to={`/staff/invoices/new?customer=${c.id}`} className="press btn-outline-gradient rounded-full px-3 py-1 text-sm font-semibold text-brand-700 dark:text-brand-600">
-                New invoice
-              </Link>
+            {c.restricted && <Badge tone="red">restricted</Badge>}
+            {organization.data && <Badge tone="slate">{c.org_role === 'admin' ? `Org admin · ${organization.data.name}` : organization.data.name}</Badge>}
+          </div>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            {[c.customer_number, since && `Customer since ${since}`, c.time_zone?.replaceAll('_', ' ')].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {c.has_login ? <Badge tone="green">portal account</Badge> : can('update', 'customers') && <InviteButtons customer={c} />}
+          {can('create', 'payments') && (
+            <Link
+              to={`/staff/invoices/new?customer=${c.id}`}
+              className="press inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            >
+              New invoice
+            </Link>
+          )}
+          {can('create', 'appointments') && (
+            <Button aria-expanded={booking} onClick={() => setBooking((b) => !b)}>
+              {booking ? 'Close booking' : 'Book appointment'}
+            </Button>
+          )}
+        </div>
+      </header>
+
+      {booking && (
+        <div className="mb-6 max-w-xl">
+          <BookAppointment customer={c} />
+        </div>
+      )}
+
+      <Tabs label="Customer sections" tabs={tabs} value={tab} onChange={setTab} />
+
+      {tab === 'overview' && (
+        <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid min-w-0 grid-cols-1 gap-5">
+            <CustomerNumbers appointments={appointments.data} payments={payments.data} invoices={invoices.data} />
+            <CustomerActivity
+              appointments={appointments.data}
+              payments={payments.data}
+              invoices={invoices.data}
+              tickets={tickets.data}
+              loading={appointments.isLoading || payments.isLoading}
+            />
+          </div>
+          <div className="grid min-w-0 grid-cols-1 gap-5">
+            <Card title="Details">
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2.5 text-sm">
+                <dt className="text-slate-500 dark:text-slate-400">Email</dt>
+                <dd className="truncate font-medium">
+                  {c.email ?? '—'}
+                  {c.email && c.email_verified && <span className="font-normal text-brand-700 dark:text-brand-600"> · verified</span>}
+                </dd>
+                <dt className="text-slate-500 dark:text-slate-400">Phone</dt>
+                <dd className="font-medium">
+                  {c.phone ?? '—'}
+                  {c.phone && c.whatsapp_opt_in_at && <span className="font-normal text-slate-500"> · WhatsApp</span>}
+                </dd>
+                {organization.data && (
+                  <>
+                    <dt className="text-slate-500 dark:text-slate-400">Organization</dt>
+                    <dd className="font-medium">
+                      {organization.data.name}
+                      {c.org_role === 'admin' && <span className="font-normal text-slate-500"> · admin</span>}
+                    </dd>
+                  </>
+                )}
+                <dt className="text-slate-500 dark:text-slate-400">Location</dt>
+                <dd className="font-medium">{location ?? '—'}</dd>
+                <dt className="text-slate-500 dark:text-slate-400">Portal</dt>
+                <dd className="font-medium">{c.has_login ? 'Signed up' : 'Not signed up yet'}</dd>
+              </dl>
+            </Card>
+            {c.notes_internal && (
+              <section className="rounded-xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-900/60 dark:bg-amber-950/40">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold">Internal notes</h2>
+                  <span className="text-xs font-medium text-amber-800 dark:text-amber-300">Staff only</span>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-amber-950 dark:text-amber-100">{c.notes_internal}</p>
+              </section>
+            )}
+            {can('read', 'access') && (
+              <Card
+                title="Who can access"
+                actions={
+                  <button type="button" onClick={() => setTab('access')} className="text-sm font-semibold text-brand-700 hover:underline dark:text-brand-600">
+                    Manage →
+                  </button>
+                }
+              >
+                <p className="text-sm">
+                  {c.restricted ? (
+                    <span><strong className="font-semibold">Restricted:</strong> only the people listed can see this customer.</span>
+                  ) : (
+                    <span>Staff at the customer's location can see them, plus anyone listed.</span>
+                  )}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  {access.data?.slice(0, 6).map((r) => (
+                    <span
+                      key={r.user_id}
+                      title={`${r.first_name} ${r.last_name} · ${r.role}`}
+                      className="grid size-8 place-items-center rounded-full bg-slate-200 text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    >
+                      {`${r.first_name[0] ?? ''}${r.last_name[0] ?? ''}`.toUpperCase()}
+                    </span>
+                  ))}
+                  {(access.data?.length ?? 0) > 6 && <span className="text-sm text-slate-500">+{access.data!.length - 6}</span>}
+                  {access.data && !access.data.length && <span className="text-sm text-slate-500">Only admins.</span>}
+                </div>
+                {can('update', 'access') && (
+                  <div className="mt-4">
+                    <RestrictedToggle customer={c} />
+                  </div>
+                )}
+              </Card>
             )}
           </div>
-        }
-      />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Appointments">
+        </div>
+      )}
+
+      {tab === 'appointments' && (
+        <Card>
           {appointments.data?.length ? (
-            <Table head={['When', 'Service', 'Status']}>
+            <Table head={['When', 'Service', 'With', 'Status']}>
               {appointments.data.map((a) => (
                 <tr key={a.id}>
                   <Td>{dateTime(a.scheduled_start, a.time_zone)}</Td>
-                  <Td>{a.service_name}{a.notes_internal && <span className="block text-xs text-amber-700">Note: {a.notes_internal}</span>}</Td>
+                  <Td>
+                    {a.service_name}
+                    {a.notes_internal && <span className="block text-xs text-amber-700">Note: {a.notes_internal}</span>}
+                  </Td>
+                  <Td>{a.employee_name ?? 'Unassigned'}</Td>
                   <Td><StatusBadge status={a.status} /></Td>
                 </tr>
               ))}
             </Table>
+          ) : appointments.isLoading ? (
+            <Spinner />
           ) : (
             <EmptyState>No appointments.</EmptyState>
           )}
         </Card>
-        <Card title="Payments">
+      )}
+
+      {tab === 'payments' && (
+        <Card>
           {payments.data?.length ? (
             <Table head={['Date', 'Amount', 'Method', 'Status']}>
               {payments.data.map((p) => (
@@ -189,43 +363,234 @@ export function CustomerDetail() {
                 </tr>
               ))}
             </Table>
+          ) : payments.isLoading ? (
+            <Spinner />
           ) : (
             <EmptyState>No payments.</EmptyState>
           )}
         </Card>
-        {can('read', 'tickets') && <CustomerTickets customerId={c.id} />}
-        {c.notes_internal && (
-          <Card title="Internal notes">
-            <p className="whitespace-pre-wrap text-sm">{c.notes_internal}</p>
-          </Card>
-        )}
-        {can('read', 'access') && (
-          <Card title="Who can access this customer" actions={can('update', 'access') && <RestrictedToggle customer={c} />}>
-            {access.data?.length ? (
-              <Table head={['Employee', 'Role', 'Read', 'Update']}>
-                {access.data.map((r) => (
-                  <tr key={r.user_id}>
-                    <Td>{r.first_name} {r.last_name}</Td>
-                    <Td>{r.role}</Td>
-                    <Td><Badge tone="brand">{r.can_read}</Badge></Td>
-                    <Td>{r.can_update ? <Badge tone="brand">{r.can_update}</Badge> : '—'}</Td>
-                  </tr>
-                ))}
-              </Table>
-            ) : (
-              <EmptyState>Only admins.</EmptyState>
-            )}
-          </Card>
-        )}
-        {can('update', 'access') && (
-          <>
-            <AssignmentsCard fixed={{ kind: 'customer', customer: c }} />
-            <GrantsCard fixed={{ kind: 'customer', customer: c }} />
-          </>
-        )}
-        {can('merge', 'customers') && <MergeCard key={c.id} customer={c} />}
-      </div>
+      )}
+
+      {tab === 'invoices' && (
+        <Card>
+          {invoices.data?.length ? (
+            <Table head={['Invoice', 'Issued', 'Due', 'Status', 'Total']}>
+              {invoices.data.map((i) => (
+                <tr key={i.id}>
+                  <Td>
+                    <Link to={`/staff/invoices/${i.id}`} className="font-semibold text-brand-700 hover:underline dark:text-brand-600">
+                      {i.invoice_number}
+                    </Link>
+                  </Td>
+                  <Td>{date((i.sent_at ?? i.created_at).slice(0, 10))}</Td>
+                  <Td className={i.overdue ? 'font-semibold text-red-700 dark:text-red-400' : ''}>{i.due_on ? date(i.due_on) : '—'}</Td>
+                  <Td><InvoiceStatus invoice={i} /></Td>
+                  <Td className="tabular-nums">{money(i.total, i.currency)}</Td>
+                </tr>
+              ))}
+            </Table>
+          ) : invoices.isLoading ? (
+            <Spinner />
+          ) : (
+            <EmptyState>No invoices.</EmptyState>
+          )}
+        </Card>
+      )}
+
+      {tab === 'tickets' && <CustomerTickets customerId={c.id} />}
+
+      {tab === 'access' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          {can('read', 'access') && (
+            <Card title="Who can access this customer" className="lg:col-span-2" actions={can('update', 'access') && <RestrictedToggle customer={c} />}>
+              {access.data?.length ? (
+                <Table head={['Employee', 'Role', 'Read', 'Update']}>
+                  {access.data.map((r) => (
+                    <tr key={r.user_id}>
+                      <Td>{r.first_name} {r.last_name}</Td>
+                      <Td>{r.role}</Td>
+                      <Td><Badge tone="brand">{r.can_read}</Badge></Td>
+                      <Td>{r.can_update ? <Badge tone="brand">{r.can_update}</Badge> : '—'}</Td>
+                    </tr>
+                  ))}
+                </Table>
+              ) : (
+                <EmptyState>Only admins.</EmptyState>
+              )}
+            </Card>
+          )}
+          {can('update', 'access') && (
+            <>
+              <AssignmentsCard fixed={{ kind: 'customer', customer: c }} />
+              <GrantsCard fixed={{ kind: 'customer', customer: c }} />
+            </>
+          )}
+          {can('merge', 'customers') && <MergeCard key={c.id} customer={c} />}
+        </div>
+      )}
     </Page>
+  );
+}
+
+/** Next appointment, visits, paid and balance due, from the lists already loaded. */
+function CustomerNumbers({ appointments, payments, invoices }: { appointments?: (Appointment & { employee_name?: string | null })[]; payments?: Payment[]; invoices?: Invoice[] }) {
+  const now = Date.now();
+  const next = appointments
+    ?.filter((a) => new Date(a.scheduled_start).getTime() >= now && !['cancelled', 'no_show', 'completed'].includes(a.status))
+    .sort((a, b) => a.scheduled_start.localeCompare(b.scheduled_start))[0];
+  const visits = appointments?.filter((a) => a.status === 'completed').length;
+  const currency = payments?.[0]?.currency ?? invoices?.[0]?.currency ?? 'USD';
+  const paid = payments?.filter((p) => PAID.includes(p.status) && p.currency === currency).reduce((sum, p) => sum + Number(p.amount) - Number(p.amount_refunded), 0);
+  const open = invoices?.filter((i) => i.status === 'sent' && i.currency === currency);
+  const due = open?.reduce((sum, i) => sum + Number(i.balance), 0);
+  const overdue = open?.some((i) => i.overdue);
+  const box = 'rounded-xl border border-slate-200 bg-white px-4 py-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900';
+  const label = 'text-xs font-medium text-slate-500 dark:text-slate-400';
+  const value = 'mt-1.5 text-lg font-bold tracking-tight tabular-nums';
+  return (
+    <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className={box}>
+        <div className={label}>Next appointment</div>
+        <div className={`${value} whitespace-nowrap !text-base`} title={next ? dateTime(next.scheduled_start, next.time_zone) : undefined}>
+          {next
+            ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: next.time_zone }).format(new Date(next.scheduled_start))
+            : '—'}
+        </div>
+      </div>
+      <div className={box}>
+        <div className={label}>Visits</div>
+        <div className={value}>{visits ?? '—'}</div>
+      </div>
+      <div className={box}>
+        <div className={label}>Paid</div>
+        <div className={value}>{paid === undefined ? '—' : money(paid, currency)}</div>
+      </div>
+      <div className={box}>
+        <div className={label}>Balance due</div>
+        <div className={`${value} ${overdue ? 'text-red-700 dark:text-red-400' : ''}`}>{due === undefined ? '—' : money(due, currency)}</div>
+      </div>
+    </div>
+  );
+}
+
+type ActivityItem = { key: string; when: string; kind: 'appointment' | 'payment' | 'invoice' | 'ticket'; title: ReactNode; detail: string; to?: string };
+
+const KIND: Record<ActivityItem['kind'], { icon: LucideIcon; tone: string }> = {
+  appointment: { icon: CalendarDays, tone: 'bg-brand-50 text-brand-700 dark:bg-slate-800 dark:text-brand-600' },
+  payment: { icon: CreditCard, tone: 'bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-300' },
+  invoice: { icon: FileText, tone: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' },
+  ticket: { icon: Inbox, tone: 'bg-amber-50 text-amber-800 dark:bg-slate-800 dark:text-amber-300' },
+};
+
+/** Appointments, payments, invoices and tickets in one list, newest first (upcoming appointments on top). */
+function CustomerActivity({
+  appointments,
+  payments,
+  invoices,
+  tickets,
+  loading,
+}: {
+  appointments?: (Appointment & { employee_name?: string | null })[];
+  payments?: Payment[];
+  invoices?: Invoice[];
+  tickets?: Ticket[];
+  loading: boolean;
+}) {
+  const [all, setAll] = useState(false);
+  const items: ActivityItem[] = [
+    ...(appointments ?? []).map((a) => ({
+      key: `a${a.id}`,
+      when: a.scheduled_start,
+      kind: 'appointment' as const,
+      title: (
+        <span className="flex flex-wrap items-center gap-2">
+          {a.service_name} <StatusBadge status={a.status} />
+        </span>
+      ),
+      detail: [dateTime(a.scheduled_start, a.time_zone), a.employee_name ?? 'Unassigned', a.location_name].filter(Boolean).join(' · '),
+    })),
+    ...(payments ?? []).map((p) => ({
+      key: `p${p.id}`,
+      when: p.paid_at ?? p.created_at,
+      kind: 'payment' as const,
+      title: (
+        <span className="flex flex-wrap items-center gap-2">
+          Payment · {money(p.amount, p.currency)} <PaymentStatus p={p} />
+        </span>
+      ),
+      detail: [METHOD_LABEL[p.method] ?? p.method, p.payment_number, dateTime(p.paid_at ?? p.created_at)].filter(Boolean).join(' · '),
+    })),
+    ...(invoices ?? [])
+      .filter((i) => i.status !== 'draft')
+      .map((i) => ({
+        key: `i${i.id}`,
+        when: i.sent_at ?? i.created_at,
+        kind: 'invoice' as const,
+        title: (
+          <span className="flex flex-wrap items-center gap-2">
+            Invoice {i.invoice_number} · {money(i.total, i.currency)} <InvoiceStatus invoice={i} />
+          </span>
+        ),
+        detail: i.status === 'sent' && i.due_on ? `Due ${date(i.due_on)}${i.overdue ? ' · overdue' : ''}` : dateTime(i.sent_at ?? i.created_at),
+        to: `/staff/invoices/${i.id}`,
+      })),
+    ...(tickets ?? []).map((t) => ({
+      key: `t${t.id}`,
+      when: t.created_at,
+      kind: 'ticket' as const,
+      title: (
+        <span className="flex flex-wrap items-center gap-2">
+          Ticket #{t.id} · {t.subject} <TicketStatus status={t.status} staff />
+        </span>
+      ),
+      detail: `Opened ${dateTime(t.created_at)}`,
+      to: `/staff/tickets/${t.id}`,
+    })),
+  ].sort((a, b) => b.when.localeCompare(a.when));
+  const shown = all ? items : items.slice(0, 12);
+
+  return (
+    <Card title="Activity" actions={<span className="text-xs text-slate-500 dark:text-slate-400">Appointments, payments, invoices and tickets</span>}>
+      {loading && !items.length ? (
+        <Spinner />
+      ) : !items.length ? (
+        <EmptyState>Nothing yet.</EmptyState>
+      ) : (
+        <>
+          <ol className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+            {shown.map((item) => {
+              const { icon: Icon, tone } = KIND[item.kind];
+              return (
+                <li key={item.key} className="flex gap-3.5 py-3">
+                  <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${tone}`} aria-hidden="true">
+                    <Icon className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold">
+                      {item.to ? (
+                        <Link to={item.to} className="hover:underline">
+                          {item.title}
+                        </Link>
+                      ) : (
+                        item.title
+                      )}
+                    </div>
+                    <p className="mt-0.5 truncate text-sm text-slate-500 dark:text-slate-400">{item.detail}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          {items.length > shown.length && (
+            <div className="mt-3">
+              <Button size="sm" variant="ghost" onClick={() => setAll(true)}>
+                Show all {items.length}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </Card>
   );
 }
 

@@ -512,7 +512,8 @@ interface Conflict {
   scheduled_end: string;
 }
 
-function BookAppointment() {
+/** Book an appointment; `customer` starts it for that customer (the customer page). */
+export function BookAppointment({ customer: initialCustomer = null }: { customer?: Customer | null } = {}) {
   const api = useApi();
   const queryClient = useQueryClient();
   const { me } = useMe();
@@ -520,7 +521,7 @@ function BookAppointment() {
   const locations = useQuery({ queryKey: ['locations'], queryFn: () => api.get<Location[]>('/locations') });
   const [params] = useSearchParams();
   const cardRef = useRef<HTMLDivElement>(null);
-  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [customer, setCustomer] = useState<Customer | null>(initialCustomer);
   // ?book=<service id>: from the assistant's "Book" button or a service in search results. Followed
   // while the dashboard is already open too, so the service is picked whenever the link changes.
   const bookParam = params.get('book');
@@ -578,7 +579,7 @@ function BookAppointment() {
       setBooked(res.appointment_number);
       setConflicts(null);
       setUnavailable(null);
-      setCustomer(null);
+      setCustomer(initialCustomer); // on a customer's page, the next booking is for them too
       setRound((r) => r + 1);
       setClock('');
       void queryClient.invalidateQueries({ queryKey: ['appointments'] });
