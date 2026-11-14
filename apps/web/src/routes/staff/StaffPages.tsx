@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarDays, CreditCard, FileText, Inbox, type LucideIcon } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Pager, Select, Spinner, StatusBadge, Table, Tabs, Td } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
@@ -628,24 +628,29 @@ function InviteButtons({ customer: c }: { customer: Customer }) {
 
 // Payments -----------------------------------------------------------------------------------
 
+type StaffPayment = Payment & { customer_id: string | null; customer_name?: string | null; invoice_id?: string | null };
+
+/** Staff: take a payment, match bank transfers as they land, recent payments, and Stripe payments with no customer. */
 export function Payments() {
-  const [tab, setTab] = useState<'record' | 'pending' | 'unmatched'>('record');
-  const tabs = [
-    ['record', 'Record a payment'],
-    ['pending', 'Pending bank transfers'],
-    ['unmatched', 'Unmatched Stripe payments'],
-  ] as const;
+  const { hash } = useLocation();
+  // /staff/payments#transfers (from the Invoices page) scrolls to the bank transfers once they load.
+  useEffect(() => {
+    if (hash) setTimeout(() => document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 300);
+  }, [hash]);
   return (
     <Page>
       <PageHeader title="Payments" description="Manual payments (POS, bank transfer, cash) and Stripe follow-ups." />
-      <Tabs label="Payments" tabs={tabs.map(([key, label]) => ({ key, label }))} value={tab} onChange={setTab} />
-      {tab === 'record' && <RecordPayment />}
-      {tab === 'pending' && <PendingTransfers />}
-      {tab === 'unmatched' && <UnmatchedStripe />}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+        <RecordPayment />
+        <div className="grid min-w-0 gap-5">
+          <PendingTransfers />
+          <RecentPayments />
+          <UnmatchedStripe />
+        </div>
+      </div>
     </Page>
   );
 }
-
 
 interface Duplicate {
   id: string;
@@ -656,22 +661,55 @@ interface Duplicate {
   occurred_at: string;
 }
 
-/** Also on the staff home page, with a title. */
-export function RecordPayment({ title }: { title?: string }) {
+const METHODS = [
+  { key: 'card_pos', label: 'Card (POS)' },
+  { key: 'bank_transfer', label: 'Bank transfer' },
+  { key: 'cash', label: 'Cash' },
+] as const;
+
+const panel = 'rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900';
+
+/** Take a payment: customer, method, amount and reference, applied to their oldest open invoice by default. Also on the dashboard. */
+export function RecordPayment({ title = 'Take a payment' }: { title?: string }) {
   const api = useApi();
   const queryClient = useQueryClient();
+  const { can } = useMe();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [method, setMethod] = useState<'card_pos' | 'bank_transfer' | 'cash'>('card_pos');
   const [amount, setAmount] = useState('');
   const [reference, setReference] = useState('');
   const [received, setReceived] = useState(true);
   const [expected, setExpected] = useState('');
+  const [invoiceId, setInvoiceId] = useState('');
   const [duplicates, setDuplicates] = useState<Duplicate[] | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
+  // The customer's open invoices, oldest due first; picking a customer applies the first and fills in what is due.
+  const invoices = useQuery({
+    queryKey: ['invoices', 'customer', customer?.id, 'open'],
+    enabled: Boolean(customer) && can('read', 'payments'),
+    queryFn: () =>
+      api
+        .get<{ items: Invoice[] }>(`/invoices?customer_id=${customer!.id}&status=open`)
+        .then((r) => r.items.sort((x, y) => (x.due_on ?? '9999').localeCompare(y.due_on ?? '9999'))),
+  });
+  const open = invoices.data ?? [];
+  const invoice = open.find((i) => i.id === invoiceId);
+  useEffect(() => {
+    const first = invoices.data?.[0];
+    setInvoiceId(first?.id ?? '');
+    if (first) setAmount(Number(first.balance).toFixed(2));
+  }, [invoices.data]);
+
   const submit = useMutation({
     mutationFn: (confirm: boolean) => {
-      const body: Record<string, unknown> = { method, customer_id: customer!.id, amount: Number(amount), confirm_duplicate: confirm || undefined };
+      const body: Record<string, unknown> = {
+        method,
+        customer_id: customer!.id,
+        amount: Number(amount),
+        invoice_id: invoiceId || undefined,
+        confirm_duplicate: confirm || undefined,
+      };
       const now = new Date().toISOString();
       if (method === 'card_pos') Object.assign(body, { pos_reference: reference, paid_at: now });
       if (method === 'cash') Object.assign(body, { paid_at: now, receipt_number: reference || undefined });
@@ -684,6 +722,7 @@ export function RecordPayment({ title }: { title?: string }) {
       setAmount('');
       setReference('');
       void queryClient.invalidateQueries({ queryKey: ['payments'] });
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
     },
     onError: (err) => {
       if (err instanceof ApiError && err.body.code === 'possible_duplicate') setDuplicates(err.body.candidates as Duplicate[]);
@@ -695,42 +734,89 @@ export function RecordPayment({ title }: { title?: string }) {
     setSaved(null);
     submit.mutate(false);
   };
+  const currency = invoice?.currency;
+  const pending = method === 'bank_transfer' && !received;
 
   return (
-    <Card title={title}>
-      <form onSubmit={onSubmit} className="grid max-w-xl gap-4">
+    <section className={`${panel} p-5`} aria-labelledby="take-payment">
+      <h2 id="take-payment" className="mb-4 text-lg font-semibold">
+        {title}
+      </h2>
+      <form onSubmit={onSubmit} className="grid gap-4">
         <Field label="Customer">
-          <CustomerPicker value={customer} onChange={setCustomer} />
+          <CustomerPicker
+            value={customer}
+            onChange={(c) => {
+              setCustomer(c);
+              if (!c) setInvoiceId('');
+            }}
+          />
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Method">
-            <Select value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
-              <option value="card_pos">Card (POS terminal)</option>
-              <option value="bank_transfer">Bank transfer</option>
-              <option value="cash">Cash</option>
-            </Select>
-          </Field>
-          <Field label="Amount">
-            <Input type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
-          </Field>
-        </div>
+        <fieldset>
+          <legend className="mb-1.5 text-sm font-medium">Method</legend>
+          <div className="grid grid-cols-3 gap-2">
+            {METHODS.map((m) => (
+              <label
+                key={m.key}
+                className={`press flex min-h-11 cursor-pointer items-center justify-center rounded-lg border px-2 text-center text-sm font-semibold has-focus-visible:ring-2 has-focus-visible:ring-brand-600 ${
+                  method === m.key
+                    ? 'border-brand-600 bg-brand-50 text-brand-800 ring-1 ring-brand-600 dark:bg-slate-800 dark:text-brand-600'
+                    : 'border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'
+                }`}
+              >
+                <input type="radio" name="method" value={m.key} checked={method === m.key} onChange={() => setMethod(m.key)} className="sr-only" />
+                {m.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         {method === 'bank_transfer' && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={received} onChange={(e) => setReceived(e.target.checked)} /> Already received
           </label>
         )}
-        {method === 'bank_transfer' && !received ? (
-          <Field label="Expected on">
-            <Input type="date" required value={expected} onChange={(e) => setExpected(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Amount">
+            <Input type="number" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
           </Field>
-        ) : (
-          <Field
-            label={method === 'card_pos' ? 'POS reference' : method === 'cash' ? 'Receipt number (optional)' : 'Bank reference'}
-            hint={method === 'card_pos' ? 'Transaction or authorization ID printed on the POS receipt.' : undefined}
-          >
-            <Input required={method !== 'cash'} value={reference} onChange={(e) => setReference(e.target.value)} />
+          {pending ? (
+            <Field label="Expected on">
+              <Input type="date" required value={expected} onChange={(e) => setExpected(e.target.value)} />
+            </Field>
+          ) : (
+            <Field label={method === 'card_pos' ? 'POS reference' : method === 'cash' ? 'Receipt number' : 'Bank reference'}>
+              <Input
+                required={method !== 'cash'}
+                placeholder={method === 'cash' ? 'Optional' : undefined}
+                title={method === 'card_pos' ? 'Transaction or authorization ID printed on the POS receipt' : undefined}
+                value={reference}
+                onChange={(e) => setReference(e.target.value)}
+              />
+            </Field>
+          )}
+        </div>
+        {open.length === 1 && invoice ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked onChange={() => setInvoiceId('')} />
+            Apply to {invoice.invoice_number} ({money(invoice.balance, invoice.currency)} due{invoice.due_on ? ` ${date(invoice.due_on)}` : ''})
+          </label>
+        ) : open.length === 1 ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={false} onChange={() => setInvoiceId(open[0].id)} />
+            Apply to {open[0].invoice_number} ({money(open[0].balance, open[0].currency)} due)
+          </label>
+        ) : open.length > 1 ? (
+          <Field label="Apply to invoice">
+            <Select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
+              <option value="">No invoice</option>
+              {open.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.invoice_number} · {money(i.balance, i.currency)} due{i.due_on ? ` ${date(i.due_on)}` : ''}
+                </option>
+              ))}
+            </Select>
           </Field>
-        )}
+        ) : null}
         {duplicates && (
           <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
             <p className="font-medium">This may already be recorded:</p>
@@ -742,48 +828,86 @@ export function RecordPayment({ title }: { title?: string }) {
               ))}
             </ul>
             <div className="flex gap-2">
-              <Button type="button" size="sm" onClick={() => submit.mutate(true)}>It's a different payment — save</Button>
-              <Button type="button" size="sm" variant="secondary" onClick={() => setDuplicates(null)}>Cancel</Button>
+              <Button type="button" size="sm" onClick={() => submit.mutate(true)}>
+                It's a different payment — save
+              </Button>
+              <Button type="button" size="sm" variant="secondary" onClick={() => setDuplicates(null)}>
+                Cancel
+              </Button>
             </div>
           </div>
         )}
         {submit.error && !duplicates && <ErrorBanner error={submit.error} />}
-        {saved && <p role="status" className="text-sm text-emerald-700">Saved as {saved}.</p>}
-        <div>
-          <Button type="submit" disabled={!customer || submit.isPending}>Record payment</Button>
-        </div>
+        {saved && (
+          <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">
+            Saved as {saved}.
+          </p>
+        )}
+        <Button type="submit" className="w-full" disabled={!customer || submit.isPending}>
+          {pending ? 'Record expected transfer' : Number(amount) > 0 ? `Record ${money(amount, currency)}` : 'Record payment'}
+        </Button>
       </form>
-    </Card>
+    </section>
   );
 }
 
 function PendingTransfers() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const q = useQuery({ queryKey: ['payments', 'pending'], queryFn: () => api.get<(Payment & { overdue: boolean })[]>('/payments/pending-transfers') });
+  const q = useQuery({ queryKey: ['payments', 'pending'], queryFn: () => api.get<(StaffPayment & { overdue: boolean })[]>('/payments/pending-transfers') });
   const [refs, setRefs] = useState<Record<string, string>>({});
   const mark = useMutation({
     mutationFn: (id: string) => api.post(`/payments/${id}/mark-received`, { bank_reference: refs[id], paid_at: new Date().toISOString() }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['payments'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['payments'] });
+      void queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
+  const today = new Date().setHours(0, 0, 0, 0);
   return (
-    <Card>
-      {mark.error && <div className="mb-3"><ErrorBanner error={mark.error} /></div>}
+    <section id="transfers" className={`${panel} scroll-mt-24`} aria-labelledby="transfers-title">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+        <div>
+          <h2 id="transfers-title" className="text-lg font-semibold">
+            Bank transfers to match
+          </h2>
+          <p className="text-sm text-slate-500">Enter the bank reference once it lands.</p>
+        </div>
+        {q.data && q.data.length > 0 && <Badge tone="amber">{q.data.length} waiting</Badge>}
+      </div>
+      {mark.error && (
+        <div className="px-5 pt-3">
+          <ErrorBanner error={mark.error} />
+        </div>
+      )}
       {q.isLoading ? (
-        <Spinner />
+        <div className="p-5">
+          <Spinner />
+        </div>
+      ) : q.error ? (
+        <div className="p-5">
+          <ErrorBanner error={q.error} />
+        </div>
       ) : !q.data?.length ? (
-        <EmptyState>No pending transfers.</EmptyState>
+        <EmptyState>No bank transfers waiting.</EmptyState>
       ) : (
-        <Table head={['Payment', 'Amount', 'Expected', '', 'Mark received']}>
-          {q.data.map((p) => (
-            <tr key={p.id}>
-              <Td>{p.payment_number}</Td>
-              <Td>{money(p.amount, p.currency)}</Td>
-              <Td>{p.expected_at ? date(p.expected_at) : '—'}</Td>
-              <Td>{p.overdue && <Badge tone="red">overdue</Badge>}</Td>
-              <Td>
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {q.data.map((p) => {
+            const late = p.expected_at ? Math.round((today - new Date(`${p.expected_at}T00:00`).getTime()) / 86_400_000) : 0;
+            return (
+              <li key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {p.customer_name ?? p.payment_number} · {money(p.amount, p.currency)}
+                  </p>
+                  <p className={`text-xs ${p.overdue ? 'font-medium text-red-700 dark:text-red-400' : 'text-slate-500'}`}>
+                    {p.expected_at ? `Expected ${date(p.expected_at)}` : 'No expected date'}
+                    {late > 0 ? ` · ${late} ${late === 1 ? 'day' : 'days'} late` : ''}
+                    {p.customer_name ? ` · ${p.payment_number}` : ''}
+                  </p>
+                </div>
                 <form
-                  className="flex gap-2"
+                  className="flex w-full gap-2 sm:w-auto"
                   onSubmit={(e) => {
                     e.preventDefault();
                     mark.mutate(p.id);
@@ -792,21 +916,111 @@ function PendingTransfers() {
                   <Input
                     aria-label={`Bank reference for ${p.payment_number}`}
                     placeholder="Bank reference"
+                    className="min-w-0 flex-1 sm:w-44"
                     required
                     value={refs[p.id] ?? ''}
                     onChange={(e) => setRefs({ ...refs, [p.id]: e.target.value })}
                   />
-                  <Button size="sm" type="submit">Received</Button>
+                  <Button type="submit" variant="secondary" disabled={mark.isPending}>
+                    Mark received
+                  </Button>
                 </form>
-              </Td>
-            </tr>
-          ))}
-        </Table>
+              </li>
+            );
+          })}
+        </ul>
       )}
-    </Card>
+    </section>
   );
 }
 
+function RecentPayments() {
+  const api = useApi();
+  const q = useQuery({ queryKey: ['payments', 'recent'], queryFn: () => api.get<StaffPayment[]>('/payments?limit=25') });
+  const rows = q.data ?? [];
+  const exportCsv = () => {
+    const cell = (v: unknown) => `"${String(v ?? '').replaceAll('"', '""')}"`;
+    const lines = [
+      ['Payment', 'Date', 'Customer', 'Method', 'Status', 'Amount', 'Refunded', 'Currency'],
+      ...rows.map((p) => [p.payment_number, p.paid_at ?? p.created_at, p.customer_name ?? '', METHOD_LABEL[p.method] ?? p.method, p.status, p.amount, p.amount_refunded, p.currency]),
+    ];
+    const url = URL.createObjectURL(new Blob([lines.map((l) => l.map(cell).join(',')).join('\n')], { type: 'text/csv' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: `payments-${new Date().toISOString().slice(0, 10)}.csv` });
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <section className={`${panel} overflow-hidden`} aria-labelledby="recent-payments">
+      <div className="flex items-center justify-between gap-3 px-5 py-4">
+        <h2 id="recent-payments" className="text-lg font-semibold">
+          Recent payments
+        </h2>
+        {rows.length > 0 && (
+          <button onClick={exportCsv} className="press text-sm font-semibold text-brand-700 hover:underline dark:text-brand-600">
+            Export CSV
+          </button>
+        )}
+      </div>
+      {q.isLoading ? (
+        <div className="px-5 pb-5">
+          <Spinner />
+        </div>
+      ) : q.error ? (
+        <div className="px-5 pb-5">
+          <ErrorBanner error={q.error} />
+        </div>
+      ) : !rows.length ? (
+        <EmptyState>No payments yet.</EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead>
+              <tr className="border-y border-slate-200 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase dark:border-slate-800">
+                <th scope="col" className="px-5 py-3 font-semibold">Payment</th>
+                <th scope="col" className="px-5 py-3 font-semibold">Customer</th>
+                <th scope="col" className="px-5 py-3 font-semibold">Method</th>
+                <th scope="col" className="px-5 py-3 font-semibold">Status</th>
+                <th scope="col" className="px-5 py-3 text-right font-semibold">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((p) => (
+                <tr key={p.id} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <span className="font-medium">{p.payment_number}</span>
+                    <span className="block text-xs text-slate-500">{date(p.paid_at ?? p.created_at)}</span>
+                  </td>
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    {p.customer_id ? (
+                      <Link to={`/staff/customers/${p.customer_id}?tab=payments`} className="hover:underline">
+                        {p.customer_name ?? 'Customer'}
+                      </Link>
+                    ) : (
+                      <span className="text-slate-500">Unmatched</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 whitespace-nowrap text-slate-600 dark:text-slate-400">
+                    {METHOD_LABEL[p.method] ?? p.method}
+                    {p.card_last4 ? ` · •••• ${p.card_last4}` : ''}
+                  </td>
+                  <td className="px-5 py-3 whitespace-nowrap">
+                    <PaymentStatus p={p} />
+                  </td>
+                  <td className="px-5 py-3 text-right tabular-nums">
+                    <span className="font-semibold">{money(p.amount, p.currency)}</span>
+                    {Number(p.amount_refunded) > 0 && <span className="block text-xs text-slate-500">{money(p.amount_refunded, p.currency)} refunded</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Stripe payments with no customer (shown only when there are some). */
 function UnmatchedStripe() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -821,39 +1035,52 @@ function UnmatchedStripe() {
       void queryClient.invalidateQueries({ queryKey: ['payments'] });
     },
   });
+  if (!q.data?.length) return q.error ? <ErrorBanner error={q.error} /> : null;
   return (
-    <Card>
-      {q.isLoading ? (
-        <Spinner />
-      ) : !q.data?.length ? (
-        <EmptyState>Every Stripe payment is matched to a customer.</EmptyState>
-      ) : (
-        <Table head={['Payment', 'Amount', 'Date', 'Card', '']}>
-          {q.data.map((p) => (
-            <tr key={p.id}>
-              <Td>{p.payment_number}</Td>
-              <Td>{money(p.amount, p.currency)}</Td>
-              <Td>{dateTime(p.paid_at ?? p.created_at)}</Td>
-              <Td>{p.card_last4 ? `${p.card_brand} •••• ${p.card_last4}` : '—'}</Td>
-              <Td>
-                {assigning === p.id ? (
-                  <div className="w-72 space-y-2">
-                    <CustomerPicker value={customer} onChange={setCustomer} />
-                    <div className="flex gap-2">
-                      <Button size="sm" disabled={!customer || assign.isPending} onClick={() => assign.mutate()}>Assign</Button>
-                      <Button size="sm" variant="ghost" onClick={() => setAssigning(null)}>Cancel</Button>
-                    </div>
-                    {assign.error && <ErrorBanner error={assign.error} />}
-                  </div>
-                ) : (
-                  <Button size="sm" variant="secondary" onClick={() => setAssigning(p.id)}>Assign to customer</Button>
-                )}
-              </Td>
-            </tr>
-          ))}
-        </Table>
-      )}
-    </Card>
+    <section className={panel} aria-labelledby="unmatched-title">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 dark:border-slate-800">
+        <div>
+          <h2 id="unmatched-title" className="text-lg font-semibold">
+            Stripe payments with no customer
+          </h2>
+          <p className="text-sm text-slate-500">Paid by card online, but not matched to anyone. Assign each to its customer.</p>
+        </div>
+        <Badge tone="red">{q.data.length}</Badge>
+      </div>
+      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+        {q.data.map((p) => (
+          <li key={p.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">
+                {p.payment_number} · {money(p.amount, p.currency)}
+              </p>
+              <p className="text-xs text-slate-500">
+                {dateTime(p.paid_at ?? p.created_at)}
+                {p.card_last4 ? ` · ${p.card_brand} •••• ${p.card_last4}` : ''}
+              </p>
+            </div>
+            {assigning === p.id ? (
+              <div className="w-full space-y-2 sm:w-72">
+                <CustomerPicker value={customer} onChange={setCustomer} />
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={!customer || assign.isPending} onClick={() => assign.mutate()}>
+                    Assign
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAssigning(null)}>
+                    Cancel
+                  </Button>
+                </div>
+                {assign.error && <ErrorBanner error={assign.error} />}
+              </div>
+            ) : (
+              <Button variant="secondary" onClick={() => setAssigning(p.id)}>
+                Assign to customer
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
