@@ -1,4 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { InvoiceDocument, InvoiceStatus, type Invoice } from '../../components/InvoiceDocument';
@@ -6,21 +7,44 @@ import { Page } from '../../components/Layout';
 import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Tabs } from '../../components/ui';
 import { ApiError, useApi } from '../../lib/api';
 import { date, dateTime, METHOD_LABEL, money } from '../../lib/format';
+import { useMe } from '../../lib/me';
 import { CustomerPicker, type Customer } from './CustomerPicker';
 
 const TABS = [
-  { key: 'open', label: 'Open' },
-  { key: 'draft', label: 'Drafts' },
+  { key: 'all', label: 'All' },
+  { key: 'draft', label: 'Draft' },
+  { key: 'open', label: 'Sent' },
+  { key: 'overdue', label: 'Overdue' },
   { key: 'paid', label: 'Paid' },
   { key: 'void', label: 'Void' },
-  { key: 'all', label: 'All' },
 ] as const;
 
-/** Staff: invoices by status, newest first; open ones show what is due and whether it is overdue. */
+interface InvoiceSummary {
+  currency: string;
+  outstanding_total: string;
+  outstanding_count: number;
+  overdue_total: string;
+  overdue_count: number;
+  overdue_names: string[];
+  paid_30d_total: string;
+  paid_30d_count: number;
+  drafts: number;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const shortDate = (value: string | null | undefined) => {
+  if (!value) return '—';
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  const d = m && value.length === 10 ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: d.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' }).format(d);
+};
+
+/** Staff: totals, bank transfers waiting, then invoices by status (drafts first, then sent, newest first). */
 export function Invoices() {
   const api = useApi();
+  const { can } = useMe();
   const [params, setParams] = useSearchParams();
-  const tab = TABS.find((t) => t.key === params.get('status'))?.key ?? 'open';
+  const tab = TABS.find((t) => t.key === params.get('status'))?.key ?? 'all';
   const [q, setQ] = useState('');
   const term = useDebounced(q.trim(), 250);
   const list = useQuery({
@@ -28,73 +52,157 @@ export function Invoices() {
     queryFn: () => api.get<{ items: Invoice[] }>(`/invoices?status=${tab}${term ? `&q=${encodeURIComponent(term)}` : ''}`),
     placeholderData: keepPreviousData,
   });
+  const summary = useQuery({ queryKey: ['invoices', 'summary'], queryFn: () => api.get<InvoiceSummary>('/invoices/summary') });
+  const transfers = useQuery({
+    queryKey: ['payments', 'pending'],
+    queryFn: () => api.get<{ amount: string; currency: string; expected_at: string | null }[]>('/payments/pending-transfers'),
+  });
+  const s = summary.data;
+  const m = (v: string) => money(v, s?.currency);
+  const waiting = transfers.data ?? [];
+  const oldest = waiting.map((t) => t.expected_at).filter((d): d is string => Boolean(d)).sort()[0];
+  const currencies = [...new Set(list.data?.items.map((i) => i.currency) ?? [])];
+
   return (
     <Page>
       <PageHeader
         title="Invoices"
         description="Bill customers; they pay in the portal by card or bank transfer."
         actions={
-          <Link to="/staff/invoices/new" className="press btn-gradient rounded-full px-4 py-1.5 text-sm font-semibold shadow-sm">
-            New invoice
+          <div className="flex flex-wrap gap-2">
+            {can('create', 'payments') && (
+              <Link
+                to="/staff/payments"
+                className="press inline-flex min-h-10 items-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              >
+                Record payment
+              </Link>
+            )}
+            <Link to="/staff/invoices/new" className="press btn-gradient inline-flex min-h-10 items-center rounded-lg px-4 text-sm font-semibold shadow-sm">
+              New invoice
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <SummaryTile dot="bg-sky-500" label="Outstanding" value={s ? m(s.outstanding_total) : null} detail={s ? `${plural(s.outstanding_count, 'invoice')} sent` : ''} to="?status=open" />
+        <SummaryTile
+          dot="bg-red-500"
+          label="Overdue"
+          value={s ? m(s.overdue_total) : null}
+          tone={s && s.overdue_count > 0 ? 'text-red-700 dark:text-red-400' : undefined}
+          detail={s ? [plural(s.overdue_count, 'invoice'), s.overdue_names.slice(0, 2).join(', ') + (s.overdue_names.length > 2 ? ` +${s.overdue_names.length - 2}` : '')].filter(Boolean).join(' · ') : ''}
+          to="?status=overdue"
+        />
+        <SummaryTile dot="bg-brand-600" label="Paid, last 30 days" value={s ? m(s.paid_30d_total) : null} detail={s ? plural(s.paid_30d_count, 'invoice') : ''} to="?status=paid" />
+        <SummaryTile dot="bg-slate-400" label="Drafts" value={s ? String(s.drafts) : null} detail="Not sent yet" to="?status=draft" />
+      </div>
+      {summary.error ? <ErrorBanner error={summary.error} /> : null}
+
+      {waiting.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-sky-200 bg-sky-50 px-5 py-3.5 text-sm dark:border-sky-900 dark:bg-sky-950/50">
+          <span className="font-semibold text-sky-900 dark:text-sky-200">
+            {plural(waiting.length, 'bank transfer')} waiting to be matched
+          </span>
+          <span className="text-slate-600 dark:text-slate-400">
+            {new Set(waiting.map((t) => t.currency)).size === 1 ? `${money(waiting.reduce((sum, t) => sum + Number(t.amount), 0), waiting[0].currency)} total` : 'several currencies'}
+            {oldest ? ` · oldest expected ${shortDate(oldest)}` : ''}
+          </span>
+          <Link to="/staff/payments#transfers" className="ml-auto font-semibold text-sky-800 hover:underline dark:text-sky-300">
+            Match transfers →
           </Link>
-        }
-      />
-      <Tabs
-        label="Status"
-        tabs={TABS}
-        value={tab}
-        onChange={(key) => setParams(key === 'open' ? {} : { status: key }, { replace: true })}
-        aside={
-          <div className="w-72 max-w-full">
-            <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Invoice number or customer" aria-label="Search invoices" />
-          </div>
-        }
-      />
-      <Card>
+        </div>
+      )}
+
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <div className="px-5 pt-2">
+          <Tabs
+            label="Status"
+            bare
+            tabs={TABS}
+            value={tab}
+            onChange={(key) => setParams(key === 'all' ? {} : { status: key }, { replace: true })}
+            aside={
+              <div className="relative w-64 max-w-full pb-2">
+                <Search className="pointer-events-none absolute top-[calc(50%-4px)] left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input type="search" className="w-full pl-9" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Invoice or customer" aria-label="Search invoices" />
+              </div>
+            }
+          />
+        </div>
         {list.isLoading ? (
-          <Spinner />
-        ) : list.error ? (
-          <ErrorBanner error={list.error} />
-        ) : !list.data?.items.length ? (
-          <EmptyState>{term ? 'No invoices match that.' : tab === 'open' ? 'No open invoices.' : 'No invoices here yet.'}</EmptyState>
-        ) : (
-          <div className="-mx-6 -my-3 overflow-x-auto">
-            <table className="w-full min-w-[40rem] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500 dark:border-slate-800">
-                  <th scope="col" className="px-4 py-2 font-medium">Invoice</th>
-                  <th scope="col" className="px-4 py-2 font-medium">Customer</th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">Total</th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">Due</th>
-                  <th scope="col" className="px-4 py-2 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.data.items.map((i) => (
-                  <tr key={i.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
-                    <td className="px-4 py-2.5">
-                      <Link to={`/staff/invoices/${i.id}`} className="font-medium text-brand-700 hover:underline dark:text-brand-600">
-                        {i.invoice_number}
-                      </Link>
-                      <span className="block text-xs text-slate-500">{date(i.created_at)}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {i.customer_name ?? '—'}
-                      <span className="block text-xs text-slate-500">{i.customer_number}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{money(i.total, i.currency)}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{i.status === 'sent' ? money(i.balance, i.currency) : '—'}</td>
-                    <td className="px-4 py-2.5">
-                      <InvoiceStatus invoice={i} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="border-t border-slate-200 p-6 dark:border-slate-800">
+            <Spinner />
           </div>
+        ) : list.error ? (
+          <div className="border-t border-slate-200 p-6 dark:border-slate-800">
+            <ErrorBanner error={list.error} />
+          </div>
+        ) : !list.data?.items.length ? (
+          <div className="border-t border-slate-200 dark:border-slate-800">
+            <EmptyState>{term ? 'No invoices match that.' : tab === 'all' ? 'No invoices yet.' : 'No invoices here.'}</EmptyState>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto border-t border-slate-200 dark:border-slate-800">
+              <table className="w-full min-w-[44rem] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase dark:border-slate-800">
+                    <th scope="col" className="px-5 py-3 font-semibold">Invoice</th>
+                    <th scope="col" className="px-5 py-3 font-semibold">Customer</th>
+                    <th scope="col" className="px-5 py-3 font-semibold">Issued</th>
+                    <th scope="col" className="px-5 py-3 font-semibold">Due</th>
+                    <th scope="col" className="px-5 py-3 font-semibold">Status</th>
+                    <th scope="col" className="px-5 py-3 text-right font-semibold">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.data.items.map((i) => (
+                    <tr key={i.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
+                      <td className="px-5 py-3">
+                        <Link to={`/staff/invoices/${i.id}`} className="font-semibold text-brand-700 hover:underline dark:text-brand-600">
+                          {i.invoice_number}
+                        </Link>
+                      </td>
+                      <td className="px-5 py-3">
+                        {i.customer_name ?? '—'}
+                        <span className="block text-xs text-slate-500">{i.customer_number}</span>
+                      </td>
+                      <td className="px-5 py-3 text-slate-600 dark:text-slate-400">{shortDate(i.sent_at ?? i.created_at)}</td>
+                      <td className={`px-5 py-3 ${i.overdue ? 'font-medium text-red-700 dark:text-red-400' : 'text-slate-600 dark:text-slate-400'}`}>{i.status === 'sent' ? shortDate(i.due_on) : '—'}</td>
+                      <td className="px-5 py-3">
+                        <InvoiceStatus invoice={i} />
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums">
+                        <span className="font-semibold">{money(i.total, i.currency)}</span>
+                        {i.status === 'sent' && Number(i.amount_paid) > 0 && <span className="block text-xs text-slate-500">{money(i.balance, i.currency)} due</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex justify-between gap-4 border-t border-slate-200 px-5 py-3 text-sm text-slate-500 dark:border-slate-800">
+              <span>Showing {plural(list.data.items.length, 'invoice')}</span>
+              <span>{currencies.join(', ')}</span>
+            </div>
+          </>
         )}
-      </Card>
+      </section>
     </Page>
+  );
+}
+
+function SummaryTile({ dot, label, value, detail, tone, to }: { dot: string; label: string; value: string | null; detail: string; tone?: string; to: string }) {
+  return (
+    <Link to={to} className="press rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-xs hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700">
+      <div className="flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-400">
+        <span className={`size-2 rounded-full ${dot}`} aria-hidden="true" /> {label}
+      </div>
+      <div className={`mt-1.5 text-2xl font-bold tracking-tight tabular-nums ${tone ?? ''}`}>{value ?? '—'}</div>
+      <div className="mt-1 truncate text-xs text-slate-500">{detail}</div>
+    </Link>
   );
 }
 
