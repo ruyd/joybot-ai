@@ -42,7 +42,7 @@ export const updateSchema = draftSchema.omit({ customer_id: true }).partial().st
 
 export const listSchema = z
   .object({
-    status: z.enum(['draft', 'sent', 'paid', 'void', 'open', 'all']).default('all'),
+    status: z.enum(['draft', 'sent', 'paid', 'void', 'open', 'overdue', 'all']).default('all'),
     customer_id: z.string().uuid().optional(),
     q: z.string().trim().max(100).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(100),
@@ -51,6 +51,18 @@ export const listSchema = z
 
 export const sendSchema = z.object({ notify: z.boolean().default(true) }).strict();
 export const voidSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+
+export interface InvoiceSummary {
+  currency: string;
+  outstanding_total: string;
+  outstanding_count: number;
+  overdue_total: string;
+  overdue_count: number;
+  overdue_names: string[];
+  paid_30d_total: string;
+  paid_30d_count: number;
+  drafts: number;
+}
 
 // Customer name and number through RLS (null when the employee cannot read the customer).
 const COLUMNS = `i.id, i.invoice_number, i.customer_id, i.location_id, i.currency, i.status, i.total, i.amount_paid,
@@ -85,6 +97,7 @@ export class InvoicesService {
       where.push(sql.replaceAll('?', `$${args.length}`));
     };
     if (q.status === 'open') where.push(`i.status = 'sent'`);
+    else if (q.status === 'overdue') where.push(`i.status = 'sent' AND i.due_on < current_date`);
     else if (q.status !== 'all') add('i.status = ?', q.status);
     if (q.customer_id) add('i.customer_id = ?', q.customer_id);
     if (q.q) {
@@ -104,6 +117,34 @@ export class InvoicesService {
         )
       ).rows;
       return { items, card_payments: p.type === 'customer' ? await this.cardAvailable(db) : undefined };
+    });
+  }
+
+  /**
+   * Totals for the Invoices page, over the invoices the principal may see (RLS), in the default
+   * currency: what is outstanding and overdue on sent invoices, what was paid in the last 30 days,
+   * and how many drafts wait (any currency).
+   */
+  summary(p: Principal): Promise<InvoiceSummary> {
+    return this.db.as(p, async (db) => {
+      const { rows } = await db.query<InvoiceSummary>(
+        `WITH s AS (SELECT coalesce((SELECT default_currency FROM core.settings WHERE id = 1), 'USD') AS currency),
+              i AS (SELECT i.*, greatest(i.total - i.amount_paid, 0) AS balance, i.currency = s.currency AS counted,
+                           (i.status = 'sent' AND i.due_on < current_date) AS overdue,
+                           nullif(concat_ws(' ', c.first_name, c.last_name), '') AS customer_name
+                      FROM core.invoices i CROSS JOIN s LEFT JOIN core.customers c ON c.id = i.customer_id)
+         SELECT (SELECT currency FROM s) AS currency,
+                coalesce(sum(balance) FILTER (WHERE counted AND status = 'sent'), 0)::text AS outstanding_total,
+                count(*) FILTER (WHERE counted AND status = 'sent')::int AS outstanding_count,
+                coalesce(sum(balance) FILTER (WHERE counted AND overdue), 0)::text AS overdue_total,
+                count(*) FILTER (WHERE counted AND overdue)::int AS overdue_count,
+                coalesce(array_agg(DISTINCT customer_name ORDER BY customer_name) FILTER (WHERE counted AND overdue AND customer_name IS NOT NULL), '{}') AS overdue_names,
+                coalesce(sum(total) FILTER (WHERE counted AND status = 'paid' AND paid_at >= now() - interval '30 days'), 0)::text AS paid_30d_total,
+                count(*) FILTER (WHERE counted AND status = 'paid' AND paid_at >= now() - interval '30 days')::int AS paid_30d_count,
+                count(*) FILTER (WHERE status = 'draft')::int AS drafts
+           FROM i`,
+      );
+      return rows[0];
     });
   }
 

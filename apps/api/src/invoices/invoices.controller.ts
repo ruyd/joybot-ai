@@ -15,6 +15,14 @@ export class InvoicesController {
     return this.invoices.list(p, q);
   }
 
+  /** Staff: the Invoices page's totals (outstanding, overdue, paid in 30 days, drafts) in the default currency. */
+  @Get('summary')
+  @EmployeesOnly()
+  @Can('read', 'payments')
+  summary(@CurrentPrincipal() p: Principal) {
+    return this.invoices.summary(p);
+  }
+
   /** One invoice with its lines and payments; for customers also how they can pay. */
   @Get(':id')
   @Can('read', 'payments')

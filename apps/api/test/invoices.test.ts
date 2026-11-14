@@ -120,6 +120,33 @@ describe('invoices', () => {
     await api(app, employee(U.sam)).post(`/api/invoices/${inv.id}/void`, { reason: 'mistake' }).expect(409);
   });
 
+  it('the summary counts drafts, what is outstanding or overdue, and what was paid in 30 days', async () => {
+    const summary = async () => (await api(app, employee(U.ada)).get('/api/invoices/summary').expect(200)).body;
+    const before = await summary();
+    expect(before.currency).toMatch(/^[A-Z]{3}$/);
+
+    const pending = (await draft().expect(201)).body;
+    const overdue = (await draft().expect(201)).body;
+    const paid = (await draft().expect(201)).body;
+    for (const inv of [overdue, paid]) await api(app, employee(U.sam)).post(`/api/invoices/${inv.id}/send`, { notify: false }).expect(201);
+    await migrator.query(`UPDATE core.invoices SET due_on = current_date - 2 WHERE id = $1`, [overdue.id]);
+    await cash(overdue.id, 20).expect(201);
+    await cash(paid.id, 120).expect(201);
+
+    const after = await summary();
+    expect(after.drafts - before.drafts).toBe(1);
+    expect(after.outstanding_count - before.outstanding_count).toBe(1);
+    expect(Number(after.outstanding_total) - Number(before.outstanding_total)).toBe(100);
+    expect(after.overdue_count - before.overdue_count).toBe(1);
+    expect(Number(after.overdue_total) - Number(before.overdue_total)).toBe(100);
+    expect(after.overdue_names).toContain('Maria Lopez');
+    expect(after.paid_30d_count - before.paid_30d_count).toBe(1);
+    expect(Number(after.paid_30d_total) - Number(before.paid_30d_total)).toBe(120);
+
+    await api(app, customer(C.maria)).get('/api/invoices/summary').expect(403);
+    await api(app, employee(U.sam)).delete(`/api/invoices/${pending.id}`).expect(204);
+  });
+
   it('customers pay what is due by card through Stripe Checkout', async () => {
     const inv = (await draft().expect(201)).body;
     await api(app, employee(U.sam)).post(`/api/invoices/${inv.id}/send`, { notify: false }).expect(201);
