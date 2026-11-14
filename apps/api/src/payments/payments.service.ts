@@ -21,6 +21,8 @@ const CUSTOMER_COLUMNS = `id, payment_number, source, customer_id, appointment_i
 const EMPLOYEE_COLUMNS = `${CUSTOMER_COLUMNS}, location_id, pos_terminal_id, pos_reference, bank_reference,
   stripe_payment_intent_id, stripe_charge_id, recorded_by, void_reason, voided_by, voided_at,
   possible_duplicate_of, notes_internal, updated_at`;
+/** For staff lists: the customer's name through RLS (null when the employee cannot see them). */
+const CUSTOMER_NAME = `(SELECT nullif(concat_ws(' ', c.first_name, c.last_name), '') FROM core.customers c WHERE c.id = customer_id) AS customer_name`;
 
 const DUPLICATE_WINDOW_DAYS = 2;
 const FUTURE_SKEW_MS = 5 * 60_000;
@@ -59,7 +61,7 @@ export class PaymentsService {
     return this.db.as(p, async (db) =>
       (
         await db.query(
-          `SELECT ${this.columns(p)} FROM core.payments
+          `SELECT ${this.columns(p)}${p.type === 'employee' ? `, ${CUSTOMER_NAME}` : ''} FROM core.payments
             ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
             ORDER BY coalesce(paid_at, created_at) DESC LIMIT $${args.length}`,
           args,
@@ -72,7 +74,7 @@ export class PaymentsService {
     return this.db.as(p, async (db) =>
       (
         await db.query(
-          `SELECT ${EMPLOYEE_COLUMNS}, overdue FROM core.v_pending_bank_transfers
+          `SELECT ${EMPLOYEE_COLUMNS}, ${CUSTOMER_NAME}, overdue FROM core.v_pending_bank_transfers
             ORDER BY overdue DESC, coalesce(expected_at, created_at::date)`,
         )
       ).rows,

@@ -153,12 +153,13 @@ describe('payments — reading', () => {
   it('lists overdue pending bank transfers for staff', async () => {
     const res = await api(app, employee(U.sam)).get('/api/payments/pending-transfers').expect(200);
     expect(res.body).toHaveLength(1);
-    expect(res.body[0]).toMatchObject({ id: P.janeTransfer, overdue: true });
+    expect(res.body[0]).toMatchObject({ id: P.janeTransfer, overdue: true, customer_name: 'Jane Doe' });
   });
 
   it('lists unmatched Stripe payments', async () => {
     const res = await api(app, employee(U.ada)).get('/api/payments?unmatched=true').expect(200);
     expect(res.body.map((p: { id: string }) => p.id)).toEqual([P.unmatchedStripe]);
+    expect(res.body[0].customer_name).toBeNull();
   });
 });
 
