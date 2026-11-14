@@ -583,6 +583,7 @@ export function BookAppointment({ customer: initialCustomer = null }: { customer
       setRound((r) => r + 1);
       setClock('');
       void queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar'] });
     },
     onError: (err) => {
       if (err instanceof ApiError && err.body.code === 'employee_double_booked') setConflicts(err.body.conflicts as Conflict[]);
