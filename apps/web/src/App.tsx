@@ -183,7 +183,7 @@ const STAFF_SIDEBAR: SideSection[] = [
       { to: '/staff/analytics', label: 'Analytics', icon: ChartColumn, can: ['read', 'website'] },
       { to: '/staff/products', label: 'Products', icon: Package, can: ['read', 'website'] },
       { to: '/staff/help', label: 'Articles', icon: BookOpen, can: ['read', 'knowledge'] },
-      { to: '/staff/knowledge', label: 'Answers', icon: MessageSquareQuote, can: ['update', 'knowledge'] },
+      { to: '/staff/knowledge', label: 'Knowledge', icon: MessageSquareQuote, can: ['update', 'knowledge'] },
     ],
   },
   {

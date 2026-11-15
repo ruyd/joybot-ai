@@ -1,11 +1,11 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Mail, Phone, Search, Video } from 'lucide-react';
-import { Fragment, useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Td } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
-import { date, dateTime, todayIn, zonedToIso } from '../../lib/format';
+import { dateTime, todayIn, zonedToIso } from '../../lib/format';
 import { useMe } from '../../lib/me';
 import { siteGet } from '../../lib/site';
 import { ConfirmationEmailTab, ThankYouEmailTab } from './SalesCallEmails';
@@ -79,37 +79,30 @@ type SettableStatus = 'confirmed' | 'completed' | 'no_show';
 /** Booked and still to happen (not completed, a no-show or cancelled). */
 const isActive = (c: { status: string }) => c.status === 'scheduled' || c.status === 'confirmed';
 const TABS = [
-  { key: 'upcoming', label: 'Upcoming' },
-  { key: 'past', label: 'Past' },
+  { key: 'calls', label: 'Calls' },
   { key: 'confirmation', label: 'Confirmation email' },
   { key: 'thank-you', label: 'Thank you email' },
-  { key: 'video', label: 'Setup meeting links' },
+  { key: 'video', label: 'Meeting links' },
   { key: 'setup', label: 'Booking page' },
 ] as const;
 type Tab = (typeof TABS)[number]['key'];
 
-/** Marketing › Sales calls: the booking page's setup, then the calls visitors booked on /book-a-call (searched, a page at a time). */
+/** Marketing › Sales calls: the calls visitors booked on /book-a-call (a list and the chosen call), then emails and the booking page's setup. */
 export function SalesCallsPage() {
   const api = useApi();
-  const queryClient = useQueryClient();
   const { can } = useMe();
   const editable = can('update', 'website');
   const [params_, setParams] = useSearchParams();
-  const tab: Tab = TABS.some((t) => t.key === params_.get('tab')) ? (params_.get('tab') as Tab) : 'upcoming';
-  const past = tab === 'past';
-  /** Upcoming and Past list calls; the other tabs are emails and setup. */
-  const listing = tab === 'upcoming' || tab === 'past';
+  const tab: Tab = TABS.some((t) => t.key === params_.get('tab')) ? (params_.get('tab') as Tab) : 'calls';
+  const [past, setPast] = useState(false);
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
   const [offset, setOffset] = useState(0);
-  const [hovered, setHovered] = useState<string | null>(null);
-  const [panel, setPanel] = useState<{ id: string; kind: 'reschedule' | 'outcome' } | null>(null);
-  const isOpen = (id: string, kind: 'reschedule' | 'outcome') => panel?.id === id && panel.kind === kind;
-  const toggle = (id: string, kind: 'reschedule' | 'outcome') => setPanel(isOpen(id, kind) ? null : { id, kind });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // ?call=<id> (from the calendar or Home): open its tab, find the visitor and highlight the call.
+  // ?call=<id> (from the calendar or Home): find the visitor and open the call.
   const focusId = params_.get('call');
-  const [highlight, setHighlight] = useState<string | null>(null);
   const focus = useQuery({
     queryKey: ['sales-call', focusId],
     enabled: !!focusId && tab !== 'thank-you',
@@ -118,14 +111,14 @@ export function SalesCallsPage() {
   useEffect(() => {
     const c = focus.data;
     if (!c) return;
-    const over = Date.parse(c.ends_at) <= Date.now() || c.status === 'completed' || c.status === 'no_show';
+    setPast(Date.parse(c.ends_at) <= Date.now() || c.status === 'completed' || c.status === 'no_show');
     setSearch(c.email);
     setQ(c.email);
-    setHighlight(c.id);
-    setParams(over ? { tab: 'past' } : {}, { replace: true });
+    setSelectedId(c.id);
+    setParams({}, { replace: true });
   }, [focus.data, setParams]);
 
-  // Search as they type, once they pause; a new search or tab starts from the first page.
+  // Search as they type, once they pause; a new search or list starts from the first page.
   useEffect(() => {
     const t = setTimeout(() => setQ(search.trim()), 250);
     return () => clearTimeout(t);
@@ -136,71 +129,49 @@ export function SalesCallsPage() {
   if (q) params.set('q', q);
   const calls = useQuery({
     queryKey: ['sales-calls', past, q, offset],
-    enabled: listing,
+    enabled: tab === 'calls',
     queryFn: () => api.get<{ items: SalesCall[]; total: number }>(`/website/sales-calls?${params}`),
     placeholderData: keepPreviousData,
   });
   const settings = useSalesCallSettings();
-  const assign = useMutation({
-    mutationFn: ({ id, user_id }: { id: string; user_id: string | null }) => api.put<SalesCall>(`/website/sales-calls/${id}/assign`, { user_id }),
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: ['sales-calls'] }),
-  });
-  const setStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: SettableStatus }) => api.put<SalesCall>(`/website/sales-calls/${id}/status`, { status }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
-      void queryClient.invalidateQueries({ queryKey: ['site', 'sales-call'] });
-    },
-  });
-  // Totals for the Upcoming and Past tabs (everything, not just a search), always shown.
+  // Totals for Upcoming and Past (everything, not just a search).
   const countQuery = (when: 'upcoming' | 'past') => ({
     queryKey: ['sales-calls', 'count', when],
     queryFn: () => api.get<{ total: number }>(`/website/sales-calls?when=${when}&limit=1`).then((r) => r.total),
   });
   const upcomingCount = useQuery(countQuery('upcoming'));
   const pastCount = useQuery(countQuery('past'));
-  const counts: Record<'upcoming' | 'past', number | undefined> = { upcoming: upcomingCount.data, past: pastCount.data };
   const items = calls.data?.items ?? [];
-  const columns = past ? 6 : 5;
-  useEffect(() => {
-    if (highlight && items.some((c) => c.id === highlight)) document.getElementById(`call-${highlight}`)?.scrollIntoView({ block: 'center' });
-  }, [highlight, items]);
-  const rowTone = (c: SalesCall) => (highlight === c.id ? 'bg-brand-50 dark:bg-slate-800' : hovered === c.id ? 'bg-slate-50 dark:bg-slate-800/60' : '');
   const total = calls.data?.total ?? 0;
+  const current = items.find((c) => c.id === selectedId) ?? (focus.data?.id === selectedId ? focus.data : undefined) ?? items[0];
+  const bookingUrl = `${window.location.origin}/book-a-call`;
 
   return (
     <Page>
       <PageHeader
         title="Sales calls"
-        description="Calls booked on the website's booking page; the Booking page tab sets its text, length, availability and hosts."
+        description={`Website visitors book a call on the booking page.${settings.data?.call_method === 'video' && settings.data.meet_ready ? ' Each call gets its own Google Meet link.' : ''}`}
         actions={
-          <a href="/book-a-call" target="_blank" rel="noreferrer" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-600">
-            Open the booking page ↗
-          </a>
+          <div className="flex flex-wrap gap-2">
+            {editable && (
+              <Button variant="secondary" onClick={() => setParams({ tab: 'setup' }, { replace: true })}>
+                Booking page setup
+              </Button>
+            )}
+            <Button
+              onClick={() =>
+                void navigator.clipboard.writeText(bookingUrl).then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                })
+              }
+            >
+              {copied ? 'Link copied' : 'Copy booking link'}
+            </Button>
+          </div>
         }
       />
-      <Tabs
-        label="Sales calls"
-        // Upcoming and Past show how many (blank while loading, so the tab never changes size).
-        tabs={TABS.map((t) => (t.key === 'upcoming' || t.key === 'past' ? { ...t, count: counts[t.key] ?? null } : t))}
-        value={tab}
-        onChange={(key) => setParams(key === 'upcoming' ? {} : { tab: key }, { replace: true })}
-        aside={
-          listing && (
-            <div className="relative w-72 max-w-full">
-              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <Input
-                type="search"
-                aria-label="Search calls"
-                placeholder="Search name, email or notes"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-          )
-        }
-      />
+      <Tabs label="Sales calls" tabs={TABS} value={tab} onChange={(key) => setParams(key === 'calls' ? {} : { tab: key }, { replace: true })} />
       {tab === 'setup' ? (
         <SetupCard editable={editable} />
       ) : tab === 'confirmation' ? (
@@ -210,209 +181,320 @@ export function SalesCallsPage() {
       ) : tab === 'video' ? (
         <VideoCallsTab editable={editable} />
       ) : (
-        <Card>
-          {focus.error && (
-            <div className="mb-3">
-              <ErrorBanner error={focus.error} />
-            </div>
-          )}
-          {calls.isLoading ? (
-            <Spinner />
-          ) : calls.error ? (
-            <ErrorBanner error={calls.error} />
-          ) : !items.length ? (
-            <EmptyState>{q ? `No calls match “${q}”.` : past ? 'No past calls.' : 'No upcoming calls.'}</EmptyState>
-          ) : (
-            <>
-              <Table head={past ? ['When', 'Name', 'Email', 'Assigned to', 'Status', 'Outcome'] : ['When', 'Name', 'Email', 'Assigned to', 'Status']}>
-                {items.map((c) => (
-                  <Fragment key={c.id}>
-                    <tr
-                      id={`call-${c.id}`}
-                      onMouseEnter={() => setHovered(c.id)}
-                      onMouseLeave={() => setHovered(null)}
-                      className={`scroll-mt-24 transition-colors [&>td]:align-middle ${rowTone(c)} ${c.status === 'cancelled' ? 'text-slate-400' : ''}`}
-                    >
-                      <Td className="whitespace-nowrap">
-                        {dateTime(c.starts_at)}
-                        {c.time_zone && c.time_zone !== browserZone && (
-                          <span className="block text-xs text-slate-500">Their time: {dateTime(c.starts_at, c.time_zone)}</span>
-                        )}
-                      </Td>
-                      <Td>{c.name}</Td>
-                      <Td>
-                        <a href={`mailto:${c.email}`} className="text-brand-700 hover:underline dark:text-brand-600">
-                          {c.email}
-                        </a>
-                        {c.phone && (
-                          <a href={`tel:${c.phone.replace(/[^+\d]/g, '')}`} className="flex items-center gap-1 text-xs text-brand-700 hover:underline dark:text-brand-600">
-                            <Phone className="size-3" aria-hidden="true" />
-                            Call back: {c.phone}
-                          </a>
-                        )}
-                        {c.meeting_url && (
-                          <a href={c.meeting_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-xs text-brand-700 hover:underline dark:text-brand-600">
-                            <Video className="size-3" aria-hidden="true" />
-                            Join Meet
-                          </a>
-                        )}
-                      </Td>
-                      <Td className="whitespace-nowrap">
-                        {editable && !past && isActive(c) ? (
-                          <div className="w-36">
-                            <Select
-                              aria-label={`Assigned to, call with ${c.name}`}
-                              value={c.assigned_to ?? ''}
-                              disabled={assign.isPending}
-                              onChange={(e) => assign.mutate({ id: c.id, user_id: e.target.value || null })}
-                              className="py-0.5 pr-7 text-xs"
-                            >
-                              <option value="">Unassigned</option>
-                              {c.assigned_to && !settings.data?.staff.some((st) => st.id === c.assigned_to) && (
-                                <option value={c.assigned_to}>{c.assigned_to_name ?? 'Inactive staff'}</option>
-                              )}
-                              {settings.data?.staff.map((st) => (
-                                <option key={st.id} value={st.id}>
-                                  {staffName(st)}
-                                </option>
-                              ))}
-                            </Select>
-                          </div>
-                        ) : (
-                          (c.assigned_to_name ?? <span className="text-slate-400">Unassigned</span>)
-                        )}
-                      </Td>
-                      <Td className="whitespace-nowrap">
-                        {editable && c.status !== 'cancelled' ? (
-                          <div className="w-32">
-                            <Select
-                              aria-label={`Status, call with ${c.name}`}
-                              value={c.status === 'scheduled' ? 'confirmed' : c.status}
-                              disabled={setStatus.isPending}
-                              onChange={(e) => setStatus.mutate({ id: c.id, status: e.target.value as SettableStatus })}
-                              className="py-0.5 pr-7 text-xs"
-                            >
-                              <option value="confirmed">Confirmed</option>
-                              <option value="completed">Completed</option>
-                              <option value="no_show" disabled={Date.parse(c.starts_at) > Date.now()}>
-                                No show
-                              </option>
-                            </Select>
-                          </div>
-                        ) : (
-                          <StatusBadge status={c.status} />
-                        )}
-                      </Td>
-                      {past && (
-                        <Td className="whitespace-nowrap">
-                          {c.outcome ? (
-                            <Badge tone={OUTCOME_TONE[c.outcome]}>{OUTCOME_LABEL[c.outcome]}</Badge>
-                          ) : (
-                            <span className="text-slate-400">{c.status === 'cancelled' ? '—' : 'Not logged'}</span>
-                          )}
-                          {c.status !== 'cancelled' && (
-                            <span
-                              className={`mt-1 flex items-center gap-1 text-xs ${c.thank_you_sent_at ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400'}`}
-                              title={c.thank_you_sent_at ? `Thank-you email sent ${dateTime(c.thank_you_sent_at)}` : undefined}
-                            >
-                              <Mail className="size-3.5" aria-hidden="true" />
-                              {c.thank_you_sent_at ? `Thank-you sent ${date(c.thank_you_sent_at)}` : 'No thank-you yet'}
-                            </span>
-                          )}
-                        </Td>
-                      )}
-                    </tr>
-                    {/* Second line: notes (past calls: those logged with the outcome) and the actions. */}
-                    <tr
-                      onMouseEnter={() => setHovered(c.id)}
-                      onMouseLeave={() => setHovered(null)}
-                      className={`border-t-0! transition-colors ${rowTone(c)} ${c.status === 'cancelled' ? 'text-slate-400' : ''}`}
-                    >
-                      <td colSpan={columns} className="px-4 pt-1 pb-3.5">
-                        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-                          <div className="grid min-w-0 flex-1 gap-0.5 text-sm whitespace-pre-wrap text-slate-600 dark:text-slate-300">
-                            {past ? (
-                              // Past calls: the notes logged with the outcome; what they wrote when booking, below.
-                              <>
-                                <p className={c.outcome_notes ? undefined : 'text-slate-400'}>
-                                  {c.outcome_notes ? (
-                                    <>
-                                      <span className="font-medium text-slate-500">Notes: </span>
-                                      {c.outcome_notes}
-                                    </>
-                                  ) : (
-                                    'No notes'
-                                  )}
-                                </p>
-                                {c.notes && <p className="text-xs text-slate-500">From the booking: {c.notes}</p>}
-                              </>
-                            ) : c.notes ? (
-                              <p>
-                                <span className="font-medium text-slate-500">Notes: </span>
-                                {c.notes}
-                              </p>
-                            ) : (
-                              <p className="text-slate-400">No notes</p>
-                            )}
-                          </div>
-                          {c.status !== 'cancelled' && editable && (
-                            <span className="inline-flex shrink-0 gap-1">
-                              {!past && isActive(c) && (
-                                <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'reschedule')} aria-expanded={isOpen(c.id, 'reschedule')}>
-                                  Reschedule
-                                </Button>
-                              )}
-                              {past && (
-                                <Button size="sm" variant="ghost" onClick={() => setParams({ tab: 'thank-you', call: c.id })}>
-                                  {c.thank_you_sent_at ? 'Thank you ✓' : 'Thank you'}
-                                </Button>
-                              )}
-                              <Button size="sm" variant="ghost" onClick={() => toggle(c.id, 'outcome')} aria-expanded={isOpen(c.id, 'outcome')}>
-                                {past ? 'Edit' : 'Outcome'}
-                              </Button>
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                    {panel?.id === c.id && (
-                      <tr>
-                        <td colSpan={columns} className="bg-slate-50 px-4 py-3 dark:bg-slate-900/60">
-                          {panel.kind === 'reschedule' ? (
-                            <Reschedule call={c} onDone={() => setPanel(null)} />
-                          ) : (
-                            <OutcomeForm call={c} onDone={() => setPanel(null)} />
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </Table>
-              <div className="mt-3 flex items-center justify-between gap-2 text-sm text-slate-500">
-                <span aria-live="polite">
-                  {offset + 1}–{offset + items.length} of {total.toLocaleString()}
-                </span>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" disabled={offset === 0 || calls.isFetching} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
-                    Previous
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={offset + PAGE_SIZE >= total || calls.isFetching}
-                    onClick={() => setOffset(offset + PAGE_SIZE)}
-                  >
-                    Next
-                  </Button>
-                </div>
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="grid gap-3 border-b border-slate-100 px-4 pt-4 dark:border-slate-800">
+              <div className="relative">
+                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <Input type="search" aria-label="Search calls" placeholder="Search name, email or notes" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
               </div>
-            </>
+              <Tabs
+                bare
+                label="When"
+                tabs={[
+                  { key: 'upcoming', label: 'Upcoming', count: upcomingCount.data ?? null },
+                  { key: 'past', label: 'Past', count: pastCount.data ?? null },
+                ]}
+                value={past ? 'past' : 'upcoming'}
+                onChange={(k) => setPast(k === 'past')}
+              />
+            </div>
+            {focus.error && (
+              <div className="p-3">
+                <ErrorBanner error={focus.error} />
+              </div>
+            )}
+            {calls.isLoading ? (
+              <div className="p-4">
+                <Spinner />
+              </div>
+            ) : calls.error ? (
+              <div className="p-4">
+                <ErrorBanner error={calls.error} />
+              </div>
+            ) : !items.length ? (
+              <div className="p-4">
+                <EmptyState>{q ? `No calls match “${q}”.` : past ? 'No past calls.' : 'No upcoming calls.'}</EmptyState>
+              </div>
+            ) : (
+              <>
+                <ul className={`grid gap-0.5 p-1.5 ${calls.isPlaceholderData ? 'opacity-60' : ''}`}>
+                  {items.map((c) => (
+                    <li key={c.id}>
+                      <CallRow call={c} selected={current?.id === c.id} onClick={() => setSelectedId(c.id)} />
+                    </li>
+                  ))}
+                </ul>
+                {total > PAGE_SIZE && (
+                  <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800">
+                    <span aria-live="polite">
+                      {offset + 1}–{offset + items.length} of {total.toLocaleString()}
+                    </span>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" disabled={offset === 0 || calls.isFetching} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                        Previous
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={offset + PAGE_SIZE >= total || calls.isFetching} onClick={() => setOffset(offset + PAGE_SIZE)}>
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+          {current && (
+            <CallDetail
+              key={current.id}
+              call={current}
+              editable={editable}
+              staff={settings.data?.staff ?? []}
+              onThankYou={() => setParams({ tab: 'thank-you', call: current.id })}
+            />
           )}
-          {(assign.error || setStatus.error) && <ErrorBanner error={assign.error ?? setStatus.error} />}
-        </Card>
+        </div>
       )}
     </Page>
+  );
+}
+
+const STATUS_LABEL: Record<SalesCall['status'], string> = {
+  scheduled: 'Confirmed',
+  confirmed: 'Confirmed',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+  no_show: 'No show',
+};
+const STATUS_TONE: Record<SalesCall['status'], 'green' | 'slate' | 'red'> = {
+  scheduled: 'green',
+  confirmed: 'green',
+  completed: 'slate',
+  cancelled: 'red',
+  no_show: 'red',
+};
+
+const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, { timeZone: browserZone, ...opts }).format(new Date(iso));
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('');
+
+/** One call in the list: a date tile, the visitor, the time and host, and the status. */
+function CallRow({ call: c, selected, onClick }: { call: SalesCall; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={selected ? 'true' : undefined}
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none ${
+        selected ? 'bg-brand-50 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+      } ${c.status === 'cancelled' ? 'opacity-60' : ''}`}
+    >
+      <span className="grid w-11 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white py-1 leading-none dark:border-slate-700 dark:bg-slate-900">
+        <span className="text-[0.65rem] font-bold text-red-600 uppercase">{fmt(c.starts_at, { month: 'short' })}</span>
+        <span className="mt-0.5 text-lg font-bold">{fmt(c.starts_at, { day: 'numeric' })}</span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold">{c.name}</span>
+        <span className="block truncate text-xs text-slate-500">
+          {fmt(c.starts_at, { hour: 'numeric', minute: '2-digit' })} · {c.assigned_to_name ?? 'Unassigned'}
+        </span>
+      </span>
+      <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+    </button>
+  );
+}
+
+const tile = 'rounded-lg bg-slate-50 px-3.5 py-2.5 dark:bg-slate-800/60';
+const tileLabel = 'block text-xs text-slate-500';
+const box = 'rounded-xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900';
+
+/** The chosen call: who, when, host and length, its actions, what they asked, the outcome and its emails. */
+function CallDetail({ call: c, editable, staff, onThankYou }: { call: SalesCall; editable: boolean; staff: Staff[]; onThankYou: () => void }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [rescheduling, setRescheduling] = useState(false);
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
+    void queryClient.invalidateQueries({ queryKey: ['site', 'sales-call'] });
+  };
+  const assign = useMutation({
+    mutationFn: (user_id: string | null) => api.put<SalesCall>(`/website/sales-calls/${c.id}/assign`, { user_id }),
+    onSettled: refresh,
+  });
+  const setStatus = useMutation({
+    mutationFn: (status: SettableStatus) => api.put<SalesCall>(`/website/sales-calls/${c.id}/status`, { status }),
+    onSettled: refresh,
+  });
+  const active = isActive(c);
+  const started = Date.parse(c.starts_at) <= Date.now();
+  const minutes = Math.round((Date.parse(c.ends_at) - Date.parse(c.starts_at)) / 60_000);
+  const today = fmt(c.starts_at, { year: 'numeric', month: 'numeric', day: 'numeric' }) === fmt(new Date().toISOString(), { year: 'numeric', month: 'numeric', day: 'numeric' });
+  const when = `${today ? 'Today' : fmt(c.starts_at, { weekday: 'short', month: 'short', day: 'numeric' })}, ${fmt(c.starts_at, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })}`;
+
+  return (
+    <div className="grid gap-5">
+      <section className={box}>
+        <div className="flex items-start gap-3">
+          <span className="grid size-12 shrink-0 place-items-center rounded-full bg-violet-100 text-base font-bold text-violet-700 dark:bg-violet-950 dark:text-violet-300" aria-hidden="true">
+            {initials(c.name)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-xl font-bold tracking-tight">{c.name}</h2>
+            <p className="flex flex-wrap gap-x-3 text-sm text-slate-500">
+              <a href={`mailto:${c.email}`} className="hover:text-brand-700 hover:underline">
+                {c.email}
+              </a>
+              {c.phone && (
+                <a href={`tel:${c.phone.replace(/[^+\d]/g, '')}`} className="hover:text-brand-700 hover:underline">
+                  {c.phone}
+                </a>
+              )}
+              <span>{c.appointment_number}</span>
+            </p>
+          </div>
+          <Badge tone={STATUS_TONE[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className={tile}>
+            <span className={tileLabel}>When</span>
+            <span className="block font-semibold">{when}</span>
+            {c.time_zone && c.time_zone !== browserZone && <span className="block text-xs text-slate-500">Their time: {dateTime(c.starts_at, c.time_zone)}</span>}
+          </div>
+          <div className={tile}>
+            <span className={tileLabel}>Host</span>
+            {editable && active ? (
+              <Select
+                aria-label={`Host of the call with ${c.name}`}
+                value={c.assigned_to ?? ''}
+                disabled={assign.isPending}
+                onChange={(e) => assign.mutate(e.target.value || null)}
+                className="-ml-1 border-0 bg-transparent py-0 pl-1 font-semibold shadow-none"
+              >
+                <option value="">Unassigned</option>
+                {c.assigned_to && !staff.some((st) => st.id === c.assigned_to) && <option value={c.assigned_to}>{c.assigned_to_name ?? 'Inactive staff'}</option>}
+                {staff.map((st) => (
+                  <option key={st.id} value={st.id}>
+                    {staffName(st)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              <span className="block font-semibold">{c.assigned_to_name ?? 'Unassigned'}</span>
+            )}
+          </div>
+          <div className={tile}>
+            <span className={tileLabel}>Duration</span>
+            <span className="block font-semibold">
+              {minutes} min · {c.meeting_url ? 'video' : c.phone ? 'phone' : 'call'}
+            </span>
+          </div>
+        </div>
+        {c.status !== 'cancelled' && (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {c.meeting_url && active && (
+              <a
+                href={c.meeting_url}
+                target="_blank"
+                rel="noreferrer"
+                className="press inline-flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              >
+                <Video className="size-4" aria-hidden="true" /> Join Google Meet
+              </a>
+            )}
+            {c.phone && active && (
+              <a
+                href={`tel:${c.phone.replace(/[^+\d]/g, '')}`}
+                className="press inline-flex items-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                <Phone className="size-4" aria-hidden="true" /> Call {c.phone}
+              </a>
+            )}
+            {editable && active && (
+              <Button variant="secondary" onClick={() => setRescheduling(!rescheduling)} aria-expanded={rescheduling}>
+                Reschedule
+              </Button>
+            )}
+            {editable && active && started && (
+              <>
+                <Button variant="secondary" disabled={setStatus.isPending} onClick={() => setStatus.mutate('completed')}>
+                  Mark completed
+                </Button>
+                <Button variant="ghost" disabled={setStatus.isPending} onClick={() => setStatus.mutate('no_show')}>
+                  No show
+                </Button>
+              </>
+            )}
+            {editable && !active && (
+              <Button variant="ghost" disabled={setStatus.isPending} onClick={() => setStatus.mutate('confirmed')}>
+                Mark as confirmed
+              </Button>
+            )}
+          </div>
+        )}
+        {rescheduling && (
+          <div className="mt-4 rounded-lg bg-slate-50 p-4 dark:bg-slate-800/60">
+            <Reschedule call={c} onDone={() => setRescheduling(false)} />
+          </div>
+        )}
+        {(assign.error || setStatus.error) && (
+          <div className="mt-3">
+            <ErrorBanner error={assign.error ?? setStatus.error} />
+          </div>
+        )}
+      </section>
+      <div className="grid items-start gap-5 md:grid-cols-2">
+        <section className={box}>
+          <h3 className="font-semibold">What they asked</h3>
+          <p className={`mt-2 text-sm whitespace-pre-wrap ${c.notes ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400'}`}>{c.notes || 'They didn’t write anything when booking.'}</p>
+          {c.status !== 'cancelled' && (
+            <div className="mt-5">
+              {editable ? (
+                <OutcomeForm key={`${c.outcome}-${c.outcome_notes}`} call={c} />
+              ) : c.outcome ? (
+                <p className="text-sm">
+                  <Badge tone={OUTCOME_TONE[c.outcome]}>{OUTCOME_LABEL[c.outcome]}</Badge> {c.outcome_notes}
+                </p>
+              ) : null}
+            </div>
+          )}
+        </section>
+        <section className={box}>
+          <h3 className="font-semibold">Emails</h3>
+          <ol className="mt-3 grid gap-3 text-sm">
+            <li className="flex gap-3">
+              <span className="mt-1.5 size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden="true" />
+              <span>
+                <span className="block font-semibold">Booked</span>
+                <span className="text-slate-500">
+                  {dateTime(c.created_at)} · <Mail className="inline size-3.5" aria-hidden="true" /> confirmation to {c.email}
+                </span>
+              </span>
+            </li>
+            {c.status !== 'cancelled' && (
+              <li className="flex gap-3">
+                <span
+                  className={`mt-1.5 size-2 shrink-0 rounded-full ${c.thank_you_sent_at ? 'bg-emerald-500' : 'border border-slate-400 dark:border-slate-500'}`}
+                  aria-hidden="true"
+                />
+                <span>
+                  <span className="block font-semibold">Thank-you</span>
+                  <span className="text-slate-500">{c.thank_you_sent_at ? `Sent ${dateTime(c.thank_you_sent_at)}` : 'Not sent · write after the call'}</span>
+                </span>
+              </li>
+            )}
+          </ol>
+          {editable && c.status !== 'cancelled' && (
+            <Button variant="secondary" size="sm" className="mt-4" onClick={onThankYou}>
+              {c.thank_you_sent_at ? 'Open thank-you' : 'Write thank-you'}
+            </Button>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -513,7 +595,7 @@ const OUTCOME_LABEL: Record<Outcome, string> = { follow_up: 'Follow up', convers
 const OUTCOME_TONE: Record<Outcome, 'amber' | 'green' | 'brand' | 'red'> = { follow_up: 'amber', conversion: 'green', potential: 'brand', do_not_call: 'red' };
 
 /** Logs how a call went, with notes (again to change it). */
-function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) {
+function OutcomeForm({ call, onDone }: { call: SalesCall; onDone?: () => void }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [outcome, setOutcome] = useState<Outcome | ''>(call.outcome ?? '');
@@ -522,7 +604,7 @@ function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) 
     mutationFn: () => api.post<SalesCall>(`/website/sales-calls/${call.id}/outcome`, { outcome, notes: notes.trim() || undefined }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sales-calls'] });
-      onDone();
+      onDone?.();
     },
   });
   return (
@@ -531,7 +613,7 @@ function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) 
         e.preventDefault();
         save.mutate();
       }}
-      className="grid max-w-2xl gap-3"
+      className="grid gap-3"
     >
       <fieldset>
         <legend className="mb-2 text-sm font-medium">How did the call with {call.name} go?</legend>
@@ -566,9 +648,11 @@ function OutcomeForm({ call, onDone }: { call: SalesCall; onDone: () => void }) 
         <Button type="submit" size="sm" disabled={!outcome || save.isPending}>
           Save outcome
         </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
-          Close
-        </Button>
+        {onDone && (
+          <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+            Close
+          </Button>
+        )}
       </div>
     </form>
   );

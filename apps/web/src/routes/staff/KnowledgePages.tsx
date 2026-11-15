@@ -1,15 +1,16 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
+import { Plus, Search, X } from 'lucide-react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Page } from '../../components/Layout';
-import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
+import { Button, Card, EmptyState, ErrorBanner, Field, Input, PageHeader, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { date } from '../../lib/format';
 import { useMe } from '../../lib/me';
 
 type Audience = 'customer' | 'employee' | 'all';
-const AUDIENCE_LABEL: Record<Audience, string> = { all: 'Everyone', customer: 'Customers', employee: 'Staff' };
+const AUDIENCE_LABEL: Record<Audience, string> = { all: 'Any audience', customer: 'Customers', employee: 'Employees' };
 
 type AnswerAction = { type: 'book'; service_id: string | null; label?: string } | { type: 'article'; article_id: string; label?: string };
 
@@ -40,14 +41,6 @@ interface Service {
   name: string;
 }
 
-/** Full-width list row: hover, pressed and selected states, and a keyboard focus ring. */
-const rowClass = (selected: boolean) =>
-  `block w-full px-4 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-500 ${
-    selected
-      ? 'bg-brand-50 shadow-[inset_3px_0_0] shadow-brand-600 dark:bg-slate-800'
-      : 'hover:bg-slate-100 active:bg-slate-200 dark:hover:bg-slate-800/70 dark:active:bg-slate-700'
-  }`;
-
 const PAGE_SIZE = 50;
 
 /** The value after it has stopped changing for `ms` (search as you type without a request per key). */
@@ -62,55 +55,99 @@ function useDebounced<T>(value: T, ms = 250): T {
 
 const textarea =
   'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900';
+const panel = 'rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900';
 
-const TABS = [
-  ['answers', 'Saved answers'],
-  ['articles', 'Articles'],
-  ['test', 'Test a question'],
-] as const;
+/** A list row: a dot (on or off), the title and one line under it. */
+function ListRow({ on, title, sub, selected, onClick }: { on: boolean; title: string; sub: ReactNode; selected: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={selected ? 'true' : undefined}
+      className={`flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:outline-none ${
+        selected ? 'bg-brand-50 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
+      }`}
+    >
+      <span className={`mt-1.5 size-2 shrink-0 rounded-full ${on ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`} aria-hidden="true" />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</span>
+        <span className="block truncate text-xs text-slate-500">{sub}</span>
+      </span>
+    </button>
+  );
+}
 
-/** Admin: what the assistant knows (saved answers, help articles) and a preview of what it finds. */
+function SearchBox({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  return (
+    <div className="relative">
+      <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+      <Input type="search" value={value} onChange={(e) => onChange(e.target.value)} placeholder="Search titles, questions and text" aria-label={label} className="pl-9" />
+    </div>
+  );
+}
+
+/** Admin: what the assistant knows (saved answers, help articles), and a test of what it finds for a question. */
 export function Knowledge() {
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>('answers');
-  const [params] = useSearchParams();
-  // ?answer=<id> (e.g. from a chat source) opens that answer.
-  useEffect(() => {
-    if (params.get('answer')) setTab('answers');
-  }, [params]);
+  const api = useApi();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'articles' ? 'articles' : 'answers';
+  const [creating, setCreating] = useState(0);
+  // Totals for the tabs (everything, not just a search).
+  const answerCount = useQuery({
+    queryKey: ['answers', 'count'],
+    queryFn: () => api.get<{ total: number }>('/answers?limit=1').then((r) => r.total),
+  });
+  const articles = useQuery({ queryKey: ['articles', ''], queryFn: () => api.get<Article[]>('/articles') });
   return (
     <Page>
       <PageHeader
-        title="Answers"
-        description="Saved answers and articles the assistant uses. It cites them and offers their buttons (book, read an article)."
+        title="Knowledge"
+        description="The assistant searches saved answers and article passages for every question, and cites them."
+        actions={<Button onClick={() => setCreating((n) => n + 1)}>{tab === 'articles' ? 'New article' : 'New answer'}</Button>}
       />
-      <Tabs label="Answers" tabs={TABS.map(([key, label]) => ({ key, label }))} value={tab} onChange={setTab} />
-      {tab === 'answers' && <Answers />}
-      {tab === 'articles' && <Articles />}
-      {tab === 'test' && <TestQuestion />}
+      <Tabs
+        label="Knowledge"
+        tabs={[
+          { key: 'answers', label: 'Saved answers', count: answerCount.data ?? null },
+          { key: 'articles', label: 'Articles', count: articles.data?.length ?? null },
+        ]}
+        value={tab}
+        onChange={(key) => {
+          setCreating(0);
+          setParams(key === 'answers' ? {} : { tab: key }, { replace: true });
+        }}
+      />
+      <TestQuestion onOpenAnswer={(id) => setParams({ answer: id }, { replace: true })} />
+      {tab === 'answers' ? <Answers creating={creating} /> : <Articles creating={creating} />}
     </Page>
   );
 }
 
 // Saved answers --------------------------------------------------------------------------------
 
-function Answers() {
+function Answers({ creating }: { creating: number }) {
   const api = useApi();
   const [urlParams, setUrlParams] = useSearchParams();
   const [q, setQ] = useState('');
   const [audience, setAudience] = useState<'' | Audience>('');
   const [active, setActive] = useState<'' | 'true' | 'false'>('');
-  const [sort, setSort] = useState<'title' | 'updated'>('title');
   const [offset, setOffset] = useState(0);
-  const [editing, setEditing] = useState<Answer | 'new' | null>(null);
+  const [selected, setSelected] = useState<Answer | 'new' | null>(null);
   const term = useDebounced(q.trim());
 
+  // "New answer" in the header.
+  useEffect(() => {
+    if (creating) setSelected('new');
+  }, [creating]);
+
+  // ?answer=<id> (from a chat source or the test above) opens that answer.
   const requested = urlParams.get('answer');
   useEffect(() => {
     if (!requested) return;
     let live = true;
     api
       .get<Answer>(`/answers/${requested}`)
-      .then((a) => live && setEditing(a))
+      .then((a) => live && setSelected(a))
       .catch(() => undefined) // deleted since: just show the list
       .finally(() => live && setUrlParams({}, { replace: true }));
     return () => {
@@ -119,9 +156,9 @@ function Answers() {
   }, [requested, api, setUrlParams]);
 
   // A new search or filter starts from the first page.
-  useEffect(() => setOffset(0), [term, audience, active, sort]);
+  useEffect(() => setOffset(0), [term, audience, active]);
 
-  const params = new URLSearchParams({ sort, limit: String(PAGE_SIZE), offset: String(offset) });
+  const params = new URLSearchParams({ sort: 'title', limit: String(PAGE_SIZE), offset: String(offset) });
   if (term) params.set('q', term);
   if (audience) params.set('audience', audience);
   if (active) params.set('active', active);
@@ -133,265 +170,383 @@ function Answers() {
   const total = list.data?.total ?? 0;
   const items = list.data?.items ?? [];
   const filtered = Boolean(term || audience || active);
+  // Nothing chosen yet: show the first answer.
+  const current = selected ?? (requested ? null : (items[0] ?? null));
 
   return (
-    <div className={`grid items-start gap-4 ${editing ? 'lg:grid-cols-[minmax(0,1fr)_32rem] xl:grid-cols-[minmax(0,1fr)_38rem]' : ''}`}>
-      <Card title="Saved answers" actions={<Button size="sm" onClick={() => setEditing('new')}>New answer</Button>}>
-        <div className="mb-3 grid gap-2">
-          <Input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search titles, questions and text" aria-label="Search answers" />
-          <div className="flex flex-wrap gap-2 [&>select]:min-w-36 [&>select]:flex-1">
-            <Select aria-label="Shown to" value={audience} onChange={(e) => setAudience(e.target.value as '' | Audience)}>
-              <option value="">Any audience</option>
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+      <section className={`${panel} overflow-hidden`}>
+        <div className="grid gap-2 border-b border-slate-100 p-3 dark:border-slate-800">
+          <SearchBox value={q} onChange={setQ} label="Search answers" />
+          <div className="grid grid-cols-2 gap-2">
+            <Select aria-label="Shown to" value={audience} onChange={(e) => setAudience(e.target.value as '' | Audience)} className="py-1 text-xs">
+              <option value="">Anyone</option>
               {(Object.keys(AUDIENCE_LABEL) as Audience[]).map((k) => (
                 <option key={k} value={k}>{AUDIENCE_LABEL[k]}</option>
               ))}
             </Select>
-            <Select aria-label="Status" value={active} onChange={(e) => setActive(e.target.value as '' | 'true' | 'false')}>
+            <Select aria-label="On or off" value={active} onChange={(e) => setActive(e.target.value as '' | 'true' | 'false')} className="py-1 text-xs">
               <option value="">On and off</option>
               <option value="true">On</option>
               <option value="false">Off</option>
             </Select>
-            <Select aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value as 'title' | 'updated')}>
-              <option value="title">A–Z</option>
-              <option value="updated">Recently edited</option>
-            </Select>
           </div>
         </div>
         {list.isLoading ? (
-          <Spinner />
+          <div className="p-4"><Spinner /></div>
         ) : list.error ? (
-          <ErrorBanner error={list.error} />
+          <div className="p-4"><ErrorBanner error={list.error} /></div>
         ) : !items.length ? (
-          <EmptyState>{filtered ? 'No answers match.' : 'No saved answers yet.'}</EmptyState>
+          <div className="p-4"><EmptyState>{filtered ? 'No answers match.' : 'No saved answers yet.'}</EmptyState></div>
         ) : (
           <>
-            <ul className={`-mx-6 divide-y divide-slate-100 border-y border-slate-100 dark:divide-slate-800 dark:border-slate-800 ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
+            <ul className={`grid gap-0.5 p-1.5 lg:max-h-[calc(100dvh-24rem)] lg:overflow-y-auto ${list.isPlaceholderData ? 'opacity-60' : ''}`}>
               {items.map((a) => (
                 <li key={a.id}>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(a)}
-                    aria-current={editing !== 'new' && editing?.id === a.id ? 'true' : undefined}
-                    className={rowClass(editing !== 'new' && editing?.id === a.id)}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="min-w-0 truncate font-medium">{a.title}</span>
-                      <span className="flex shrink-0 gap-1 whitespace-nowrap">
-                        <Badge>{AUDIENCE_LABEL[a.audience]}</Badge>
-                        {!a.active && <Badge tone="amber">off</Badge>}
-                        {a.actions.length > 0 && <Badge tone="brand">{a.actions.length} button{a.actions.length === 1 ? '' : 's'}</Badge>}
-                      </span>
-                      <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-slate-400">{date(a.updated_at)}</span>
-                    </span>
-                    <span className="block truncate text-sm text-slate-500">{a.questions.join(' · ') || 'No example questions'}</span>
-                  </button>
+                  <ListRow
+                    on={a.active}
+                    title={a.title}
+                    sub={`${AUDIENCE_LABEL[a.audience]} · edited ${date(a.updated_at)}`}
+                    selected={current !== 'new' && current?.id === a.id}
+                    onClick={() => setSelected(a)}
+                  />
                 </li>
               ))}
             </ul>
-            <div className="mt-3 flex items-center justify-between gap-2 text-sm text-slate-500">
-              <span aria-live="polite">
-                {offset + 1}–{offset + items.length} of {total}
-              </span>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" disabled={offset === 0 || list.isFetching} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
-                  Previous
-                </Button>
-                <Button size="sm" variant="secondary" disabled={offset + PAGE_SIZE >= total || list.isFetching} onClick={() => setOffset(offset + PAGE_SIZE)}>
-                  Next
-                </Button>
+            {total > PAGE_SIZE && (
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800">
+                <span aria-live="polite">
+                  {offset + 1}–{offset + items.length} of {total}
+                </span>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" disabled={offset === 0 || list.isFetching} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>
+                    Previous
+                  </Button>
+                  <Button size="sm" variant="ghost" disabled={offset + PAGE_SIZE >= total || list.isFetching} onClick={() => setOffset(offset + PAGE_SIZE)}>
+                    Next
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
-      </Card>
-      {editing && (
-        <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-10rem)] lg:overflow-y-auto">
-          <AnswerEditor key={editing === 'new' ? 'new' : editing.id} answer={editing === 'new' ? undefined : editing} onDone={() => setEditing(null)} />
-        </div>
+      </section>
+      {current && (
+        <AnswerEditor
+          key={current === 'new' ? `new-${creating}` : `${current.id}-${current.updated_at}`}
+          answer={current === 'new' ? undefined : current}
+          onSaved={(a) => setSelected(a)}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
 }
 
-function AnswerEditor({ answer, onDone }: { answer?: Answer; onDone: () => void }) {
+/** A removable chip. */
+function Chip({ children, onRemove, tone = 'slate', onClick, pressed }: { children: ReactNode; onRemove?: () => void; tone?: 'slate' | 'brand'; onClick?: () => void; pressed?: boolean }) {
+  const colors =
+    tone === 'brand'
+      ? 'border border-brand-200 bg-brand-50 font-semibold text-brand-700 dark:border-slate-700 dark:bg-slate-800 dark:text-brand-100'
+      : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200';
+  return (
+    <span className={`inline-flex items-center rounded-full text-sm ${colors} ${pressed ? 'ring-2 ring-brand-500' : ''}`}>
+      {onClick ? (
+        <button type="button" onClick={onClick} aria-expanded={pressed} className="py-1.5 pl-3 pr-1 text-left">
+          {children}
+        </button>
+      ) : (
+        <span className="py-1.5 pl-3 pr-1">{children}</span>
+      )}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="mr-1 rounded-full p-1 text-slate-400 hover:bg-black/5 hover:text-slate-700 dark:hover:bg-white/10" aria-label={`Remove ${typeof children === 'string' ? children : ''}`.trim()}>
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
+      )}
+    </span>
+  );
+}
+
+const addButton =
+  'inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:border-brand-500 hover:text-brand-700 dark:border-slate-600 dark:text-slate-300';
+
+function AnswerEditor({ answer, onSaved, onClose }: { answer?: Answer; onSaved: (a: Answer) => void; onClose: () => void }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const { can } = useMe();
   const services = useQuery({ queryKey: ['services'], queryFn: () => api.get<Service[]>('/services') });
   const articles = useQuery({ queryKey: ['articles', ''], queryFn: () => api.get<Article[]>('/articles') });
   const [title, setTitle] = useState(answer?.title ?? '');
-  const [questions, setQuestions] = useState(answer?.questions.join('\n') ?? '');
+  const [questions, setQuestions] = useState<string[]>(answer?.questions ?? []);
+  const [question, setQuestion] = useState<string | null>(null);
   const [body, setBody] = useState(answer?.body ?? '');
   const [audience, setAudience] = useState<Audience>(answer?.audience ?? 'all');
   const [active, setActive] = useState(answer?.active ?? true);
   const [actions, setActions] = useState<AnswerAction[]>(answer?.actions ?? []);
+  const [openAction, setOpenAction] = useState<number | null>(null);
+  const [reset, setReset] = useState(0);
 
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ['answers'] });
   const save = useMutation({
     mutationFn: () => {
       const payload = {
         title,
-        questions: questions.split('\n').map((q) => q.trim()).filter(Boolean),
+        questions,
         body,
         audience,
         active,
         actions: actions.map((a) => (a.label?.trim() ? { ...a, label: a.label.trim() } : { ...a, label: undefined })),
       };
-      return answer ? api.put(`/answers/${answer.id}`, payload) : api.post('/answers', payload);
+      return answer ? api.put<Answer>(`/answers/${answer.id}`, payload) : api.post<Answer>('/answers', payload);
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       refresh();
-      onDone();
+      onSaved(saved);
     },
   });
   const remove = useMutation({
     mutationFn: () => api.del(`/answers/${answer!.id}`),
     onSuccess: () => {
       refresh();
-      onDone();
+      onClose();
     },
   });
   const setAction = (i: number, a: AnswerAction) => setActions(actions.map((x, j) => (j === i ? a : x)));
+  const actionLabel = (a: AnswerAction) =>
+    a.label?.trim() ||
+    (a.type === 'book'
+      ? `Book · ${services.data?.find((s) => s.id === a.service_id)?.name ?? 'Any service'}`
+      : `Read article · ${articles.data?.find((x) => x.id === a.article_id)?.title ?? 'choose one'}`);
+  const addQuestion = () => {
+    const v = question?.trim();
+    if (v && !questions.includes(v)) setQuestions([...questions, v]);
+    setQuestion(null);
+  };
+  const cancel = () => {
+    if (!answer) return onClose();
+    setTitle(answer.title);
+    setQuestions(answer.questions);
+    setBody(answer.body);
+    setAudience(answer.audience);
+    setActive(answer.active);
+    setActions(answer.actions);
+    setOpenAction(null);
+    setQuestion(null);
+    setReset(reset + 1);
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
     save.mutate();
   };
   return (
-    <Card title={answer ? 'Edit answer' : 'New answer'}>
-      <form onSubmit={submit} className="grid gap-4">
-        <Field label="Title">
-          <Input required maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Rescheduling or cancelling" />
+    <form onSubmit={submit} className={`${panel} grid gap-5 p-6`} aria-label={answer ? `Edit ${answer.title}` : 'New answer'}>
+      <div className="flex items-center gap-4">
+        <input
+          required
+          maxLength={200}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder={answer ? 'Title' : 'New answer title, e.g. Rescheduling or cancelling'}
+          aria-label="Title"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 -ml-1 text-xl font-bold tracking-tight hover:border-slate-200 focus:border-slate-300 focus:outline-none dark:hover:border-slate-700"
+        />
+        <label className="flex shrink-0 items-center gap-2 text-sm font-semibold">
+          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> On
+        </label>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Shown to">
+          <Select value={audience} onChange={(e) => setAudience(e.target.value as Audience)}>
+            {(Object.keys(AUDIENCE_LABEL) as Audience[]).map((k) => (
+              <option key={k} value={k}>{AUDIENCE_LABEL[k]}</option>
+            ))}
+          </Select>
         </Field>
-        <Field label="Example questions" hint="One per line. The assistant matches questions like these, in other words too.">
-          <textarea rows={4} className={textarea} value={questions} onChange={(e) => setQuestions(e.target.value)} placeholder={'How do I reschedule?\nCan I move my booking?'} />
-        </Field>
-        <Field label="Answer" hint="What the assistant should say. It may adapt the wording but keeps the meaning.">
-          <textarea
-            required
-            rows={14}
-            maxLength={5000}
-            className={`${textarea} min-h-72 resize-y leading-relaxed`}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
-          <span className={`block text-right text-xs ${body.length > 4500 ? 'text-amber-700' : 'text-slate-400'}`}>{body.length.toLocaleString()} / 5,000</span>
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Shown to">
-            <Select value={audience} onChange={(e) => setAudience(e.target.value as Audience)}>
-              {(Object.keys(AUDIENCE_LABEL) as Audience[]).map((k) => (
-                <option key={k} value={k}>{AUDIENCE_LABEL[k]}</option>
-              ))}
-            </Select>
-          </Field>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" className="switch" checked={active} onChange={(e) => setActive(e.target.checked)} /> Active
-          </label>
-        </div>
+        {answer && <p className="self-end pb-2.5 text-xs text-slate-500 sm:text-right">Last edited {date(answer.updated_at)}</p>}
+      </div>
+      <Field label="Answer" hint="What the assistant should say. It may adapt the wording but keeps the meaning.">
+        <textarea
+          required
+          rows={5}
+          maxLength={5000}
+          className={`${textarea} min-h-28 resize-y leading-relaxed`}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+        {body.length > 4000 && <span className={`block text-right text-xs ${body.length > 4500 ? 'text-amber-700' : 'text-slate-400'}`}>{body.length.toLocaleString()} / 5,000</span>}
+      </Field>
 
-        <fieldset className="grid gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-          <legend className="px-1 text-sm font-medium">Buttons (up to 4)</legend>
-          {actions.length === 0 && <p className="text-sm text-slate-500">No buttons. Add one to let people book or read an article from the answer.</p>}
+      <div>
+        <p className="mb-2 text-sm font-medium">Example questions</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {questions.map((x) => (
+            <Chip key={x} onRemove={() => setQuestions(questions.filter((y) => y !== x))}>{x}</Chip>
+          ))}
+          {question !== null ? (
+            <input
+              autoFocus
+              maxLength={300}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onBlur={addQuestion}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addQuestion();
+                } else if (e.key === 'Escape') setQuestion(null);
+              }}
+              placeholder="Type a question, then Enter"
+              aria-label="New example question"
+              className="min-w-56 rounded-full border border-brand-500 bg-white px-3 py-1.5 text-sm focus:outline-none dark:bg-slate-900"
+            />
+          ) : (
+            <button type="button" className={addButton} onClick={() => setQuestion('')}>
+              <Plus className="size-3.5" aria-hidden="true" /> Add
+            </button>
+          )}
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">The assistant matches questions like these, in other words too.</p>
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-medium">
+          Buttons offered <span className="font-normal text-slate-500">(up to 4)</span>
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
           {actions.map((a, i) => (
-            <div key={i} className="grid gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
-              <Select
-                aria-label="Button type"
-                value={a.type}
-                onChange={(e) =>
-                  setAction(i, e.target.value === 'book' ? { type: 'book', service_id: null } : { type: 'article', article_id: articles.data?.[0]?.id ?? '' })
-                }
-              >
-                <option value="book">Book</option>
-                <option value="article">Read article</option>
-              </Select>
-              {a.type === 'book' ? (
-                <Select aria-label="Service" value={a.service_id ?? ''} onChange={(e) => setAction(i, { ...a, service_id: e.target.value || null })}>
-                  <option value="">Any service</option>
-                  {services.data?.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </Select>
-              ) : (
-                <Select aria-label="Article" required value={a.article_id} onChange={(e) => setAction(i, { ...a, article_id: e.target.value })}>
-                  <option value="">Choose an article</option>
-                  {articles.data?.map((art) => (
-                    <option key={art.id} value={art.id}>{art.title}</option>
-                  ))}
-                </Select>
-              )}
-              <Input aria-label="Button label (optional)" placeholder="Label (optional)" maxLength={60} value={a.label ?? ''} onChange={(e) => setAction(i, { ...a, label: e.target.value })} />
-              <Button type="button" size="sm" variant="ghost" onClick={() => setActions(actions.filter((_, j) => j !== i))} aria-label="Remove button">
-                Remove
-              </Button>
-            </div>
+            <Chip
+              key={i}
+              tone="brand"
+              pressed={openAction === i}
+              onClick={() => setOpenAction(openAction === i ? null : i)}
+              onRemove={() => {
+                setActions(actions.filter((_, j) => j !== i));
+                setOpenAction(null);
+              }}
+            >
+              {actionLabel(a)}
+            </Chip>
           ))}
           {actions.length < 4 && (
-            <div>
-              <Button type="button" size="sm" variant="secondary" onClick={() => setActions([...actions, { type: 'book', service_id: null }])}>
-                Add a button
-              </Button>
-            </div>
+            <button
+              type="button"
+              className={addButton}
+              onClick={() => {
+                setActions([...actions, { type: 'book', service_id: null }]);
+                setOpenAction(actions.length);
+              }}
+            >
+              <Plus className="size-3.5" aria-hidden="true" /> Add
+            </button>
           )}
-        </fieldset>
-
-        {(save.error || remove.error) && <ErrorBanner error={save.error ?? remove.error} />}
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={!title.trim() || !body.trim() || save.isPending}>Save</Button>
-          <Button type="button" variant="secondary" onClick={onDone}>Cancel</Button>
-          {answer && can('delete', 'knowledge') && (
-            <Button type="button" variant="ghost" className="ml-auto" disabled={remove.isPending} onClick={() => remove.mutate()}>Delete</Button>
-          )}
+          {!actions.length && <span className="text-xs text-slate-500">None. A button lets people book or read an article from the answer.</span>}
         </div>
-      </form>
-    </Card>
+        {openAction !== null && actions[openAction] && (
+          <ActionFields
+            key={`${openAction}-${reset}`}
+            action={actions[openAction]}
+            services={services.data ?? []}
+            articles={articles.data ?? []}
+            onChange={(a) => setAction(openAction, a)}
+          />
+        )}
+      </div>
+
+      {(save.error || remove.error) && <ErrorBanner error={save.error ?? remove.error} />}
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-5 dark:border-slate-800">
+        {answer && can('delete', 'knowledge') && (
+          <Button type="button" variant="ghost" disabled={remove.isPending} onClick={() => window.confirm(`Delete “${answer.title}”?`) && remove.mutate()}>
+            Delete
+          </Button>
+        )}
+        <span className="ml-auto" />
+        <Button type="button" variant="secondary" onClick={cancel}>Cancel</Button>
+        <Button type="submit" disabled={!title.trim() || !body.trim() || save.isPending}>Save answer</Button>
+      </div>
+    </form>
+  );
+}
+
+/** The type, target and optional label of one button. */
+function ActionFields({ action: a, services, articles, onChange }: { action: AnswerAction; services: Service[]; articles: Article[]; onChange: (a: AnswerAction) => void }) {
+  return (
+    <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[8rem_minmax(0,1fr)_minmax(0,1fr)] dark:border-slate-800 dark:bg-slate-900/60">
+      <Select
+        aria-label="Button type"
+        value={a.type}
+        onChange={(e) => onChange(e.target.value === 'book' ? { type: 'book', service_id: null } : { type: 'article', article_id: articles[0]?.id ?? '' })}
+      >
+        <option value="book">Book</option>
+        <option value="article">Read article</option>
+      </Select>
+      {a.type === 'book' ? (
+        <Select aria-label="Service" value={a.service_id ?? ''} onChange={(e) => onChange({ ...a, service_id: e.target.value || null })}>
+          <option value="">Any service</option>
+          {services.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </Select>
+      ) : (
+        <Select aria-label="Article" required value={a.article_id} onChange={(e) => onChange({ ...a, article_id: e.target.value })}>
+          <option value="">Choose an article</option>
+          {articles.map((art) => (
+            <option key={art.id} value={art.id}>{art.title}</option>
+          ))}
+        </Select>
+      )}
+      <Input aria-label="Button label (optional)" placeholder="Label (optional)" maxLength={60} value={a.label ?? ''} onChange={(e) => onChange({ ...a, label: e.target.value })} />
+    </div>
   );
 }
 
 // Articles -------------------------------------------------------------------------------------
 
-function Articles() {
+function Articles({ creating }: { creating: number }) {
   const api = useApi();
   const list = useQuery({ queryKey: ['articles', ''], queryFn: () => api.get<Article[]>('/articles') });
-  const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [selected, setSelected] = useState<string | 'new' | null>(null);
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    if (creating) setSelected('new');
+  }, [creating]);
+  const term = q.trim().toLowerCase();
+  const items = (list.data ?? []).filter((a) => !term || `${a.title} ${a.summary ?? ''} ${a.slug}`.toLowerCase().includes(term));
+  const current = selected ?? items[0]?.slug ?? null;
   return (
-    <div className={`grid items-start gap-4 ${editing ? 'lg:grid-cols-[minmax(0,1fr)_40rem]' : ''}`}>
-      <Card title="Articles" actions={<Button size="sm" onClick={() => setEditing('new')}>New article</Button>}>
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,21rem)_minmax(0,1fr)]">
+      <section className={`${panel} overflow-hidden`}>
+        <div className="border-b border-slate-100 p-3 dark:border-slate-800">
+          <SearchBox value={q} onChange={setQ} label="Search articles" />
+        </div>
         {list.isLoading ? (
-          <Spinner />
-        ) : !list.data?.length ? (
-          <EmptyState>No articles yet.</EmptyState>
+          <div className="p-4"><Spinner /></div>
+        ) : list.error ? (
+          <div className="p-4"><ErrorBanner error={list.error} /></div>
+        ) : !items.length ? (
+          <div className="p-4"><EmptyState>{term ? 'No articles match.' : 'No articles yet.'}</EmptyState></div>
         ) : (
-          <ul className="-mx-6 -mt-2 -mb-6 divide-y divide-slate-100 dark:divide-slate-800">
-            {list.data.map((a) => (
+          <ul className="grid gap-0.5 p-1.5 lg:max-h-[calc(100dvh-24rem)] lg:overflow-y-auto">
+            {items.map((a) => (
               <li key={a.id}>
-                <button
-                  type="button"
-                  onClick={() => setEditing(a.slug)}
-                  aria-current={editing === a.slug ? 'true' : undefined}
-                  className={rowClass(editing === a.slug)}
-                >
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{a.title}</span>
-                    <Badge>{AUDIENCE_LABEL[a.audience]}</Badge>
-                    {!a.published && <Badge tone="amber">draft</Badge>}
-                  </span>
-                  <span className="block text-sm text-slate-500">/{a.slug} · updated {date(a.updated_at)}</span>
-                </button>
+                <ListRow
+                  on={a.published}
+                  title={a.title}
+                  sub={`${a.published ? AUDIENCE_LABEL[a.audience] : 'Draft'} · /${a.slug}`}
+                  selected={current === a.slug}
+                  onClick={() => setSelected(a.slug)}
+                />
               </li>
             ))}
           </ul>
         )}
-      </Card>
-      {editing && (
-        <div className="lg:sticky lg:top-20 lg:max-h-[calc(100dvh-10rem)] lg:overflow-y-auto">
-          {editing === 'new' ? (
-            <ArticleEditor key="new" onDone={() => setEditing(null)} />
-          ) : (
-            <LoadedArticleEditor key={editing} slug={editing} onDone={() => setEditing(null)} />
-          )}
-        </div>
-      )}
+      </section>
+      {current &&
+        (current === 'new' ? (
+          <ArticleEditor key={`new-${creating}`} onDone={() => setSelected(null)} />
+        ) : (
+          <LoadedArticleEditor key={current} slug={current} onDone={() => setSelected(null)} />
+        ))}
     </div>
   );
 }
@@ -526,7 +681,10 @@ interface Match {
   actions: { type: string; label: string }[];
 }
 
-function TestQuestion() {
+const resultChip = 'inline-flex max-w-full items-center truncate rounded-md px-2.5 py-1.5 text-xs';
+
+/** What the assistant would find for a question: saved answers, article passages and the buttons it would offer. */
+function TestQuestion({ onOpenAnswer }: { onOpenAnswer: (id: string) => void }) {
   const api = useApi();
   const [q, setQ] = useState('');
   const [as, setAs] = useState<'customer' | 'employee'>('customer');
@@ -536,8 +694,11 @@ function TestQuestion() {
     enabled: Boolean(asked),
     queryFn: () => api.get<Match>(`/knowledge/match?as=${asked!.as}&q=${encodeURIComponent(asked!.q)}`),
   });
+  const m = match.data;
+  const none = m && !m.answers.length && !m.passages.length;
   return (
-    <Card title="What would the assistant find?">
+    <section className="mb-5 rounded-xl bg-slate-950 p-5 text-white shadow-xs dark:border dark:border-slate-800">
+      <h2 className="mb-3 text-sm font-semibold">What would the assistant find?</h2>
       <form
         className="flex flex-wrap gap-2"
         onSubmit={(e) => {
@@ -545,57 +706,59 @@ function TestQuestion() {
           if (q.trim()) setAsked({ q: q.trim(), as });
         }}
       >
-        <Input className="min-w-64 flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Can I move my booking?" aria-label="Question" />
-        <Select aria-label="Asked by" value={as} onChange={(e) => setAs(e.target.value as 'customer' | 'employee')}>
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="e.g. Can I move my booking to next week?"
+          aria-label="Question"
+          className="h-11 min-w-0 flex-[1_1_16rem] rounded-lg border border-white/15 bg-white/5 px-3.5 text-sm text-white placeholder:text-slate-400 focus:border-white/40 focus:outline-none"
+        />
+        <select
+          aria-label="Asked by"
+          value={as}
+          onChange={(e) => setAs(e.target.value as 'customer' | 'employee')}
+          className="h-11 rounded-lg border border-white/15 bg-white/5 px-3 text-sm text-white focus:outline-none [&>option]:text-slate-900"
+        >
           <option value="customer">asked by a customer</option>
           <option value="employee">asked by staff</option>
-        </Select>
-        <Button type="submit" disabled={!q.trim()}>Test</Button>
+        </select>
+        <button type="submit" disabled={!q.trim()} className="press h-11 rounded-lg bg-emerald-300 px-5 text-sm font-semibold text-slate-950 hover:bg-emerald-200 disabled:opacity-50">
+          Test
+        </button>
       </form>
-      {match.isFetching && <Spinner />}
-      {match.error && <ErrorBanner error={match.error} />}
-      {match.data && (
-        <div className="mt-4 grid gap-4 text-sm">
-          <section>
-            <h3 className="mb-1 font-medium">Saved answers</h3>
-            {match.data.answers.length ? (
-              match.data.answers.map((a) => (
-                <p key={a.id}>
-                  <span className="font-medium">{a.title}</span> <span className="text-slate-500">· match {Math.round(a.score * 100)}%</span>
-                  <span className="block text-slate-600 dark:text-slate-300">{a.body}</span>
-                </p>
-              ))
-            ) : (
-              <p className="text-slate-500">None. Add this question to an answer's examples if one should match.</p>
-            )}
-          </section>
-          <section>
-            <h3 className="mb-1 font-medium">Article passages</h3>
-            {match.data.passages.length ? (
-              match.data.passages.map((p) => (
-                <p key={p.slug}>
-                  <span className="font-medium">{p.title}{p.heading ? ` — ${p.heading}` : ''}</span>
-                  <span className="block text-slate-600 dark:text-slate-300">{p.body}</span>
-                </p>
-              ))
-            ) : (
-              <p className="text-slate-500">None.</p>
-            )}
-          </section>
-          <section>
-            <h3 className="mb-1 font-medium">Buttons offered</h3>
-            {match.data.actions.length ? (
-              <div className="flex flex-wrap gap-2">
-                {match.data.actions.map((a) => (
-                  <span key={a.label} className="rounded-lg border border-brand-500 px-3 py-1 text-brand-700 dark:text-brand-100">{a.label}</span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-slate-500">None.</p>
-            )}
-          </section>
+      {match.isFetching && <p className="mt-3 text-xs text-slate-400">Searching…</p>}
+      {match.error && (
+        <div className="mt-3">
+          <ErrorBanner error={match.error} />
         </div>
       )}
-    </Card>
+      {m && !match.isFetching && (
+        <div className="mt-3 flex flex-wrap gap-2" aria-live="polite">
+          {m.answers.map((a, i) => (
+            <button
+              key={a.id}
+              type="button"
+              title={a.body}
+              onClick={() => onOpenAnswer(a.id)}
+              className={`${resultChip} ${i === 0 ? 'bg-emerald-900/60 text-emerald-100 hover:bg-emerald-900' : 'bg-white/10 text-slate-200 hover:bg-white/15'}`}
+            >
+              <span className="font-semibold">{a.title}</span>&nbsp;· saved answer{i === 0 ? ' · best match' : ''} · {Math.round(a.score * 100)}%
+            </button>
+          ))}
+          {m.passages.map((p) => (
+            <Link key={`${p.slug}-${p.heading}`} to={`/staff/help/${p.slug}`} title={p.body} className={`${resultChip} bg-white/10 text-slate-200 hover:bg-white/15`}>
+              {p.title}
+              {p.heading ? ` › ${p.heading}` : ''}&nbsp;· article passage
+            </Link>
+          ))}
+          {m.actions.map((a) => (
+            <span key={a.label} className={`${resultChip} border border-white/15 text-slate-300`}>
+              {a.label} · button
+            </span>
+          ))}
+          {none && <p className="text-xs text-slate-400">Nothing found. Add this question to an answer's examples if one should match.</p>}
+        </div>
+      )}
+    </section>
   );
 }
