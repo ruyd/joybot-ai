@@ -127,3 +127,35 @@ Every tool runs as the admin who made the token, under the same row-level securi
 | `joybot_app` | API back-office | enforced |
 | `joybot_reader` | chat retrieval (read-only) | enforced |
 | `joybot_worker` | worker, Stripe sync, Cognito triggers | system access |
+
+## AI providers: hot swapping and delivery
+
+Settings › AI connects JoyBot to several AI providers at once and gives each job its own model. Details: [docs/features.md](docs/features.md) (AI settings).
+
+### Hot-swappable providers
+
+- **Connections** are provider accounts: OpenRouter, Ollama, or any OpenAI-compatible API (vLLM, for example). Each has its own encrypted key, an optional monthly spending cap, and a **private** flag for providers that don't store or train on prompts.
+- **Capabilities** are the jobs: General chat (MoE models), embeddings, reranker, speech to text, text to speech, realtime voice, vision, image, video, avatar, moderation and document parsing. Each capability has one model and an optional backup, and all of them work at the same time.
+- **Swapping** moves a capability to another connection with one click: the pill in its row, or **Move N to …** on a connection to move several at once. The swap keeps the same model if the other connection has it, by id or by name, and otherwise picks that connection's cheapest model for the job. A toast offers **Undo**.
+- **No restart.** A swap only changes the capability's slot, so the next call uses the new connection. Calls already running finish on the old one, and the server's 30-second settings cache is cleared on every change.
+- **Automatic fallback.** Each call checks the model's connection. It falls to the backup, and then to plain search results, when that connection is:
+  - switched off;
+  - over its monthly cap;
+  - missing its key;
+  - not private and the question comes from a customer.
+- **Privacy.** Customers' questions only go to private connections. Staff questions may use any connection, and the page marks every connection that isn't private.
+- Every call is logged with its model, tokens or characters, cost, time and result, but never the prompt or reply. Spending counts against the connection's cap for the calendar month (UTC).
+
+### Delivery methods
+
+Each capability also has a delivery method, which says how a request reaches its model:
+
+| Method | How it works | Status |
+|---|---|---|
+| **Direct** | The API calls the provider and waits for the answer (streamed for chat). | Available. The only choice for General, text to speech and realtime voice, where people are waiting for the answer. |
+| **Postgres queue** | The request becomes a job in Postgres for a worker to run in the background, for slow work such as transcription or document parsing. | Can be chosen and saved. The worker that runs these jobs isn't built yet. |
+| **Redis** | A queue on Redis, for higher volume. | Planned |
+| **SQS** | Amazon SQS, for the AWS deploy. | Planned |
+| **Durable Objects** | Cloudflare Durable Objects, for the free-tier deploy. | Planned |
+
+The API refuses a method that isn't available yet, and refuses anything but Direct for the three live capabilities.
