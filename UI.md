@@ -51,9 +51,22 @@ Website visitors who booked a call, the selected call's details, the Meet link, 
 ![Knowledge](docs/screens/knowledge.png)
 
 ### Settings › AI
-Assistant on or off for customers and employees, the answer mode (Model, Auto, or search only), the chat model and a test.
+A summary strip shows whether the assistant is on for customers and employees, the answer mode (Model, Auto or Search only) and this month's spend against each connection's cap. The capabilities table has one row per capability:
+- its model and backup, each tagged with its connection;
+- pills to swap it to another connection, with Undo;
+- whether the provider is private;
+- how it's delivered;
+- its calls and spend;
+- a ⋯ menu to change the model, test it (Hear it for text to speech), choose delivery or clear the model.
+
+Below that is the connections table (move models to another connection, test, edit). The model picker filters by connection, private only and free only. Header buttons open the usage log and add a connection.
 
 ![Settings, AI](docs/screens/settings-ai.png)
+
+### Settings › AI: choose a model
+The model picker for one capability (here Text to speech): search, filters by connection, private only and free only, sorting, and Use or As backup on each model, with the current primary marked.
+
+![Settings, AI model picker](docs/screens/settings-ai-model.png)
 
 ## Customer portal
 

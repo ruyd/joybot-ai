@@ -7,9 +7,9 @@ A CRM chatbot for staff and customers, backed by JoyBot's own PostgreSQL databas
 
 ## Screens
 
-Design screens with sample data for a dev studio. [UI.md](UI.md) has all 13 screens.
+Design screens with sample data for a dev studio. [UI.md](UI.md) has all 14 screens.
 
-**Settings › AI**: turn the assistant on or off for customers and employees, choose how it answers (a model, Auto with search as backup, or search only), and set up and test the chat model.
+**Settings › AI**: at the top, turn the assistant on or off for customers and employees, choose how it answers (Model, Auto or Search only) and see this month's spend against each connection's cap. Below that, each capability (General, text to speech and more) has a row showing its model and backup, whether the provider is private, how it's delivered, and its calls and cost. A pill swaps a capability to another connection, with Undo. Connections (OpenRouter, Ollama or any OpenAI-compatible API) each have their own key, cap and privacy setting. The usage log lists every call.
 
 ![Settings, AI](docs/screens/settings-ai.png)
 
