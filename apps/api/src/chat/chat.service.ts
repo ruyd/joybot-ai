@@ -213,7 +213,7 @@ export class ChatService implements OnApplicationBootstrap {
     }
 
     // No model (search mode): nothing to plan with, so skip the step and its "Thinking…" status.
-    const searchOnly = (await this.llm.searchOnly?.()) ?? false;
+    const searchOnly = (await this.llm.searchOnly?.(p.type)) ?? false;
     if (calls.length === 0 && allowed.length > 0 && !strongAnswer && !wordHits.length && !searchOnly) {
       sink.event('status', { message: 'Thinking about what to look up…' });
       try {
