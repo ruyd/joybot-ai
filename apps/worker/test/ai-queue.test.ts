@@ -266,6 +266,17 @@ describe('Redis deliveries', () => {
     }
   });
 
+  it('the sweep holds no lock while calling Redis, and unmarks jobs Redis refused', async () => {
+    const id = await job('embeddings', { texts: ['a'] }, { transport: 'bullmq' });
+    const down = { ...d, queue: { getJob: async () => Promise.reject(new Error('Redis is down')) } } as unknown as RedisDelivery;
+    await expect(sweep(worker, down)).rejects.toThrow('Redis is down');
+    expect((await row(id)).dispatched_at).toBeNull();
+    // Redis back: the next sweep sends it.
+    expect(await sweep(worker, d)).toBe(1);
+    expect((await row(id)).dispatched_at).not.toBeNull();
+    expect(await d.queue.getJob(id)).toBeTruthy();
+  });
+
   it('Redis Streams retries through the sweep once the backoff is over', async () => {
     const stop = await startStreamConsumer(worker, d, url, opts);
     try {
