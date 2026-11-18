@@ -41,8 +41,8 @@ export interface LlmProvider {
   answer(input: AnswerInput, signal?: AbortSignal): AsyncIterable<string>;
   /** Loads the model ahead of the first question (optional). */
   warmUp?(): Promise<void>;
-  /** True when there is no model: answers list the records found (the web app labels the box Search). */
-  searchOnly?(): Promise<boolean>;
+  /** True when there is no model for this audience: answers list the records found (the web app labels the box Search). */
+  searchOnly?(audience?: 'employee' | 'customer'): Promise<boolean>;
 }
 
 export const LLM_PROVIDER = Symbol('LLM_PROVIDER');
@@ -61,6 +61,15 @@ export interface ProviderConnection {
   body?: Record<string, unknown>;
   /** Replaces NO_THINKING where the API turns thinking off another way (OpenRouter's `reasoning`). */
   noThinking?: Record<string, unknown>;
+  /** Told the tokens (and, from OpenRouter, the cost) of each request, to log calls and count caps. */
+  onUsage?: (usage: TokenUsage) => void;
+}
+
+/** What one request used, as OpenAI-compatible APIs report it (`cost` in US dollars: OpenRouter). */
+export interface TokenUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cost?: number;
 }
 
 /** vLLM (AWS), Ollama (local) or a hosted provider through the OpenAI-compatible chat completions API. */
@@ -93,7 +102,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       ...this.options('answer'),
       messages: [{ role: 'user', content: 'Reply with the single word: ready' }],
     });
-    const body = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    const body = (await res.json()) as { choices?: { message?: { content?: string } }[]; usage?: TokenUsage };
+    this.connection.onUsage?.(body.usage ?? {});
     return { reply: (body.choices?.[0]?.message?.content ?? '').trim(), ms: Date.now() - started };
   }
 
@@ -126,6 +136,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
       const m = body.choices?.[0]?.message;
       this.dump('plan response', { tool_calls: m?.tool_calls?.map((c) => c.function), usage: body.usage }, { reasoning: m?.reasoning, content: m?.content });
     }
+    this.connection.onUsage?.((body.usage as TokenUsage | undefined) ?? {});
     const calls = body.choices?.[0]?.message?.tool_calls ?? [];
     return calls.flatMap((c) => {
       try {
@@ -145,6 +156,7 @@ export class OpenAiCompatibleProvider implements LlmProvider {
         max_tokens: 600,
         ...this.options('answer'),
         stream: true,
+        ...(this.connection.onUsage ? { stream_options: { include_usage: true } } : {}),
         messages: [
           { role: 'system', content: `${answerPrompt(input)}\n\n${evidenceBlock(input.evidence)}` },
           ...input.history.slice(-HISTORY_TURNS),
@@ -158,6 +170,8 @@ export class OpenAiCompatibleProvider implements LlmProvider {
     let buffer = '';
     let content = '';
     let reasoning = '';
+    let usage: TokenUsage = {};
+    let failed = false;
     try {
       for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
         buffer += decoder.decode(chunk, { stream: true });
@@ -170,7 +184,9 @@ export class OpenAiCompatibleProvider implements LlmProvider {
           if (data === '[DONE]') return;
           let delta: { content?: string; reasoning?: string } | undefined;
           try {
-            delta = JSON.parse(data).choices?.[0]?.delta;
+            const event = JSON.parse(data) as { choices?: { delta?: typeof delta }[]; usage?: TokenUsage };
+            if (event.usage) usage = event.usage; // the last event, with include_usage
+            delta = event.choices?.[0]?.delta;
           } catch {
             continue; // ignore keep-alives and partial lines
           }
@@ -181,7 +197,11 @@ export class OpenAiCompatibleProvider implements LlmProvider {
           }
         }
       }
+    } catch (err) {
+      failed = true; // logged as a failure by the caller
+      throw err;
     } finally {
+      if (!failed) this.connection.onUsage?.(usage);
       if (this.debug) this.dump('answer response', {}, { reasoning, content });
     }
   }

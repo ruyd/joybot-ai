@@ -30,7 +30,7 @@ export class MeController {
   @Get()
   async me(@CurrentPrincipal() p: Principal) {
     // No model configured (Settings › AI): the assistant box searches records instead of writing replies.
-    const searchOnly = (await this.llm.searchOnly?.()) ?? false;
+    const searchOnly = (await this.llm.searchOnly?.(p.type)) ?? false;
     return this.db.as(p, async (db) => {
       const profile =
         p.type === 'employee'
