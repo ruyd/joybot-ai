@@ -433,6 +433,9 @@ export class AppointmentsService {
    * hours at the location (when they have any there). Callers skip this with confirm_overlap.
    */
   private async assertNoConflicts(db: PoolClient, employeeId: string, locationId: string, start: Date, end: Date, excludeId?: string) {
+    // One booking change per employee at a time until this transaction ends: without it, two bookings
+    // made at the same moment both find the slot free and both go in.
+    await db.query(`SELECT pg_advisory_xact_lock(hashtext('core.employee_schedule'), hashtext($1::text))`, [employeeId]);
     const conflicts = (
       await db.query('SELECT * FROM core.employee_conflicts($1, $2, $3, $4)', [
         employeeId,

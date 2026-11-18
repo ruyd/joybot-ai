@@ -31,7 +31,7 @@ export class DbService implements OnModuleDestroy {
 
   /** Read-only chat retrieval as the principal (joybot_reader role, RLS applies). */
   read<T>(principal: Principal, fn: (db: PoolClient) => Promise<T>): Promise<T> {
-    return withPrincipal(this.readerPool, principal, fn, 'chat');
+    return withPrincipal(this.readerPool, principal, fn, 'chat', { readOnly: true });
   }
 
   async onModuleDestroy(): Promise<void> {

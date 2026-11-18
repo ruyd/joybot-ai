@@ -65,34 +65,36 @@ export async function dispatch(d: RedisDelivery, job: DispatchJob): Promise<void
   }
 }
 
-/** Hands over Redis jobs that are due but not with Redis: never handed over, lost, retries come due, or leases run out. */
+/**
+ * Hands over Redis jobs that are due but not with Redis: never handed over, lost, retries come due, or
+ * leases run out. The rows are marked first and committed, so no lock is held while Redis is called; a
+ * job Redis then refuses is unmarked, and the next sweep tries again.
+ */
 export async function sweep(pool: Pool, d: RedisDelivery, leaseMs = LEASE_MS): Promise<number> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const due = (
-      await client.query<DispatchJob>(
-        `SELECT id, transport, priority, max_attempts, attempts FROM app.ai_jobs
-          WHERE transport <> 'postgres'
-            AND ((status = 'queued' AND run_after <= now()
-                  AND (dispatched_at IS NULL OR dispatched_at < now() - make_interval(secs => $1::double precision / 1000)))
-                 OR (status = 'running' AND locked_until < now()))
-          ORDER BY priority DESC, run_after LIMIT 100 FOR UPDATE SKIP LOCKED`,
-        [leaseMs],
-      )
-    ).rows;
-    for (const job of due) {
+  const due = (
+    await pool.query<DispatchJob>(
+      `UPDATE app.ai_jobs SET dispatched_at = now()
+        WHERE id IN (SELECT id FROM app.ai_jobs
+                      WHERE transport <> 'postgres'
+                        AND ((status = 'queued' AND run_after <= now()
+                              AND (dispatched_at IS NULL OR dispatched_at < now() - make_interval(secs => $1::double precision / 1000)))
+                             OR (status = 'running' AND locked_until < now()))
+                      ORDER BY priority DESC, run_after LIMIT 100 FOR UPDATE SKIP LOCKED)
+        RETURNING id, transport, priority, max_attempts, attempts`,
+      [leaseMs],
+    )
+  ).rows;
+  for (const [i, job] of due.entries()) {
+    try {
       await dispatch(d, job);
-      await client.query('UPDATE app.ai_jobs SET dispatched_at = now() WHERE id = $1', [job.id]);
+    } catch (err) {
+      // Redis is down or refused: unmark this job and the ones not reached, so the next sweep sends them.
+      const left = due.slice(i).map((j) => j.id);
+      await pool.query('UPDATE app.ai_jobs SET dispatched_at = NULL WHERE id = ANY($1)', [left]).catch(() => undefined);
+      throw err;
     }
-    await client.query('COMMIT');
-    return due.length;
-  } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
-    throw err;
-  } finally {
-    client.release();
   }
+  return due.length;
 }
 
 /** BullMQ: runs jobs as they arrive; a retryable failure throws so BullMQ tries again after its backoff. */

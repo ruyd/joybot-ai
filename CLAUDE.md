@@ -39,9 +39,12 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 ## Conventions
 
 ### Database and access
-- **Every query runs as a principal.** In the API, use `DbService.as(principal, fn)` (`read` for chat). It sets `app.principal_type` / `app.principal_id` / `app.via` in a transaction, and RLS does the rest. `withSystem` is only for worker or trigger paths.
+- **Every query runs as a principal.** In the API, use `DbService.as(principal, fn)` (`read` for chat, in a `READ ONLY` transaction). It sets `app.principal_type` / `app.principal_id` / `app.via` in a transaction, and RLS does the rest. `withSystem` is only for worker or trigger paths.
 - **Access rules live in SQL**: `authz.*` SECURITY DEFINER functions plus RLS policies. The API adds coarse checks with `@Can(action, resource)`, `@EmployeesOnly` and `@CustomersOnly`. The role always comes from the database (`authz.principal_role()`), never from the token. A new resource needs RLS policies, `role_permissions` rows and the CASL mapping together.
 - **Migrations are forward-only.** Add the next numbered file; never edit an applied one. RLS is enabled but not forced, so the owner (`joybot_migrator`) bypasses it.
+  - **Locks:** each statement waits at most 5 s for a lock, then the file rolls back and is retried (`migrate.ts`), so a migration never queues the app behind it.
+  - **Busy tables:** build indexes on them with `CREATE INDEX CONCURRENTLY IF NOT EXISTS` in a file whose first line is `-- migrate: no-transaction`. Such a file runs one plain statement at a time, so no function bodies, and must be safe to run again. Add CHECKs as `NOT VALID`, then `VALIDATE`. Backfill large tables in batches.
+- **Functions aren't executable by PUBLIC** (migration 0061 changed the default privileges). Grant each new function to the roles that call it. Functions used in RLS policies need every role that queries the table.
 - **Roles:** `joybot_app` is the API (RLS enforced), `joybot_reader` is chat (SELECT only), and `joybot_worker` has system access through the `worker_all` policies.
 
 ### API and web

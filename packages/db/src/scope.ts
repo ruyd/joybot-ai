@@ -20,10 +20,13 @@ export async function withPrincipal<T>(
   principal: DbPrincipal,
   fn: (client: PoolClient) => Promise<T>,
   via: ChangeVia = 'api',
+  opts: { readOnly?: boolean } = {},
 ): Promise<T> {
   const client = await pool.connect();
+  let broken: Error | undefined;
   try {
-    await client.query('BEGIN');
+    // Read only (chat): Postgres refuses any write, even one inside a SECURITY DEFINER function.
+    await client.query(opts.readOnly ? 'BEGIN READ ONLY' : 'BEGIN');
     await client.query(
       `SELECT set_config('app.principal_type', $1, true),
               set_config('app.principal_id', $2, true),
@@ -34,10 +37,11 @@ export async function withPrincipal<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    // A connection that can't even roll back is dropped rather than returned to the pool.
+    await client.query('ROLLBACK').catch((e: Error) => (broken = e));
     throw err;
   } finally {
-    client.release();
+    client.release(broken);
   }
 }
 
@@ -48,6 +52,7 @@ export async function withSystem<T>(
   via: ChangeVia = 'worker',
 ): Promise<T> {
   const client = await pool.connect();
+  let broken: Error | undefined;
   try {
     await client.query('BEGIN');
     await client.query(`SELECT set_config('app.via', $1, true)`, [via]);
@@ -55,9 +60,10 @@ export async function withSystem<T>(
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    // A connection that can't even roll back is dropped rather than returned to the pool.
+    await client.query('ROLLBACK').catch((e: Error) => (broken = e));
     throw err;
   } finally {
-    client.release();
+    client.release(broken);
   }
 }

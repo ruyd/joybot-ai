@@ -162,8 +162,16 @@ describe('saved answers', () => {
 
 describe('self-booking', () => {
   // Days 8–11: the seed books Sam 1–4 days from now at the current time of day, which could collide.
-  const book = (who = C.maria, body: Record<string, unknown> = {}) =>
+  const book = (who: string = C.maria, body: Record<string, unknown> = {}) =>
     api(app, customer(who)).post('/api/appointments/requests', { service_id: S.codeReview, location_id: L.nyc, scheduled_start: inDays(8), ...body });
+
+  it('takes one of two identical requests sent at the same moment', async () => {
+    const results = await Promise.all([book(C.pat, { scheduled_start: inDays(12) }), book(C.pat, { scheduled_start: inDays(12) })]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 400]);
+    // Leave the Review queue as it was for the next test.
+    const made = results.find((r) => r.status === 201)!.body;
+    await api(app, customer(C.pat)).post(`/api/appointments/${made.id}/withdraw`, {}).expect(200);
+  });
 
   it('customers request appointments within limits; staff confirm or decline on the Review page', async () => {
     const req = (await book().expect(201)).body;

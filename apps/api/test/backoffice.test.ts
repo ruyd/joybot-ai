@@ -154,6 +154,12 @@ describe('appointments', () => {
     await api(app, employee(U.sam)).post('/api/appointments', { ...body, confirm_overlap: true }).expect(201);
   });
 
+  it('books one of several identical bookings made at the same moment (the rest are double bookings)', async () => {
+    const body = { customer_id: C.jane, service_id: S.codeReview, location_id: L.nyc, employee_id: U.sam, scheduled_start: inDays(26) };
+    const results = await Promise.all(Array.from({ length: 4 }, () => api(app, employee(U.sam)).post('/api/appointments', body)));
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409, 409]);
+  });
+
   it('rejects employees who do not work at the location, and customers out of scope', async () => {
     await api(app, employee(U.sam))
       .post('/api/appointments', { customer_id: C.maria, service_id: S.codeReview, location_id: L.nyc, employee_id: U.lia, scheduled_start: inDays(21) })
