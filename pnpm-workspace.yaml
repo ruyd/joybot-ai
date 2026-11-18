@@ -5,3 +5,5 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # BullMQ's optional native msgpack speed-up; the plain JavaScript version is used instead.
+  msgpackr-extract: false
