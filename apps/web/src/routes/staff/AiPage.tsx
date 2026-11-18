@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { MoreHorizontal, Pencil, Search, ShieldAlert, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { Button, ErrorBanner, Field, Input, Select, Spinner } from '../../components/ui';
+import { Button, ErrorBanner, Field, Input, Select, Spinner, Tabs } from '../../components/ui';
 import { useApi } from '../../lib/api';
 import { dateTime } from '../../lib/format';
 
@@ -19,7 +19,7 @@ type Capability =
   | 'avatar'
   | 'moderation'
   | 'document_parsing';
-type Transport = 'direct' | 'postgres' | 'redis' | 'sqs' | 'durable_objects';
+type Transport = 'direct' | 'postgres' | 'bullmq' | 'redis_streams' | 'sqs' | 'durable_objects';
 
 interface Connection {
   id: string;
@@ -64,6 +64,30 @@ interface Overview {
   server_default: string | null;
   encryption_available: boolean;
   available_transports: Transport[];
+  /** The Postgres queue: waiting and running now, failed in the last day. */
+  queue: { capability: Capability; queued: number; running: number; failed: number }[];
+  queue_capabilities: Capability[];
+}
+
+type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+interface Job {
+  id: string;
+  capability: Capability;
+  transport: Transport;
+  status: JobStatus;
+  audience: string;
+  attempts: number;
+  max_attempts: number;
+  run_after: string;
+  model: string | null;
+  connection_name: string | null;
+  cost_usd: string;
+  ms: number | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+  input?: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
 }
 
 interface Call {
@@ -103,10 +127,49 @@ const CAPABILITY: Record<Capability, { label: string; hint: string }> = {
 };
 const CAPABILITIES = Object.keys(CAPABILITY) as Capability[];
 const KIND_LABEL: Record<Kind, string> = { openrouter: 'OpenRouter', openai_compatible: 'OpenAI-compatible', ollama: 'Ollama' };
-const TRANSPORT_LABEL: Record<Transport, string> = { direct: 'Direct', postgres: 'Postgres queue', redis: 'Redis queue', sqs: 'Amazon SQS', durable_objects: 'Durable Objects' };
+const TRANSPORT_LABEL: Record<Transport, string> = {
+  direct: 'Direct',
+  postgres: 'Postgres queue',
+  bullmq: 'BullMQ (Redis)',
+  redis_streams: 'Redis Streams',
+  sqs: 'Amazon SQS',
+  durable_objects: 'Durable Objects',
+};
+/** One line on what each delivery is good for, shown when choosing it. */
+const TRANSPORT_HINT: Record<Transport, string> = {
+  direct: 'Called while the person waits',
+  postgres: 'Background jobs, nothing extra to run',
+  bullmq: 'Retries, priorities and higher volume',
+  redis_streams: 'Fast flows and several readers',
+  sqs: 'Managed queue on AWS',
+  durable_objects: 'Queue on the Cloudflare deploy',
+};
+/** The delivery we'd pick for each capability, and why. */
+const RECOMMENDED: Record<Capability, { transport: Transport; why: string }> = {
+  general: { transport: 'direct', why: 'Answers stream to the person asking.' },
+  text_to_speech: { transport: 'direct', why: 'Replies are spoken as they arrive.' },
+  realtime_voice: { transport: 'direct', why: 'A live conversation can’t wait in a queue.' },
+  embeddings: { transport: 'direct', why: 'Search embeds the question while someone waits.' },
+  reranker: { transport: 'direct', why: 'It orders search results before the answer.' },
+  moderation: { transport: 'direct', why: 'It checks a message before it’s answered.' },
+  vision: { transport: 'direct', why: 'Images in chat are read while the person waits.' },
+  speech_to_text: { transport: 'postgres', why: 'Recordings can wait; failed calls retry.' },
+  document_parsing: { transport: 'postgres', why: 'PDFs take a while; failed calls retry.' },
+  image_generation: { transport: 'bullmq', why: 'Slow, paid and rate limited: BullMQ retries with backoff.' },
+  video_generation: { transport: 'bullmq', why: 'Minutes per job: BullMQ retries with backoff.' },
+  avatar: { transport: 'bullmq', why: 'Minutes per job: BullMQ retries with backoff.' },
+};
 /** Answers stream while the person waits, so these are always called directly. */
 const DIRECT_ONLY: Capability[] = ['general', 'text_to_speech', 'realtime_voice'];
+const QUEUED: Transport[] = ['postgres', 'bullmq', 'redis_streams'];
 const TESTABLE: Capability[] = ['general', 'text_to_speech'];
+/** A small job to try a queued capability with (the ones that need a file or link are tried from the API). */
+const SAMPLE_JOB: Partial<Record<Capability, Record<string, unknown>>> = {
+  embeddings: { texts: ['What are your opening hours?'] },
+  reranker: { query: 'opening hours', documents: ['We are open 9 to 5 on weekdays.', 'Parking is behind the building.'] },
+  moderation: { text: 'Can I move my appointment to Friday?' },
+  image_generation: { prompt: 'A friendly robot waving, flat illustration, green accent' },
+};
 
 /** One-click models for the add form. */
 const PRESETS: { label: string; model: string; capability: Capability; tags: string[]; input_price: number; output_price: number; voice?: string; description: string; context_tokens?: number; kinds: Kind[] }[] = [
@@ -160,6 +223,7 @@ export function AiPage() {
   const [connectionDialog, setConnectionDialog] = useState<Connection | 'new' | null>(null);
   const [addModel, setAddModel] = useState<{ capability?: Capability; connectionId?: string } | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
+  const [jobs, setJobs] = useState<{ capability?: Capability } | null>(null);
   const [toast, setToast] = useState<{ msg: string; detail?: string; undo?: () => void; tone?: 'ok' | 'error' } | null>(null);
   const [test, setTest] = useState<{ model: Model } | null>(null);
 
@@ -170,6 +234,7 @@ export function AiPage() {
   }, [toast]);
 
   const data = q.data;
+  const waiting = (data?.queue ?? []).reduce((n, x) => n + x.queued + x.running, 0);
   // Wider than other pages (the design's 1280 px), so both tables fit without scrolling on a laptop.
   return (
     <main className="mx-auto max-w-[1344px] px-4 py-7 sm:px-8 lg:py-8">
@@ -179,6 +244,9 @@ export function AiPage() {
           <h1 className="text-[1.65rem] leading-tight font-bold tracking-tight">AI</h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => setJobs({})}>
+            Jobs{waiting > 0 && <span className="ml-1.5 rounded-full bg-brand-100 px-1.5 text-xs text-brand-800 tabular-nums">{waiting}</span>}
+          </Button>
           <Button variant="secondary" onClick={() => setUsageOpen(true)}>
             Usage log
           </Button>
@@ -192,7 +260,7 @@ export function AiPage() {
       ) : (
         <div className="grid gap-5">
           <SummaryStrip data={data} onPickGeneral={() => setPicker('general')} />
-          <Capabilities data={data} onOpen={setPicker} onToast={setToast} onTest={(model) => setTest({ model })} />
+          <Capabilities data={data} onOpen={setPicker} onToast={setToast} onTest={(model) => setTest({ model })} onJobs={(capability) => setJobs({ capability })} />
           <Connections data={data} onEdit={setConnectionDialog} onToast={setToast} />
         </div>
       )}
@@ -218,6 +286,7 @@ export function AiPage() {
       )}
       {data && addModel && <AddModelDialog data={data} preset={addModel} onClose={() => setAddModel(null)} />}
       {usageOpen && <UsageDialog onClose={() => setUsageOpen(false)} />}
+      {jobs && <JobsDialog capability={jobs.capability} onClose={() => setJobs(null)} onToast={setToast} />}
       {test && <TestDialog model={test.model} onClose={() => setTest(null)} />}
 
       {toast && (
@@ -418,17 +487,40 @@ function useSwap(data: Overview, onToast: (t: Toast) => void) {
   });
 }
 
-function Capabilities({ data, onOpen, onToast, onTest }: { data: Overview; onOpen: (c: Capability) => void; onToast: (t: Toast) => void; onTest: (m: Model) => void }) {
+function Capabilities({
+  data,
+  onOpen,
+  onToast,
+  onTest,
+  onJobs,
+}: {
+  data: Overview;
+  onOpen: (c: Capability) => void;
+  onToast: (t: Toast) => void;
+  onTest: (m: Model) => void;
+  onJobs: (c: Capability) => void;
+}) {
   const api = useApi();
   const refresh = useRefresh();
   const badge = useBadges(data.connections);
   const swap = useSwap(data, onToast);
   const [filter, setFilter] = useState<'all' | 'active' | 'unset'>('all');
   const [menu, setMenu] = useState<Capability | null>(null);
+  // The menu is fixed to the window (the table's scroll box would cut it off), next to its button.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const saveSlot = useMutation({
     mutationFn: ({ capability, patch }: { capability: Capability; patch: Partial<Slot> }) => api.put(`/admin/ai/slots/${capability}`, patch),
     onSuccess: refresh,
     onError: (err) => onToast({ msg: 'Not saved.', detail: (err as Error).message, tone: 'error' }),
+  });
+  const queueTest = useMutation({
+    mutationFn: (capability: Capability) => api.post('/admin/ai/jobs', { capability, input: SAMPLE_JOB[capability] }),
+    onSuccess: (_, capability) => {
+      refresh();
+      onToast({ msg: 'Test job queued.', detail: 'The worker picks it up in a moment.' });
+      onJobs(capability);
+    },
+    onError: (err) => onToast({ msg: 'Not queued.', detail: (err as Error).message, tone: 'error' }),
   });
   const rows = data.slots.map((slot) => {
     const main = data.models.find((m) => m.id === slot.model_id) ?? null;
@@ -579,7 +671,10 @@ function Capabilities({ data, onOpen, onToast, onTest }: { data: Overview; onOpe
                     )}
                   </td>
                   <td className={td}>{conn ? <PrivacyPill isPrivate={conn.private} /> : <span className="text-xs text-slate-400">—</span>}</td>
-                  <td className={`${td} whitespace-nowrap text-slate-600 dark:text-slate-300`}>{unset ? '—' : TRANSPORT_LABEL[slot.transport]}</td>
+                  <td className={`${td} whitespace-nowrap text-slate-600 dark:text-slate-300`}>
+                    {unset ? '—' : TRANSPORT_LABEL[slot.transport]}
+                    <QueueLine queue={data.queue.find((x) => x.capability === slot.capability)} onOpen={() => onJobs(slot.capability)} />
+                  </td>
                   <td className={`${td} text-right text-slate-600 tabular-nums dark:text-slate-300`}>{unset && !usage ? '—' : (usage?.calls ?? 0).toLocaleString()}</td>
                   <td className={`${td} text-right font-medium tabular-nums`}>{unset && !usage ? '—' : money(Number(usage?.spent_usd ?? 0))}</td>
                   <td className={`${td} relative`}>
@@ -587,13 +682,17 @@ function Capabilities({ data, onOpen, onToast, onTest }: { data: Overview; onOpe
                       type="button"
                       aria-label={`More for ${info.label}`}
                       aria-expanded={menu === slot.capability}
-                      onClick={() => setMenu(menu === slot.capability ? null : slot.capability)}
+                      onClick={(e) => {
+                        setAnchor(e.currentTarget.getBoundingClientRect());
+                        setMenu(menu === slot.capability ? null : slot.capability);
+                      }}
                       className="grid size-7 place-items-center rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                     >
                       <MoreHorizontal className="size-4" aria-hidden="true" />
                     </button>
-                    {menu === slot.capability && (
+                    {menu === slot.capability && anchor && (
                       <RowMenu
+                        anchor={anchor}
                         slot={slot}
                         main={main}
                         available={data.available_transports}
@@ -601,6 +700,10 @@ function Capabilities({ data, onOpen, onToast, onTest }: { data: Overview; onOpe
                         onSave={(patch) => saveSlot.mutate({ capability: slot.capability, patch })}
                         onTest={() => main && onTest(main)}
                         onChange={() => onOpen(slot.capability)}
+                        onQueueTest={
+                          main && slot.active && QUEUED.includes(slot.transport) && SAMPLE_JOB[slot.capability] ? () => queueTest.mutate(slot.capability) : undefined
+                        }
+                        onJobs={data.queue_capabilities.includes(slot.capability) ? () => onJobs(slot.capability) : undefined}
                       />
                     )}
                   </td>
@@ -640,6 +743,7 @@ function ModelChip({ model, badge, onClick, aria }: { model: Model; badge: { tex
 
 /** The ⋯ menu: delivery, a test, and clearing the model. */
 function RowMenu({
+  anchor,
   slot,
   main,
   available,
@@ -647,7 +751,10 @@ function RowMenu({
   onSave,
   onTest,
   onChange,
+  onQueueTest,
+  onJobs,
 }: {
+  anchor: DOMRect;
   slot: Slot;
   main: Model | null;
   available: Transport[];
@@ -655,19 +762,36 @@ function RowMenu({
   onSave: (patch: Partial<Slot>) => void;
   onTest: () => void;
   onChange: () => void;
+  onQueueTest?: () => void;
+  onJobs?: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const away = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && onClose();
     document.addEventListener('mousedown', away);
-    return () => document.removeEventListener('mousedown', away);
+    // Fixed to the window, so it closes rather than drift when the page scrolls.
+    window.addEventListener('scroll', onClose, true);
+    return () => {
+      document.removeEventListener('mousedown', away);
+      window.removeEventListener('scroll', onClose, true);
+    };
   }, [onClose]);
+  // Below the button when it fits, else on the side with more room, scrolling inside if still too tall.
+  const [place, setPlace] = useState<{ top?: number; bottom?: number; maxHeight?: number }>({ top: anchor.bottom + 6 });
+  useEffect(() => {
+    const h = ref.current?.scrollHeight ?? 0;
+    const below = window.innerHeight - anchor.bottom - 14;
+    const above = anchor.top - 14;
+    if (h <= below) return;
+    setPlace(above > below ? { bottom: window.innerHeight - anchor.top + 6, maxHeight: above } : { top: anchor.bottom + 6, maxHeight: below });
+  }, [anchor]);
   const item = 'flex w-full items-center rounded-md px-2.5 py-2 text-left text-[13px] hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800';
   return (
     <div
       ref={ref}
       onKeyDown={(e) => e.key === 'Escape' && onClose()}
-      className="absolute top-10 right-2 z-20 w-60 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+      style={{ ...place, right: Math.max(window.innerWidth - anchor.right, 8) }}
+      className="fixed z-30 w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-900"
     >
       <button type="button" className={item} onClick={() => (onChange(), onClose())}>
         Change model…
@@ -677,18 +801,51 @@ function RowMenu({
           {slot.capability === 'text_to_speech' ? 'Hear it' : 'Test'}
         </button>
       )}
+      {onQueueTest && (
+        <button type="button" className={item} onClick={() => (onQueueTest(), onClose())}>
+          Queue a test job
+        </button>
+      )}
+      {onJobs && (
+        <button type="button" className={item} onClick={() => (onJobs(), onClose())}>
+          Jobs…
+        </button>
+      )}
       <div className="px-2.5 pt-2 pb-1">
         <p className="mb-1 text-[11px] font-semibold tracking-wider text-slate-500 uppercase">Delivery</p>
         {(Object.keys(TRANSPORT_LABEL) as Transport[]).map((t) => {
-          const allowed = available.includes(t) && (t === 'direct' || !DIRECT_ONLY.includes(slot.capability));
+          const directOnly = t !== 'direct' && DIRECT_ONLY.includes(slot.capability);
+          const allowed = available.includes(t) && !directOnly;
+          const recommended = RECOMMENDED[slot.capability].transport === t;
+          const unavailable = directOnly ? null : t === 'bullmq' || t === 'redis_streams' ? 'needs Redis' : 'coming';
           return (
-            <label key={t} className={`flex items-center gap-2 py-1 text-[13px] ${allowed ? 'cursor-pointer' : 'text-slate-400'}`}>
-              <input type="radio" name={`delivery-${slot.capability}`} checked={slot.transport === t} disabled={!allowed} onChange={() => onSave({ transport: t })} />
-              {TRANSPORT_LABEL[t]}
-              {!available.includes(t) && <span className="text-xs">(coming)</span>}
+            <label key={t} className={`flex items-start gap-2 py-1.5 text-[13px] ${allowed ? 'cursor-pointer' : 'text-slate-400'}`}>
+              <input
+                type="radio"
+                className="mt-0.5"
+                name={`delivery-${slot.capability}`}
+                checked={slot.transport === t}
+                disabled={!allowed}
+                onChange={() => onSave({ transport: t })}
+              />
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-1.5">
+                  {TRANSPORT_LABEL[t]}
+                  {recommended && (
+                    <span className="rounded-full bg-brand-50 px-1.5 py-px text-[10px] font-semibold tracking-wide text-brand-800 uppercase dark:bg-brand-950 dark:text-brand-300">
+                      Recommended
+                    </span>
+                  )}
+                  {!available.includes(t) && unavailable && <span className="text-xs">({unavailable})</span>}
+                </span>
+                <span className={`block text-xs ${allowed ? 'text-slate-500' : ''}`}>{TRANSPORT_HINT[t]}</span>
+              </span>
             </label>
           );
         })}
+        <p className="mt-1.5 border-t border-slate-100 pt-1.5 text-xs text-slate-500 dark:border-slate-800">
+          <strong className="font-semibold text-slate-700 dark:text-slate-300">Why {TRANSPORT_LABEL[RECOMMENDED[slot.capability].transport]}:</strong> {RECOMMENDED[slot.capability].why}
+        </p>
       </div>
       {main && (
         <button type="button" className={`${item} text-red-700 dark:text-red-400`} onClick={() => (onSave({ model_id: null, backup_model_id: null }), onClose())}>
@@ -1486,6 +1643,198 @@ function UsageDialog({ onClose }: { onClose: () => void }) {
           </table>
         )}
       </div>
+    </Dialog>
+  );
+}
+
+/** Under a queued delivery: what's waiting, running or failed today, opening the jobs. */
+function QueueLine({ queue, onOpen }: { queue?: Overview['queue'][number]; onOpen: () => void }) {
+  if (!queue) return null;
+  const parts = [
+    queue.queued > 0 && `${queue.queued} waiting`,
+    queue.running > 0 && `${queue.running} running`,
+    queue.failed > 0 && `${queue.failed} failed`,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return (
+    <button type="button" onClick={onOpen} className={`block text-xs hover:underline ${queue.failed > 0 ? 'text-red-700 dark:text-red-400' : 'text-brand-700 dark:text-brand-400'}`}>
+      {parts.join(' · ')}
+    </button>
+  );
+}
+
+const JOB_TONE: Record<JobStatus, string> = {
+  queued: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+  running: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+  done: 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+  failed: 'bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300',
+  cancelled: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+};
+
+/** Shortens long arrays (vectors) and data links (images) so a result stays readable. */
+function preview(value: unknown): string {
+  return JSON.stringify(
+    value,
+    (_k, v) => {
+      if (Array.isArray(v) && v.length > 8 && v.every((x) => typeof x === 'number')) return [...v.slice(0, 8), `… ${v.length - 8} more`];
+      if (typeof v === 'string' && v.startsWith('data:') && v.length > 120) return `${v.slice(0, 60)}… (${Math.round(v.length / 1024)} KB)`;
+      return v;
+    },
+    2,
+  );
+}
+
+/** The Postgres queue's jobs: status, attempts, model, cost and errors; retry, cancel and see a result. */
+function JobsDialog({ capability, onClose, onToast }: { capability?: Capability; onClose: () => void; onToast: (t: Toast) => void }) {
+  const api = useApi();
+  const refresh = useRefresh();
+  const qc = useQueryClient();
+  const [status, setStatus] = useState<'all' | JobStatus>('all');
+  const [open, setOpen] = useState<string | null>(null);
+  const q = useQuery({
+    queryKey: ['ai-jobs', status],
+    queryFn: () => api.get<Job[]>(`/admin/ai/jobs?limit=100${status === 'all' ? '' : `&status=${status}`}`),
+    // While the dialog is open, follow jobs as the worker runs them.
+    refetchInterval: 3_000,
+  });
+  const detail = useQuery({ queryKey: ['ai-job', open], queryFn: () => api.get<Job>(`/admin/ai/jobs/${open}`), enabled: Boolean(open), refetchInterval: 3_000 });
+  const act = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'retry' | 'cancel' }) => api.post(`/admin/ai/jobs/${id}/${action}`, {}),
+    onSuccess: (_, v) => {
+      refresh();
+      void qc.invalidateQueries({ queryKey: ['ai-jobs'] });
+      onToast({ msg: v.action === 'retry' ? 'Job queued again.' : 'Job cancelled.' });
+    },
+    onError: (err) => onToast({ msg: 'Not changed.', detail: (err as Error).message, tone: 'error' }),
+  });
+  const jobs = (q.data ?? []).filter((j) => !capability || j.capability === capability);
+  return (
+    <Dialog label="Jobs" onClose={onClose} width="w-[1040px]">
+      <DialogHeader title={capability ? `Jobs · ${CAPABILITY[capability].label}` : 'Jobs'} onClose={onClose}>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Capabilities delivered through a queue (Postgres, BullMQ or Redis Streams) run here: the worker takes each job, tries the model then its backup, and retries failures
+          with backoff. Jobs are kept in Postgres whatever carries them; finished ones for 30 days.
+        </p>
+      </DialogHeader>
+      <div className="px-5 pt-3">
+        <Tabs
+          label="Job status"
+          value={status}
+          onChange={setStatus}
+          tabs={[
+            { key: 'all', label: 'All' },
+            { key: 'queued', label: 'Waiting' },
+            { key: 'running', label: 'Running' },
+            { key: 'done', label: 'Done' },
+            { key: 'failed', label: 'Failed' },
+          ]}
+        />
+      </div>
+      <div className="max-h-[60vh] overflow-auto">
+        {q.isLoading ? (
+          <div className="p-5">
+            <Spinner />
+          </div>
+        ) : !jobs.length ? (
+          <p className="px-5 py-6 text-sm text-slate-500">No jobs{status === 'all' ? ' yet' : ''}.</p>
+        ) : (
+          <table className="w-full min-w-[900px] border-collapse text-[13px]">
+            <thead>
+              <tr>
+                <th className={th}>Queued</th>
+                <th className={th}>Capability</th>
+                <th className={th}>Status</th>
+                <th className={`${th} text-right`}>Tries</th>
+                <th className={th}>Model</th>
+                <th className={`${th} text-right`}>Cost</th>
+                <th className={`${th} text-right`}>Time</th>
+                <th className={th}>Note</th>
+                <th className={th}>
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((j) => (
+                <tr key={j.id} className={open === j.id ? 'bg-brand-50/50 dark:bg-brand-950/30' : undefined}>
+                  <td className={`${td} whitespace-nowrap text-slate-500`}>{dateTime(j.created_at)}</td>
+                  <td className={td}>
+                    {CAPABILITY[j.capability]?.label ?? j.capability}
+                    <span className="block text-xs text-slate-500">{TRANSPORT_LABEL[j.transport] ?? j.transport}</span>
+                  </td>
+                  <td className={td}>
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap ${JOB_TONE[j.status]}`}>
+                      {j.status === 'queued' && j.attempts > 0 ? 'retrying' : j.status}
+                    </span>
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>
+                    {j.attempts}/{j.max_attempts}
+                  </td>
+                  <td className={`${td} max-w-48 truncate`} title={j.model ?? undefined}>
+                    {j.model ? (
+                      <>
+                        <span className="font-mono text-xs">{j.model}</span>
+                        {j.connection_name && <span className="block text-xs text-slate-500">{j.connection_name}</span>}
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className={`${td} text-right tabular-nums`}>${Number(j.cost_usd).toFixed(4)}</td>
+                  <td className={`${td} text-right tabular-nums`}>{j.ms === null ? '—' : `${j.ms.toLocaleString()} ms`}</td>
+                  <td className={`${td} max-w-60 text-xs text-slate-500`}>
+                    {j.error ? <span className="line-clamp-2 text-red-700 dark:text-red-400">{j.error}</span> : j.status === 'queued' && j.attempts > 0 ? `next try ${dateTime(j.run_after)}` : ''}
+                  </td>
+                  <td className={`${td} text-right whitespace-nowrap`}>
+                    <span className="inline-flex gap-1.5">
+                      <button type="button" className={smallButton} onClick={() => setOpen(open === j.id ? null : j.id)} aria-expanded={open === j.id}>
+                        {open === j.id ? 'Hide' : 'View'}
+                      </button>
+                      {(j.status === 'failed' || j.status === 'cancelled') && (
+                        <button type="button" className={smallButton} disabled={act.isPending} onClick={() => act.mutate({ id: j.id, action: 'retry' })}>
+                          Retry
+                        </button>
+                      )}
+                      {j.status === 'queued' && (
+                        <button type="button" className={smallButton} disabled={act.isPending} onClick={() => act.mutate({ id: j.id, action: 'cancel' })}>
+                          Cancel
+                        </button>
+                      )}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {open && (
+        <div className="grid grid-cols-1 gap-3 border-t border-slate-200 p-5 sm:grid-cols-2 dark:border-slate-800">
+          {detail.isLoading || !detail.data ? (
+            <Spinner />
+          ) : (
+            <>
+              <div>
+                <p className={`${caps} mb-1.5`}>Input</p>
+                <pre className="max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 text-xs break-words whitespace-pre-wrap dark:bg-slate-950">{preview(detail.data.input)}</pre>
+              </div>
+              <div>
+                <p className={`${caps} mb-1.5`}>Result</p>
+                {Array.isArray(detail.data.result?.images) && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {(detail.data.result.images as string[]).slice(0, 4).map((src) => (
+                      <img key={src.slice(0, 80)} src={src} alt="Generated" className="size-32 rounded-lg border border-slate-200 object-cover dark:border-slate-800" />
+                    ))}
+                  </div>
+                )}
+                <pre className="max-h-64 overflow-auto rounded-lg bg-slate-50 p-3 text-xs break-words whitespace-pre-wrap dark:bg-slate-950">
+                  {detail.data.result ? preview(detail.data.result) : detail.data.status === 'done' ? '—' : 'Not finished yet.'}
+                </pre>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </Dialog>
   );
 }

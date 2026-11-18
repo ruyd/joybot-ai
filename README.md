@@ -63,7 +63,7 @@ Requirements: Node 22+, pnpm (`npm install -g pnpm`) and Docker.
 ```bash
 cp .env.example .env
 pnpm install
-pnpm db:up           # Postgres 16 on localhost:5433
+pnpm db:up           # Postgres 16 on localhost:5433, Redis 7 on localhost:6380
 pnpm db:reset        # migrate + role logins + settings + sample data
 pnpm test            # all packages (each API test file resets the DB), incl. the eval in evidence-only mode
 pnpm --filter @joybot/api eval        # eval only; report in apps/api/eval/reports/
@@ -153,9 +153,34 @@ Each capability also has a delivery method, which says how a request reaches its
 | Method | How it works | Status |
 |---|---|---|
 | **Direct** | The API calls the provider and waits for the answer (streamed for chat). | Available. The only choice for General, text to speech and realtime voice, where people are waiting for the answer. |
-| **Postgres queue** | The request becomes a job in Postgres for a worker to run in the background, for slow work such as transcription or document parsing. | Can be chosen and saved. The worker that runs these jobs isn't built yet. |
-| **Redis** | A queue on Redis, for higher volume. | Planned |
+| **Postgres queue** | The request becomes a job in Postgres (`app.ai_jobs`) that the worker runs in the background, for slow work such as transcription, document parsing or image generation. | Available. Runners for embeddings, reranker, speech to text, vision, image generation, moderation and document parsing; video and avatar jobs fail as not available yet. |
+| **BullMQ (Redis)** | The job's id goes on a BullMQ queue in Redis. The worker runs it with BullMQ's retries (exponential backoff from 30 s) and priorities. | Available when `REDIS_URL` is set. |
+| **Redis Streams** | The job's id is appended to a Redis Stream, read by the worker's `ai-workers` consumer group. Entries a dead worker left behind are claimed by another after the lease. | Available when `REDIS_URL` is set. |
 | **SQS** | Amazon SQS, for the AWS deploy. | Planned |
 | **Durable Objects** | Cloudflare Durable Objects, for the free-tier deploy. | Planned |
 
 The API refuses a method that isn't available yet, and refuses anything but Direct for the three live capabilities.
+
+**Which to pick.** When you choose a delivery in a capability's ⋯ menu, each option says what it's good for, and the one we'd pick is marked **Recommended**:
+
+| Capability | Recommended | Why |
+|---|---|---|
+| General, text to speech, realtime voice | Direct (the only choice) | People are waiting for the answer as it streams. |
+| Embeddings, reranker, moderation, vision | Direct | They run inside a search or a chat reply, while someone waits. |
+| Speech to text, document parsing | Postgres queue | Recordings and PDFs can wait, failed calls retry, and there's nothing extra to run. |
+| Image generation, video, avatar | BullMQ | Slow, paid and rate limited: BullMQ retries with backoff and handles higher volume. |
+
+Redis Streams fits fast flows, or one event read by several kinds of worker, such as audio chunks or every chat message going to moderation. None of today's capabilities needs it by default.
+
+**Whatever carries the job, the job is a row in `app.ai_jobs`.** Redis only ever holds job ids, so inputs, results and access rules stay in Postgres. The Jobs dialog also works the same for every queue. If Redis can't be reached when a job is added, or loses a job, the worker's sweep hands the job over again. A job delivered twice runs once: the worker only claims it while it's queued.
+
+How the Postgres queue works:
+- **Adding a job.** `authz.enqueue_ai_job` adds a row and sends `NOTIFY ai_jobs`. The worker `LISTEN`s, so a new job starts within moments. It also polls, which picks up retries that are due.
+- **Claiming a job.** The worker takes jobs with `FOR UPDATE SKIP LOCKED`, highest priority first, then oldest. Several workers can share the queue without running a job twice.
+- **Leases.** A claim lasts 10 minutes. If a worker dies mid-job, another one takes the job over once the lease runs out.
+- **Fallback.** A job tries the slot's model, then its backup, under the same rules as chat: connection on, under its cap, private for customers, and a key where one is needed.
+- **Retries.** A server error or rate limit retries after 30 s, then 2 min, then 8 min, up to 3 tries by default. Bad input, or a 4xx answer from the provider, fails at once.
+- **Logging and retention.** Each call is logged with its cost like any other call. Finished jobs are deleted after 30 days.
+- **In the app.** Settings › AI shows what's waiting, running or failed under each queued capability, and has a **Jobs** dialog to retry or cancel jobs and see their results. Admins can try a capability with **Queue a test job** in its ⋯ menu, or call `POST /api/admin/ai/jobs`.
+- **Concurrency.** `AI_JOB_CONCURRENCY` (2 by default) sets how many jobs one worker runs at once, per queue.
+- **Redis locally.** `pnpm db:up` starts Redis 7 in docker on port 6380, saving to disk and never dropping keys, beside Postgres. `REDIS_URL` in `.env` turns BullMQ and Redis Streams on; empty turns them off. The deploys don't run Redis yet, so they offer Direct and the Postgres queue.

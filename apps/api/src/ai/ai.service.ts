@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Inject, Injectable, Logger, NotFoundException, type OnModuleDestroy } from '@nestjs/common';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import type { Principal } from '../auth/principal';
@@ -15,6 +15,7 @@ import {
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { APP_POOL, DbService } from '../db/db.module';
 import { SecretBox } from '../email/secret-box';
+import { AiRedis } from './ai-redis';
 
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 
@@ -39,7 +40,9 @@ export const KINDS = ['openrouter', 'openai_compatible', 'ollama'] as const;
 type Kind = (typeof KINDS)[number];
 
 /** How a slot's work is delivered. Only these run today; Redis, SQS and Durable Objects come later. */
-const AVAILABLE_TRANSPORTS = ['direct', 'postgres'] as const;
+export const TRANSPORTS = ['direct', 'postgres', 'bullmq', 'redis_streams', 'sqs', 'durable_objects'] as const;
+type Transport = (typeof TRANSPORTS)[number];
+const QUEUED: Transport[] = ['postgres', 'bullmq', 'redis_streams'];
 /** Answers stream while the person waits, so these are called directly. */
 const DIRECT_ONLY: Capability[] = ['general', 'text_to_speech', 'realtime_voice'];
 
@@ -98,7 +101,7 @@ export const slotSchema = z
   .object({
     model_id: z.string().uuid().nullable(),
     backup_model_id: z.string().uuid().nullable(),
-    transport: z.enum(['direct', 'postgres', 'redis', 'sqs', 'durable_objects']),
+    transport: z.enum(TRANSPORTS),
     active: z.boolean(),
   })
   .partial()
@@ -106,6 +109,37 @@ export const slotSchema = z
   .refine((b) => Object.keys(b).length > 0, 'Nothing to change');
 
 export const aiKeySchema = z.object({ api_key: z.string().trim().min(1).max(500) }).strict();
+
+// The Postgres queue (migration 0059): what each queued capability takes as a job's input.
+const httpsUrl = z.string().max(2000).url().refine((u) => u.startsWith('https://'), 'Must be an https:// address');
+export const JOB_INPUTS = {
+  embeddings: z.object({ texts: z.array(z.string().min(1).max(20_000)).min(1).max(256) }).strict(),
+  reranker: z
+    .object({ query: z.string().min(1).max(5_000), documents: z.array(z.string().min(1).max(20_000)).min(1).max(1_000), top_n: z.number().int().min(1).optional() })
+    .strict(),
+  speech_to_text: z.object({ audio_url: httpsUrl, language: z.string().min(2).max(10).optional() }).strict(),
+  vision: z.object({ image_url: httpsUrl, prompt: z.string().min(1).max(5_000).optional() }).strict(),
+  image_generation: z.object({ prompt: z.string().min(1).max(5_000), size: z.string().regex(/^\d{3,4}x\d{3,4}$/).optional() }).strict(),
+  moderation: z.object({ text: z.string().min(1).max(20_000) }).strict(),
+  document_parsing: z.object({ url: httpsUrl, filename: z.string().min(1).max(200).optional(), prompt: z.string().min(1).max(5_000).optional() }).strict(),
+} as const;
+export type QueueCapability = keyof typeof JOB_INPUTS;
+export const QUEUE_CAPABILITIES = Object.keys(JOB_INPUTS) as QueueCapability[];
+export const newJobSchema = z
+  .object({
+    capability: z.enum(QUEUE_CAPABILITIES as [QueueCapability, ...QueueCapability[]]),
+    input: z.record(z.unknown()),
+    priority: z.number().int().min(-10).max(10).optional(),
+  })
+  .strict()
+  .superRefine((b, ctx) => {
+    const parsed = JOB_INPUTS[b.capability].safeParse(b.input);
+    if (!parsed.success) for (const i of parsed.error.issues) ctx.addIssue({ ...i, path: ['input', ...i.path] });
+  });
+export type JobInput = z.infer<typeof newJobSchema>;
+export const JOB_STATUSES = ['queued', 'running', 'done', 'failed', 'cancelled'] as const;
+const JOB_COLUMNS = `j.id, j.capability, j.transport, j.status, j.audience, j.priority, j.attempts, j.max_attempts, j.run_after, j.model, j.cost_usd, j.ms, j.error,
+  j.created_at, j.started_at, j.finished_at, n.name AS connection_name`;
 
 export type ConnectionInput = z.infer<typeof connectionSchema>;
 export type ModelInput = z.infer<typeof modelSchema>;
@@ -153,16 +187,28 @@ interface Resolved {
  * and the backup model. Every call is logged in app.ai_calls (no prompt or reply text).
  */
 @Injectable()
-export class AiService {
+export class AiService implements OnModuleDestroy {
   private readonly logger = new Logger('AI');
   private cache = new Map<Capability, { rows: SlotRow[]; at: number }>();
+  private readonly redis?: AiRedis;
 
   constructor(
     private readonly db: DbService,
     @Inject(APP_POOL) private readonly pool: Pool,
     private readonly box: SecretBox,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
-  ) {}
+  ) {
+    if (cfg.REDIS_URL) this.redis = new AiRedis(cfg.REDIS_URL, cfg.REDIS_PREFIX);
+  }
+
+  async onModuleDestroy() {
+    await this.redis?.close();
+  }
+
+  /** Direct and the Postgres queue always; BullMQ and Redis Streams when Redis is configured. SQS and Durable Objects later. */
+  get availableTransports(): Transport[] {
+    return ['direct', 'postgres', ...(this.redis ? (['bullmq', 'redis_streams'] as const) : [])];
+  }
 
   // Admin: read and change ---------------------------------------------------------------------
 
@@ -189,14 +235,25 @@ export class AiService {
           (r) => [r.connection_id, r.calls],
         ),
       );
+      // The Postgres queue: what's waiting or running now, and what failed in the last day.
+      const queue = (
+        await db.query<{ capability: string; queued: number; running: number; failed: number }>(
+          `SELECT capability, count(*) FILTER (WHERE status = 'queued')::int AS queued, count(*) FILTER (WHERE status = 'running')::int AS running,
+                  count(*) FILTER (WHERE status = 'failed' AND finished_at > now() - interval '24 hours')::int AS failed
+             FROM app.ai_jobs WHERE status IN ('queued', 'running') OR (status = 'failed' AND finished_at > now() - interval '24 hours')
+            GROUP BY capability`,
+        )
+      ).rows;
       return {
         connections: connections.map((c) => ({ ...c, calls: callsByConnection.get(c.id) ?? 0 })),
+        queue,
+        queue_capabilities: QUEUE_CAPABILITIES,
         models,
         slots,
         usage,
         server_default: this.cfg.MODEL_ENDPOINT ? this.cfg.MODEL_NAME : null,
         encryption_available: this.box.available,
-        available_transports: AVAILABLE_TRANSPORTS,
+        available_transports: this.availableTransports,
       };
     });
   }
@@ -287,8 +344,10 @@ export class AiService {
   }
 
   async updateSlot(p: Principal, capability: Capability, input: SlotInput) {
-    if (input.transport && !(AVAILABLE_TRANSPORTS as readonly string[]).includes(input.transport)) {
-      throw new BadRequestException(`${input.transport} is not available yet; use direct or postgres`);
+    if (input.transport && !this.availableTransports.includes(input.transport)) {
+      throw new BadRequestException(
+        input.transport === 'bullmq' || input.transport === 'redis_streams' ? `${input.transport} needs Redis (REDIS_URL)` : `${input.transport} is not available yet`,
+      );
     }
     if (input.transport && input.transport !== 'direct' && DIRECT_ONLY.includes(capability)) {
       throw new BadRequestException('This capability answers while the person waits, so it is called directly');
@@ -320,6 +379,69 @@ export class AiService {
         )
       ).rows,
     );
+  }
+
+  // The Postgres queue ------------------------------------------------------------------------
+
+  /** Adds a job for a capability delivered through the Postgres queue; the worker runs it. */
+  async enqueue(p: Principal, input: JobInput) {
+    const slot = await this.db.as(p, async (db) =>
+      (await db.query<{ transport: string; active: boolean; model_id: string | null }>('SELECT transport, active, model_id FROM core.ai_slots WHERE capability = $1', [input.capability])).rows[0],
+    );
+    if (slot && !QUEUED.includes(slot.transport as Transport)) {
+      throw new BadRequestException(`${input.capability} is delivered ${slot.transport}; choose a queue for its delivery first`);
+    }
+    if (slot && slot.transport !== 'postgres' && !this.redis) throw new BadRequestException(`${input.capability} is delivered ${slot.transport}, which needs Redis (REDIS_URL)`);
+    if (slot && (!slot.active || !slot.model_id)) throw new BadRequestException(`${input.capability} is off or has no model`);
+    const id = await this.db.as(p, async (db) => (await db.query<{ id: string }>('SELECT authz.enqueue_ai_job($1, $2, $3::smallint) AS id', [input.capability, input.input, input.priority ?? 0])).rows[0].id);
+    await this.handOver(p, id);
+    return this.db.as(p, async (db) => (await db.query(`SELECT ${JOB_COLUMNS} FROM app.ai_jobs j LEFT JOIN core.ai_connections n ON n.id = j.connection_id WHERE j.id = $1`, [id])).rows[0]);
+  }
+
+  /**
+   * After the job's row is saved: a Redis delivery gets its id now. If Redis can't be reached the job
+   * stays queued, and the worker's sweep hands it over once Redis is back.
+   */
+  private async handOver(p: Principal, id: string) {
+    const job = await this.db.as(p, async (db) =>
+      (await db.query<{ id: string; transport: string; priority: number; max_attempts: number; attempts: number }>('SELECT id, transport, priority, max_attempts, attempts FROM app.ai_jobs WHERE id = $1', [id])).rows[0],
+    );
+    if (!job || job.transport === 'postgres' || !this.redis) return;
+    try {
+      await this.redis.dispatch(job);
+      await this.db.as(p, (db) => db.query('SELECT authz.ai_job_dispatched($1)', [id]));
+    } catch (err) {
+      this.logger.warn(`AI job ${id} not handed to ${job.transport} yet (the worker will retry): ${(err as Error).message}`);
+    }
+  }
+
+  /** The latest jobs (without their input or result), optionally one status. */
+  jobs(p: Principal, limit: number, status?: (typeof JOB_STATUSES)[number]) {
+    return this.db.as(p, async (db) =>
+      (
+        await db.query(
+          `SELECT ${JOB_COLUMNS} FROM app.ai_jobs j LEFT JOIN core.ai_connections n ON n.id = j.connection_id
+            ${status ? 'WHERE j.status = $2' : ''} ORDER BY j.created_at DESC LIMIT $1`,
+          status ? [limit, status] : [limit],
+        )
+      ).rows,
+    );
+  }
+
+  /** One job with its input and result. */
+  async job(p: Principal, id: string) {
+    const row = await this.db.as(p, async (db) =>
+      (await db.query(`SELECT ${JOB_COLUMNS}, j.input, j.result FROM app.ai_jobs j LEFT JOIN core.ai_connections n ON n.id = j.connection_id WHERE j.id = $1`, [id])).rows[0],
+    );
+    if (!row) throw new NotFoundException();
+    return row;
+  }
+
+  /** Retries a failed or cancelled job, or cancels a queued one. */
+  async jobAction(p: Principal, id: string, action: 'retry' | 'cancel') {
+    const status = await this.db.as(p, async (db) => (await db.query<{ s: string }>('SELECT authz.ai_job_action($1, $2) AS s', [id, action])).rows[0].s);
+    if (action === 'retry') await this.handOver(p, id);
+    return { id, status };
   }
 
   /** Connection's Test button: lists the provider's models (checks the address and key without spending anything). */

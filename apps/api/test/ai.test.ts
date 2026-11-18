@@ -300,3 +300,104 @@ describe('turning the assistant off', () => {
     await api(app, employee(U.sam)).put('/api/admin/settings', { assistant_employees: false }).expect(403);
   });
 });
+
+describe('the Postgres queue', () => {
+  afterAll(async () => {
+    await asOwner(`DELETE FROM app.ai_jobs`);
+    await admin().put('/api/admin/ai/slots/embeddings', { transport: 'direct', active: true }).expect(200);
+  });
+
+  it('queues jobs for capabilities delivered through it; admins list, inspect, cancel and retry them', async () => {
+    const connection = (
+      await admin().post('/api/admin/ai/connections', { name: 'Queue deployment', kind: 'openai_compatible', base_url: model.url, private: true }).expect(201)
+    ).body;
+    const m = (await admin().post('/api/admin/ai/models', { connection_id: connection.id, model: 'embeddinggemma:300m', capability: 'embeddings' }).expect(201)).body;
+    await admin().put('/api/admin/ai/slots/embeddings', { model_id: m.id, transport: 'direct' }).expect(200);
+
+    // Direct capabilities aren't queued; neither are General or bad input.
+    const job = { capability: 'embeddings', input: { texts: ['Opening hours'] } };
+    expect((await admin().post('/api/admin/ai/jobs', job).expect(400)).body.message).toMatch(/choose a queue/);
+    // Without Redis, only Direct and the Postgres queue are offered.
+    expect((await admin().get('/api/admin/ai').expect(200)).body.available_transports).toEqual(['direct', 'postgres']);
+    expect((await admin().put('/api/admin/ai/slots/embeddings', { transport: 'bullmq' }).expect(400)).body.message).toMatch(/needs Redis/);
+    await admin().put('/api/admin/ai/slots/embeddings', { transport: 'postgres' }).expect(200);
+    await admin().post('/api/admin/ai/jobs', { capability: 'general', input: {} }).expect(400);
+    await admin().post('/api/admin/ai/jobs', { capability: 'embeddings', input: { texts: [] } }).expect(400);
+    await admin().post('/api/admin/ai/jobs', { capability: 'speech_to_text', input: { audio_url: 'http://169.254.169.254/x' } }).expect(400);
+    await api(app, employee(U.sam)).post('/api/admin/ai/jobs', job).expect(403);
+    await api(app, customer(C.maria)).get('/api/admin/ai/jobs').expect(403);
+
+    const queued = (await admin().post('/api/admin/ai/jobs', job).expect(201)).body;
+    expect(queued).toMatchObject({ capability: 'embeddings', status: 'queued', audience: 'admin', attempts: 0 });
+    const overview = (await admin().get('/api/admin/ai').expect(200)).body;
+    expect(overview.queue).toContainEqual({ capability: 'embeddings', queued: 1, running: 0, failed: 0 });
+    expect(overview.queue_capabilities).toContain('document_parsing');
+
+    const list = (await admin().get('/api/admin/ai/jobs?status=queued').expect(200)).body;
+    expect(list.map((j: any) => j.id)).toContain(queued.id);
+    expect(list[0].input).toBeUndefined();
+    expect((await admin().get(`/api/admin/ai/jobs/${queued.id}`).expect(200)).body.input).toEqual(job.input);
+
+    expect((await admin().post(`/api/admin/ai/jobs/${queued.id}/cancel`).expect(200)).body.status).toBe('cancelled');
+    await admin().post(`/api/admin/ai/jobs/${queued.id}/cancel`).expect(404);
+    expect((await admin().post(`/api/admin/ai/jobs/${queued.id}/retry`).expect(200)).body.status).toBe('queued');
+
+    // An off slot takes no new jobs.
+    await admin().put('/api/admin/ai/slots/embeddings', { active: false }).expect(200);
+    await admin().post('/api/admin/ai/jobs', job).expect(400);
+  });
+});
+
+describe('the Redis deliveries', () => {
+  const prefix = `test-api-${process.pid}`;
+  let redisApp: INestApplication;
+  let redis: import('ioredis').Redis;
+  let queue: import('bullmq').Queue;
+  const radmin = () => api(redisApp, employee(U.ada));
+
+  beforeAll(async () => {
+    config({ path: path.resolve(__dirname, '../../../.env') });
+    redisApp = await createApp({ env: { REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6380', REDIS_PREFIX: prefix } });
+    const { default: IORedis } = await import('ioredis');
+    const { Queue } = await import('bullmq');
+    redis = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6380', { maxRetriesPerRequest: null });
+    queue = new Queue('ai', { connection: redis, prefix });
+  });
+  afterAll(async () => {
+    await queue.obliterate({ force: true });
+    await redis.del(`${prefix}:ai:jobs`);
+    await queue.close();
+    redis.disconnect();
+    await asOwner(`DELETE FROM app.ai_jobs`);
+    await radmin().put('/api/admin/ai/slots/embeddings', { transport: 'direct', active: true }).expect(200);
+    await radmin().put('/api/admin/ai/slots/moderation', { transport: 'direct', active: true }).expect(200);
+    await redisApp.close();
+  });
+
+  it('hand job ids to BullMQ or a Redis Stream; the job itself stays in Postgres', async () => {
+    expect((await radmin().get('/api/admin/ai').expect(200)).body.available_transports).toEqual(['direct', 'postgres', 'bullmq', 'redis_streams']);
+    const connection = (await radmin().post('/api/admin/ai/connections', { name: 'Redis deployment', kind: 'openai_compatible', base_url: model.url, private: true }).expect(201)).body;
+    const embed = (await radmin().post('/api/admin/ai/models', { connection_id: connection.id, model: 'embed', capability: 'embeddings' }).expect(201)).body;
+    const guard = (await radmin().post('/api/admin/ai/models', { connection_id: connection.id, model: 'guard', capability: 'moderation' }).expect(201)).body;
+    await radmin().put('/api/admin/ai/slots/embeddings', { model_id: embed.id, transport: 'bullmq', active: true }).expect(200);
+    await radmin().put('/api/admin/ai/slots/moderation', { model_id: guard.id, transport: 'redis_streams', active: true }).expect(200);
+    // Still direct only: General, text to speech, realtime voice.
+    await radmin().put('/api/admin/ai/slots/general', { transport: 'redis_streams' }).expect(400);
+
+    const bull = (await radmin().post('/api/admin/ai/jobs', { capability: 'embeddings', input: { texts: ['a'] }, priority: 5 }).expect(201)).body;
+    expect(bull).toMatchObject({ transport: 'bullmq', status: 'queued' });
+    const queued = await queue.getJob(bull.id);
+    expect(queued?.data).toEqual({ id: bull.id });
+    expect(queued?.opts).toMatchObject({ attempts: 3, priority: 6, backoff: { type: 'exponential', delay: 30_000 } });
+
+    const streamed = (await radmin().post('/api/admin/ai/jobs', { capability: 'moderation', input: { text: 'hi' } }).expect(201)).body;
+    expect(streamed.transport).toBe('redis_streams');
+    const entries = await redis.xrange(`${prefix}:ai:jobs`, '-', '+');
+    expect(entries.map(([, fields]) => fields)).toContainEqual(['id', streamed.id]);
+
+    // Both are marked as handed over, so the worker's sweep leaves them alone; Redis holds no input.
+    const rows = await asOwner<{ id: string; dispatched_at: Date | null }>(`SELECT id, dispatched_at FROM app.ai_jobs WHERE transport <> 'postgres'`);
+    expect(rows.every((r) => r.dispatched_at)).toBe(true);
+    expect(JSON.stringify(entries)).not.toContain('hi');
+  });
+});

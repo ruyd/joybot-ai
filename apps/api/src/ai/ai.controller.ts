@@ -6,12 +6,15 @@ import {
   AiService,
   CAPABILITIES,
   connectionSchema,
+  JOB_STATUSES,
+  newJobSchema,
   modelUpdateSchema,
   newConnectionSchema,
   newModelSchema,
   slotSchema,
   type Capability,
   type ConnectionInput,
+  type JobInput,
   type ModelInput,
   type SlotInput,
 } from './ai.service';
@@ -103,6 +106,43 @@ export class AiController {
     @Body(new ZodPipe(slotSchema)) body: SlotInput,
   ) {
     return this.ai.updateSlot(p, capability, body);
+  }
+
+  /** Queues a job for a capability delivered through the Postgres queue (the worker runs it). */
+  @Post('jobs')
+  @Can('update', 'settings')
+  enqueue(@CurrentPrincipal() p: Principal, @Body(new ZodPipe(newJobSchema)) body: JobInput) {
+    return this.ai.enqueue(p, body);
+  }
+
+  @Get('jobs')
+  @Can('update', 'settings')
+  jobs(
+    @CurrentPrincipal() p: Principal,
+    @Query('limit', new ParseIntPipe({ optional: true })) limit = 50,
+    @Query('status', new ParseEnumPipe(Object.fromEntries(JOB_STATUSES.map((s) => [s, s])), { optional: true })) status?: (typeof JOB_STATUSES)[number],
+  ) {
+    return this.ai.jobs(p, Math.min(Math.max(limit, 1), 200), status);
+  }
+
+  @Get('jobs/:id')
+  @Can('update', 'settings')
+  job(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.ai.job(p, id);
+  }
+
+  @Post('jobs/:id/retry')
+  @HttpCode(200)
+  @Can('update', 'settings')
+  retryJob(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.ai.jobAction(p, id, 'retry');
+  }
+
+  @Post('jobs/:id/cancel')
+  @HttpCode(200)
+  @Can('update', 'settings')
+  cancelJob(@CurrentPrincipal() p: Principal, @Param('id', ParseUUIDPipe) id: string) {
+    return this.ai.jobAction(p, id, 'cancel');
   }
 
   /** The latest calls: model, tokens or characters, cost, time and result (no prompt or reply text). */

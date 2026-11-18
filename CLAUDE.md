@@ -10,7 +10,7 @@ JoyBot AI is a chatbot for customers and employees. Its own Postgres database is
 ## Commands
 
 ```bash
-pnpm db:up && pnpm db:reset   # Postgres 16 on :5433 (docker), migrate + seed; db:migrate / db:seed separately
+pnpm db:up && pnpm db:reset   # Postgres 16 on :5433 and Redis 7 on :6380 (docker), migrate + seed; db:migrate / db:seed separately
 pnpm test                     # every package in turn, each on its own test databases (never the .env dev database)
 pnpm typecheck                # builds packages/* first, then tsc everywhere
 pnpm lint:cfn                 # cfn-lint + check_nested.py + cfn-guard
@@ -29,7 +29,7 @@ pnpm --filter @joybot/api eval        # chat eval (evidence-only); eval:model us
 | `packages/db` | `migrations/NNNN_*.sql` (run by `src/migrate.ts`), `src/scope.ts` (`withPrincipal`/`withSystem`), `src/seed.ts` (`SAMPLE` ids), `src/testing.ts` |
 | `packages/access` | CASL `buildAccess` / `packRules`, shared by the API and web |
 | `apps/api` | NestJS, one folder per feature, plus `auth/` guards and `config/config.ts` (Zod) |
-| `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs` |
+| `apps/worker` | Poll loop: Stripe events (`app.stripe_events`), reconciliation, `app.worker_jobs`; AI jobs (`src/ai`, `app.ai_jobs`): a Postgres queue loop woken by `NOTIFY ai_jobs`, and with `REDIS_URL` a BullMQ worker, a Redis Streams consumer and a sweep |
 | `apps/web` | `routes/portal`, `routes/staff`, `routes/site` (public website), `lib/` (auth, api, sse, chat-state, ability); staff nav in `App.tsx`: one dark, collapsible icon side menu (`Layout.tsx`) with Workspace (`STAFF_NAV`), then the `STAFF_SIDEBAR` groups Money, Grow and Settings; the portal shows `PORTAL_NAV` as top-bar tabs. `Layout` puts `app-theme` (green accent, `index.css`) on `<html>`; the public website keeps its own colors |
 | `cloudformation` | AWS: `main.yaml`, nested `stacks/`, Lambda `functions/` (own pnpm package), `scripts/`, `guard/`, `bootstrap/` |
 | `deploy`, `render.yaml` | Free-tier deploy (Render + Supabase + Cloudflare Pages), [docs/deploy-free.md](docs/deploy-free.md) |
