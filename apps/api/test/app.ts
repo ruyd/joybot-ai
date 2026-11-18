@@ -16,8 +16,9 @@ export interface AppOptions {
 
 export async function createApp(options: AppOptions = {}): Promise<INestApplication> {
   config({ path: path.resolve(__dirname, '../../../.env') });
-  // Tests use the evidence-only model (or an override) even when .env points at a local Ollama.
-  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test', MODEL_ENDPOINT: '', MODEL_DEBUG: 'false', ...options.env });
+  // Tests use the evidence-only model (or an override) even when .env points at a local Ollama, and no
+  // Redis unless a test asks for it (with its own REDIS_PREFIX, apart from the dev worker's keys).
+  const cfg = loadConfig({ ...process.env, AUTH_MODE: 'dev', NODE_ENV: 'test', MODEL_ENDPOINT: '', MODEL_DEBUG: 'false', REDIS_URL: '', ...options.env });
   let builder = Test.createTestingModule({ imports: [AppModule.forRoot(cfg)] });
   for (const o of options.overrides ?? []) builder = builder.overrideProvider(o.token).useValue(o.value);
   const moduleRef = await builder.compile();

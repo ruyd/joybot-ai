@@ -39,6 +39,9 @@ const schema = z
     MODEL_ENDPOINT: optional(z.string().url()),
     /** Served model name (vLLM: gemma; Ollama: the local tag, e.g. gemma4:e2b). */
     MODEL_NAME: z.string().default('gemma'),
+    // Settings › AI: Redis for the BullMQ and Redis Streams deliveries (offered only when set) and its key prefix.
+    REDIS_URL: optional(z.string().url()),
+    REDIS_PREFIX: z.string().regex(/^[\w:-]{1,40}$/).default('joybot'),
     /** Logs every model request (prompt, evidence, history) and response (tool calls, reasoning, answer). Dev only: prompts hold customer data. */
     MODEL_DEBUG: z.enum(['true', 'false']).default('false'),
     /**

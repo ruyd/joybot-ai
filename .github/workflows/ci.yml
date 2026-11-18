@@ -28,6 +28,13 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U joybot_migrator -d joybot"
           --health-interval 2s --health-timeout 3s --health-retries 30
+      redis:
+        image: redis:7-alpine
+        # Same port as docker-compose (REDIS_URL in .env.example).
+        ports: ["6380:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 3s --health-retries 30
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

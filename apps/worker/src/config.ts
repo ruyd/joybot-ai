@@ -6,6 +6,11 @@ export interface WorkerConfig {
   pool: PoolConfig;
   stripeApiBase: string;
   pollIntervalMs: number;
+  /** AI jobs (Postgres queue) that run at the same time. */
+  aiConcurrency: number;
+  /** Redis for the BullMQ and Redis Streams deliveries (off when unset) and its key prefix. */
+  redisUrl?: string;
+  redisPrefix: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -30,6 +35,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
     pool,
     stripeApiBase: env.STRIPE_API_BASE ?? 'https://api.stripe.com',
     pollIntervalMs: Number(env.STRIPE_POLL_INTERVAL_MS ?? 2000),
+    aiConcurrency: Math.min(Math.max(Number(env.AI_JOB_CONCURRENCY || 2), 1), 16),
+    redisUrl: env.REDIS_URL || undefined,
+    redisPrefix: env.REDIS_PREFIX || 'joybot',
   };
 }
 

@@ -13,7 +13,9 @@
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.700.0",
     "@joybot/db": "workspace:*",
+    "bullmq": "^5.81.5",
     "dotenv": "^16.4.7",
+    "ioredis": "^5.11.1",
     "pg": "^8.16.0"
   },
   "devDependencies": {
